@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="MinoMarkdown">
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="#20352b"/>
+  <path d="M220 710V334c0-27 19-46 46-46h39c21 0 35 8 47 29l160 268 160-268c12-21 26-29 47-29h39c27 0 46 19 46 46v376c0 26-19 45-45 45s-45-19-45-45V424L556 685c-10 17-25 26-44 26s-34-9-44-26L310 424v286c0 26-19 45-45 45s-45-19-45-45z" fill="#f4f4ed"/>
+  <rect x="366" y="816" width="292" height="22" rx="11" fill="#93c79c"/>
+</svg>

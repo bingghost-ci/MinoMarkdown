@@ -1,0 +1,6 @@
+{
+  "id": "F12",
+  "pristine": "markdown/F12-pristine.md",
+  "cases": ["read-only", "missing-file", "target-exists", "external-replace", "external-delete", "write-interrupted", "corrupt-recovery-manifest"],
+  "invariant": "Never report success or overwrite pristine content after a failed or canceled operation"
+}

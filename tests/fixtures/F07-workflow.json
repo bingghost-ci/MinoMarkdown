@@ -1,0 +1,7 @@
+{
+  "id": "F07",
+  "draft": "markdown/F07-draft.md",
+  "stagedAsset": "assets/synthetic-2x2.png",
+  "existingAssetName": "synthetic-2x2.png",
+  "cases": ["first-save-to-new-directory", "save-as-existing-assets", "cancel-then-retry", "different-volume-target"]
+}

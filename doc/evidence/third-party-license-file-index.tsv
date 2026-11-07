@@ -1,0 +1,754 @@
+source	package	version	license-expression	file	sha256	status
+npm	@babel/code-frame	7.29.7	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/compat-data	7.29.7	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/core	7.29.13	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/generator	7.29.13	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/helper-compilation-targets	7.29.13	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/helper-globals	7.29.7	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/helper-module-imports	7.29.7	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/helper-module-transforms	7.29.13	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/helper-plugin-utils	7.29.7	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/helper-string-parser	7.29.13	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/helper-validator-identifier	7.29.7	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/helper-validator-option	7.29.7	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/helpers	7.29.13	MIT	LICENSE	4be9d87b56a306293223b490c0d0b245e9e94f39884147bf051a6c7b825aeb30	present
+npm	@babel/parser	7.29.13	MIT	LICENSE	2e97627cb278aa7556fb9e8817368302301a595b6c7582512b8d74c57b773652	present
+npm	@babel/plugin-transform-react-jsx-self	7.29.7	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/plugin-transform-react-jsx-source	7.29.7	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/template	7.29.7	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/traverse	7.29.13	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@babel/types	7.29.11	MIT	LICENSE	117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76	present
+npm	@codemirror/autocomplete	6.20.4	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/commands	6.11.1	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-angular	0.1.4	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-cpp	6.0.3	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-css	6.3.1	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-go	6.0.1	MIT	LICENSE	8ac9cfc9c82c397298c2139028d2474d8e0470f2092a97edddccf353bc5d4d36	present
+npm	@codemirror/lang-html	6.4.12	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-java	6.0.2	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-javascript	6.2.5	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-jinja	6.0.1	MIT	LICENSE	b4e0493aa23478551cb0107827041574f9eb2eba010c72b28c158260e99e011b	present
+npm	@codemirror/lang-json	6.0.2	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-less	6.0.2	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-liquid	6.3.3	MIT	LICENSE	eef03b313cffb45dc43cc7f0c99dcb3b3f48dc39b4ea659c4a13fdcefbab7213	present
+npm	@codemirror/lang-markdown	6.5.2	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-php	6.0.2	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-python	6.2.1	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-rust	6.0.2	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-sass	6.0.2	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-sql	6.10.0	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-vue	0.1.3	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-wast	6.0.2	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-xml	6.1.0	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lang-yaml	6.1.3	MIT	LICENSE	8ac9cfc9c82c397298c2139028d2474d8e0470f2092a97edddccf353bc5d4d36	present
+npm	@codemirror/language	6.13.1	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/language-data	6.5.2	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/legacy-modes	6.5.5	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/lint	6.9.7	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/search	6.7.2	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/state	6.7.6	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/streamparser	6.0.0	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/theme-one-dark	6.1.3	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@codemirror/view	6.43.15	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	@esbuild/darwin-arm64	0.27.7	MIT			missing
+npm	@floating-ui/core	1.8.0	MIT	LICENSE	0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce	present
+npm	@floating-ui/dom	1.8.0	MIT	LICENSE	0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce	present
+npm	@floating-ui/utils	0.2.12	MIT	LICENSE	0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce	present
+npm	@jridgewell/gen-mapping	0.3.13	MIT	LICENSE	769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c	present
+npm	@jridgewell/remapping	2.3.5	MIT	LICENSE	769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c	present
+npm	@jridgewell/resolve-uri	3.1.2	MIT	LICENSE	b8778b155bfde5a28b023a558753c0fa058a52bb9de35c343c250be1bbcdedab	present
+npm	@jridgewell/sourcemap-codec	1.6.0	MIT	LICENSE	769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c	present
+npm	@jridgewell/trace-mapping	0.3.31	MIT	LICENSE	769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c	present
+npm	@lezer/common	1.5.5	MIT	LICENSE	568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba	present
+npm	@lezer/cpp	1.1.6	MIT	LICENSE	54bd812a6d334e0c438b78a43cea74b67e882739fd3450115ddc7c52be5706c1	present
+npm	@lezer/css	1.3.9	MIT	LICENSE	568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba	present
+npm	@lezer/go	1.0.1	MIT	LICENSE	54bd812a6d334e0c438b78a43cea74b67e882739fd3450115ddc7c52be5706c1	present
+npm	@lezer/highlight	1.2.5	MIT	LICENSE	568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba	present
+npm	@lezer/html	1.3.13	MIT	LICENSE	568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba	present
+npm	@lezer/java	1.1.5	MIT	LICENSE	54bd812a6d334e0c438b78a43cea74b67e882739fd3450115ddc7c52be5706c1	present
+npm	@lezer/javascript	1.5.6	MIT	LICENSE	568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba	present
+npm	@lezer/json	1.0.3	MIT	LICENSE	7e744ae18ef84389d576469a5781172b0d50b7981111109f6da7cbc6b4188288	present
+npm	@lezer/lr	1.4.12	MIT	LICENSE	568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba	present
+npm	@lezer/markdown	1.8.1	MIT	LICENSE	54bd812a6d334e0c438b78a43cea74b67e882739fd3450115ddc7c52be5706c1	present
+npm	@lezer/php	1.0.6	MIT	LICENSE	568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba	present
+npm	@lezer/python	1.1.19	MIT	LICENSE	54bd812a6d334e0c438b78a43cea74b67e882739fd3450115ddc7c52be5706c1	present
+npm	@lezer/rust	1.0.3	MIT	LICENSE	568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba	present
+npm	@lezer/sass	1.1.0	MIT	LICENSE	568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba	present
+npm	@lezer/xml	1.0.6	MIT	LICENSE	568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba	present
+npm	@lezer/yaml	1.0.4	MIT	LICENSE	8cb910abd2a5463466b7c31958b39d6787ebf9e9f299598266b814bc90dd076b	present
+npm	@marijn/find-cluster-break	1.0.4	MIT	LICENSE	9360b00fdd091f05c783b568bdd46c679c41b72415599252de98949462ea1acb	present
+npm	@milkdown/components	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/core	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/crepe	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/ctx	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/exception	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/kit	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/plugin-block	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/plugin-clipboard	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/plugin-cursor	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/plugin-diff	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/plugin-history	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/plugin-indent	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/plugin-listener	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/plugin-slash	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/plugin-streaming	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/plugin-tooltip	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/plugin-trailing	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/plugin-upload	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/preset-commonmark	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/preset-gfm	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/prose	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/transformer	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@milkdown/utils	7.22.3	MIT	LICENSE	a9d856fd85b6598d7e894ce064a35921f2fb9bb4d903b905dd8d7b639e05422f	present
+npm	@ocavue/utils	1.11.0	MIT	LICENSE	6342baaa447cb6d0e84be677e26f07eb30de3eab88ae26ae99989062797cbc5d	present
+npm	@rolldown/pluginutils	1.0.0-beta.38	MIT	LICENSE	23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734	present
+npm	@rollup/rollup-darwin-arm64	4.68.0	MIT			missing
+npm	@standard-schema/spec	1.1.0	MIT	LICENSE	653b779005a3a4d64a7288c940f7b9a0e8f0b1e0375f6aa6af9473caf131e564	present
+npm	@tauri-apps/api	2.12.4	Apache-2.0 OR MIT	LICENSE-APACHE-2.0	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+npm	@tauri-apps/api	2.12.4	Apache-2.0 OR MIT	LICENSE-MIT	9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d	present
+npm	@tauri-apps/api	2.12.4	Apache-2.0 OR MIT	LICENSE.spdx	5e834fe9788c524210deda859c46a550ffa5aa0cba9ea0572f0d81120e97c008	present
+npm	@tauri-apps/cli	2.12.4	Apache-2.0 OR MIT	LICENSE-APACHE-2.0	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+npm	@tauri-apps/cli	2.12.4	Apache-2.0 OR MIT	LICENSE-MIT	9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d	present
+npm	@tauri-apps/cli-darwin-arm64	2.12.4	Apache-2.0 OR MIT			missing
+npm	@types/babel__core	7.20.5	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/babel__generator	7.27.0	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/babel__template	7.4.4	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/babel__traverse	7.28.0	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/chai	5.2.3	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/debug	4.1.13	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/deep-eql	4.0.2	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/estree	1.0.10	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/hast	3.0.5	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/katex	0.16.8	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/lodash	4.17.27	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/lodash-es	4.17.12	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/mdast	4.0.4	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/ms	2.1.0	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/react	19.2.2	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/react-dom	19.2.2	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/trusted-types	2.0.7	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@types/unist	3.0.3	MIT	LICENSE	c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383	present
+npm	@vitejs/plugin-react	5.0.4	MIT	LICENSE	29b68325fe026047d13e187b44c33b2acacf7dc647dec4583702e59f235e13b5	present
+npm	@vitest/expect	4.0.6	MIT	LICENSE	04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551	present
+npm	@vitest/mocker	4.0.6	MIT	LICENSE	04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551	present
+npm	@vitest/pretty-format	4.0.6	MIT	LICENSE	04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551	present
+npm	@vitest/runner	4.0.6	MIT	LICENSE	04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551	present
+npm	@vitest/snapshot	4.0.6	MIT	LICENSE	04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551	present
+npm	@vitest/spy	4.0.6	MIT	LICENSE	04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551	present
+npm	@vitest/utils	4.0.6	MIT	LICENSE	04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551	present
+npm	@vue/compiler-core	3.5.45	MIT	LICENSE	1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175	present
+npm	estree-walker	2.0.2	MIT	LICENSE	8a6dcbabe7179f9c8489c08a7d874d0f1e093ae7449e03756ccf87cb9d0e296e	present
+npm	@vue/compiler-dom	3.5.45	MIT	LICENSE	1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175	present
+npm	@vue/compiler-sfc	3.5.45	MIT	LICENSE	1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175	present
+npm	estree-walker	2.0.2	MIT	LICENSE	8a6dcbabe7179f9c8489c08a7d874d0f1e093ae7449e03756ccf87cb9d0e296e	present
+npm	@vue/compiler-ssr	3.5.45	MIT	LICENSE	1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175	present
+npm	@vue/reactivity	3.5.45	MIT	LICENSE	1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175	present
+npm	@vue/runtime-core	3.5.45	MIT	LICENSE	1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175	present
+npm	@vue/runtime-dom	3.5.45	MIT	LICENSE	1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175	present
+npm	@vue/server-renderer	3.5.45	MIT	LICENSE	1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175	present
+npm	@vue/shared	3.5.45	MIT	LICENSE	1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175	present
+npm	assertion-error	2.0.1	MIT	LICENSE	2130216d5ab4c02134f8247f32999feda0abe1eaf028218baeac445c19ce4cea	present
+npm	bail	2.0.2	MIT	license	63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf	present
+npm	baseline-browser-mapping	2.11.35	Apache-2.0	LICENSE.txt	c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4	present
+npm	browserslist	4.29.5	MIT	LICENSE	21c2679a63d7699c0e644409e2f17d0adbc7a965003feb06b3ff4b833d21f722	present
+npm	caniuse-lite	1.0.30001823	CC-BY-4.0	LICENSE	fd3a263fe19ed8faa9068b43abaebafc02c77897b0c6fc09abc04bb592e5f16e	present
+npm	ccount	2.0.1	MIT	license	63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf	present
+npm	chai	6.3.0	MIT	LICENSE	b181da80336ff9dd1043fc8be1a764d7382363433319aa872e4d2cb5ce2a3066	present
+npm	character-entities	2.0.2	MIT	license	63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf	present
+npm	clsx	2.1.1	MIT	license	9a9edad7baae52622bddf3c15b2ef8a33d2c89f2d25408ad13e8a7481c6b0c97	present
+npm	codemirror	6.0.2	MIT	LICENSE	05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07	present
+npm	commander	15.1.0	MIT	LICENSE	04512a63dce4d2d506ad612dc0bd7681ccf6e3655f7b6eaef7dfac8323d1ec0b	present
+npm	convert-source-map	2.0.0	MIT	LICENSE	1fa6ee8bb95a81ae3d73a5bd074a3ac380ffec13697051063ca1a601921b91db	present
+npm	crelt	1.0.7	MIT	LICENSE	23852ebf6aef7fadffc92514b3c5df163a8651f2c3ed0dbb494cb49d93bd5de5	present
+npm	csstype	3.2.3	MIT	LICENSE	11d55bd4541c75ee7879547ac49089c489163dae49551389713c3d026cab383e	present
+npm	debug	4.4.3	MIT	LICENSE	3a61c6c96caf5c1d9b623fb9b04c822b783dfcb78aa7e49c76a3f643e6ed7f95	present
+npm	decode-named-character-reference	1.3.0	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	dequal	2.0.3	MIT	license	306fa513e39b23a6e8747520de761809d206b99800ef41907b530226574c59ae	present
+npm	devlop	1.1.0	MIT	license	6f296a5eccc1dc96714bb94ebaa9cac25b0a1467d74cc5263ac4d0646ab01f62	present
+npm	dompurify	3.4.17	(MPL-2.0 OR Apache-2.0)	LICENSE	cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30	present
+npm	dompurify	3.4.17	(MPL-2.0 OR Apache-2.0)	LICENSE-MPL	fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85	present
+npm	electron-to-chromium	1.5.478	ISC	LICENSE	25ba5c59dad3e0dd8f9540beaa0f0a86a10e3aec35af5fdc8e88c5f6a5c0d8c6	present
+npm	entities	7.0.1	BSD-2-Clause	LICENSE	cb992345949ccd6e8394b2cd6c465f7b897c864f845937dbf64e8997f389e164	present
+npm	es-module-lexer	1.7.0	MIT	LICENSE	fecc38b5e10d889686b3862e7ade17e8b3e5c94b24b7256b05a354d8524b3274	present
+npm	esbuild	0.27.7	MIT	LICENSE.md	b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681	present
+npm	escalade	3.2.0	MIT	license	9a9edad7baae52622bddf3c15b2ef8a33d2c89f2d25408ad13e8a7481c6b0c97	present
+npm	escape-string-regexp	5.0.0	MIT	license	5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3	present
+npm	estree-walker	3.0.3	MIT	LICENSE	8a6dcbabe7179f9c8489c08a7d874d0f1e093ae7449e03756ccf87cb9d0e296e	present
+npm	expect-type	1.4.0	Apache-2.0	LICENSE	7c6cc83c84eaa249a85bf12fe3eedd831bb50c696e8890b5248223ae68c7b408	present
+npm	extend	3.0.2	MIT	LICENSE	97af7428f93afbab9bf79cd09254da1357161794f4255eb1b4599f04dd2d2e7c	present
+npm	fdir	6.5.0	MIT	LICENSE	9a39f2aadab11a3697edd668ff2d8ad885b649737b7ab4d3bf12b34e5ada0c86	present
+npm	gensync	1.0.0-beta.2	MIT	LICENSE	e3a956681ee067f971ac413994171b3d90ca801ec6324e76c9c55366cfe31cb0	present
+npm	is-plain-obj	4.1.0	MIT	license	5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3	present
+npm	js-tokens	4.0.0	MIT	LICENSE	2213d91c606205c71eb051a199478cdc2adde945893404d7f1421436dd6d5cc1	present
+npm	jsesc	3.1.0	MIT	LICENSE-MIT.txt	483acb265f182907d1caf6cff9c16c96f31325ed23792832cc5d8b12d5f88c8a	present
+npm	json5	2.2.3	MIT	LICENSE.md	53e59feb13058722d977c699eb0407c7bce2f93c949b681bbd2ff31698535927	present
+npm	katex	0.19.1	MIT	LICENSE	766ccc1f306c885aa45542a9846bbd0a505b27a0374f146778171c2254ce18e3	present
+npm	lodash-es	4.18.1	MIT	LICENSE	f71e8ed126b46346494aad5486874cd8f0aafe95092ed67d2e3cb6110f939abc	present
+npm	longest-streak	3.1.0	MIT	license	9f084fac69d8cf1e6ce983ba5a3499c7695ed74a26ec625c38f0fd19fddd5e10	present
+npm	lru-cache	5.1.1	ISC	LICENSE	4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b	present
+npm	magic-string	0.30.21	MIT	LICENSE	1cbe51b907662f6cb1492b16c359384a595180bf0e4d101603ed525e75c4e484	present
+npm	markdown-table	3.1.0	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	mdast-util-definitions	6.0.0	MIT	license	c7bac77e21a64800a0dab2c72acac9764b8161ee257b20d74831dd7ee8c3151e	present
+npm	mdast-util-find-and-replace	3.0.4	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	mdast-util-from-markdown	2.1.0	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	mdast-util-gfm	3.1.0	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	mdast-util-gfm-autolink-literal	2.1.0	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	mdast-util-gfm-footnote	2.1.0	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	mdast-util-gfm-strikethrough	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	mdast-util-gfm-table	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	mdast-util-gfm-task-list-item	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	mdast-util-math	3.0.0	MIT	license	536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61	present
+npm	mdast-util-phrasing	4.1.0	MIT	license	b6d1a4e1831b177acc96f22a817d4f0f4c18419355badc3125754445fc69e3a7	present
+npm	mdast-util-to-markdown	2.2.3	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	mdast-util-to-string	4.0.0	MIT	license	63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf	present
+npm	micromark	4.0.3	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-core-commonmark	2.0.4	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-extension-gfm	3.0.0	MIT	license	536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61	present
+npm	micromark-extension-gfm-autolink-literal	2.1.0	MIT	license	536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61	present
+npm	micromark-extension-gfm-footnote	2.1.0	MIT	license	807a88522a850092aece49486207c17c313c4d5708ac276524840fe1caa0b0fa	present
+npm	micromark-extension-gfm-strikethrough	2.1.0	MIT	license	536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61	present
+npm	micromark-extension-gfm-table	2.1.2	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-extension-gfm-tagfilter	2.0.0	MIT	license	536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61	present
+npm	micromark-extension-gfm-task-list-item	2.1.0	MIT	license	536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61	present
+npm	micromark-extension-math	3.1.0	MIT	license	536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61	present
+npm	commander	8.3.0	MIT	LICENSE	04512a63dce4d2d506ad612dc0bd7681ccf6e3655f7b6eaef7dfac8323d1ec0b	present
+npm	katex	0.16.47	MIT	LICENSE	766ccc1f306c885aa45542a9846bbd0a505b27a0374f146778171c2254ce18e3	present
+npm	micromark-factory-destination	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-factory-label	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-factory-space	2.1.0	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-factory-title	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-factory-whitespace	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-character	2.1.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-chunked	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-classify-character	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-combine-extensions	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-decode-numeric-character-reference	2.0.2	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-decode-string	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-edit-map	1.0.0	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-encode	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-html-tag-name	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-normalize-identifier	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-resolve-all	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-sanitize-uri	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-subtokenize	2.1.0	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-symbol	2.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	micromark-util-types	2.0.3	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	ms	2.1.3	MIT	license.md	1662fae9b5314d11cf51284e2dcd1f006a354f7343f08712a730fcff9a359801	present
+npm	nanoid	6.0.2	MIT	LICENSE	4383cb2c3608397ce7a4159502614ed66890f8999c2a9c056dd3b1024d6721f0	present
+npm	node-releases	2.0.63	MIT	LICENSE	3706296ed611888111ceccc1dff4712844dea4bde0b185c82d718c3b69895abe	present
+npm	orderedmap	2.1.1	MIT	LICENSE	869c30f368eb08735e779027b9f4bc9fea2f39624351856aebe42741f0bc0884	present
+npm	pathe	2.0.3	MIT	LICENSE	52e92576851154bad7737e90cc72818936f43665cb0e3f7428ed8edc8cc5709b	present
+npm	picocolors	1.1.1	ISC	LICENSE	6582629e2979466878f6014313dcc2f3756c9616148682227ce3063dde310750	present
+npm	picomatch	4.0.7	MIT	LICENSE	d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9	present
+npm	postcss	8.5.32	MIT	LICENSE	5be1f3465bba68a626777f984878814aaf35e7ef8e9fd314d469bcf887050fb8	present
+npm	nanoid	3.3.20	MIT	LICENSE	4383cb2c3608397ce7a4159502614ed66890f8999c2a9c056dd3b1024d6721f0	present
+npm	prosemirror-changeset	2.4.6	MIT	LICENSE	7543dfe82fa61d5bb2478c78cbd9dfb2cbd500b6ac2893b24ed925773b67fb70	present
+npm	prosemirror-commands	1.7.2	MIT	LICENSE	ef0b452ced6304db2ce78ca66de1fc7b97bab05bc1750c95df359ed3fe1d65c8	present
+npm	prosemirror-drop-indicator	0.1.4	MIT	LICENSE	6342baaa447cb6d0e84be677e26f07eb30de3eab88ae26ae99989062797cbc5d	present
+npm	prosemirror-dropcursor	1.8.4	MIT	LICENSE	ef0b452ced6304db2ce78ca66de1fc7b97bab05bc1750c95df359ed3fe1d65c8	present
+npm	prosemirror-gapcursor	1.4.1	MIT	LICENSE	ef0b452ced6304db2ce78ca66de1fc7b97bab05bc1750c95df359ed3fe1d65c8	present
+npm	prosemirror-history	1.5.1	MIT	LICENSE	ef0b452ced6304db2ce78ca66de1fc7b97bab05bc1750c95df359ed3fe1d65c8	present
+npm	prosemirror-inputrules	1.5.1	MIT	LICENSE	ef0b452ced6304db2ce78ca66de1fc7b97bab05bc1750c95df359ed3fe1d65c8	present
+npm	prosemirror-keymap	1.2.3	MIT	LICENSE	ef0b452ced6304db2ce78ca66de1fc7b97bab05bc1750c95df359ed3fe1d65c8	present
+npm	prosemirror-model	1.25.12	MIT	LICENSE	ef0b452ced6304db2ce78ca66de1fc7b97bab05bc1750c95df359ed3fe1d65c8	present
+npm	prosemirror-safari-ime-span	1.0.2	MIT	LICENSE	c1e8209738e26d3af4d3f76ed9137ad9e9eab27b03ef20544758112df53e8cf9	present
+npm	prosemirror-schema-list	1.6.0	MIT	LICENSE	ef0b452ced6304db2ce78ca66de1fc7b97bab05bc1750c95df359ed3fe1d65c8	present
+npm	prosemirror-state	1.4.4	MIT	LICENSE	ef0b452ced6304db2ce78ca66de1fc7b97bab05bc1750c95df359ed3fe1d65c8	present
+npm	prosemirror-tables	1.8.5	MIT	LICENSE	d1d2046ebbe6362f9ad8fd4d62e9074f2553f289c0e1de895a650f10ba5f4239	present
+npm	prosemirror-transform	1.12.5	MIT	LICENSE	ef0b452ced6304db2ce78ca66de1fc7b97bab05bc1750c95df359ed3fe1d65c8	present
+npm	prosemirror-view	1.42.9	MIT	LICENSE	ef0b452ced6304db2ce78ca66de1fc7b97bab05bc1750c95df359ed3fe1d65c8	present
+npm	prosemirror-virtual-cursor	0.4.2	MIT	LICENSE	784abd61b4f27de35bb3d20a3eed771fc216622759b47dd0884a87d0c6f8bfcc	present
+npm	react	19.2.0	MIT	LICENSE	da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93	present
+npm	react-dom	19.2.0	MIT	LICENSE	da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93	present
+npm	react-refresh	0.17.0	MIT	LICENSE	da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93	present
+npm	remark	15.0.1	MIT	license	413654b0a78b98661dce96d2aff2e4d075603d220b8483e28b1aa010ccc138b4	present
+npm	remark-gfm	4.0.1	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	remark-inline-links	7.0.0	MIT	license	63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf	present
+npm	remark-math	6.0.0	MIT			missing
+npm	remark-parse	11.0.0	MIT	license	413654b0a78b98661dce96d2aff2e4d075603d220b8483e28b1aa010ccc138b4	present
+npm	remark-stringify	11.0.0	MIT	license	413654b0a78b98661dce96d2aff2e4d075603d220b8483e28b1aa010ccc138b4	present
+npm	rollup	4.68.0	MIT	LICENSE.md	fa1bd040c5bdeefe65b3821cebf474f2733ce65df13089bd151dda1778e62fe8	present
+npm	rope-sequence	1.3.4	MIT	LICENSE	530424aebdd0e73f53238d1f89df250057bc8d8ce090cf5954197fadce5bf226	present
+npm	scheduler	0.27.0	MIT	LICENSE	da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93	present
+npm	semver	6.3.2	ISC	LICENSE	4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b	present
+npm	siginfo	2.0.0	ISC	LICENSE	3bdddf0b9b08aaa2fe4365b803fc958ed32c0597ca0bd727be8d9fcb8b248d18	present
+npm	source-map-js	1.2.2	BSD-3-Clause	LICENSE	6cb0631f71c7749763fd3dd1d5bee52dd1070ec17f2edc1710079ad070bd2fbd	present
+npm	stackback	0.0.2	MIT			missing
+npm	std-env	3.10.0	MIT	LICENCE	a6f36438e46fb911859f3b9c4cad045ba64e1af3d8f4512c60258fa2d7552d28	present
+npm	style-mod	4.1.4	MIT	LICENSE	cb4474e26547397169061d3586c00022cda5330a1b64fa13e872319f3b63aff1	present
+npm	tinybench	2.9.0	MIT	LICENSE	cebc084d54e6dd99e53292ddb4bc1cdb63d9bfcd9ce438fe3aa6eb106d79e2ea	present
+npm	tinyexec	0.3.2	MIT	LICENSE	f95f668fe64081ddb4153b322e34fdd719b991285ed08177d5ad7133b7988d92	present
+npm	tinyglobby	0.2.17	MIT	LICENSE	22c68811e174cbbfb3813d4135918df4f540959c14d872e601d9abe83d3cde8f	present
+npm	tinyrainbow	3.2.0	MIT	LICENCE	cebc084d54e6dd99e53292ddb4bc1cdb63d9bfcd9ce438fe3aa6eb106d79e2ea	present
+npm	trough	2.2.0	MIT	license	6c03fd41cfd7c92d8aa8a2fa521b94b2683f059123281dcf921ddea9216b6254	present
+npm	typescript	5.9.3	Apache-2.0	LICENSE.txt	a7d00bfd54525bc694b6e32f64c7ebcf5e6b7ae3657be5cc12767bce74654a47	present
+npm	unified	11.0.5	MIT	license	05811400116ed61f1a7693b78fe8ca6598c155a12f3978e609db4df648a4cb3d	present
+npm	unist-util-is	6.0.1	MIT	license	82974dbf2639d13edab95c32ed9cb6c0867ede272cd2e07ce47ce8548fe55c05	present
+npm	unist-util-remove-position	5.0.0	MIT	license	ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d	present
+npm	unist-util-stringify-position	4.0.0	MIT	license	ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d	present
+npm	unist-util-visit	5.2.0	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	unist-util-visit-parents	6.1.0	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	update-browserslist-db	1.3.4	MIT	LICENSE	9877e90da14aa8c931a1f9d07cc2a20ce119106e5dab1ebb41af865266d0cd2a	present
+npm	vfile	6.0.3	MIT	license	05811400116ed61f1a7693b78fe8ca6598c155a12f3978e609db4df648a4cb3d	present
+npm	vfile-message	4.0.4	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
+npm	vite	7.3.0	MIT	LICENSE.md	2ef0b8a67599690e6abccc21a3678b54457b420fb402654112d45c4e71cce364	present
+npm	vitest	4.0.6	MIT	LICENSE.md	e4bef679f6998f66dce49b701cd294df44e38b5314966bc0fbab68b876080a6d	present
+npm	vue	3.5.45	MIT	LICENSE	1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175	present
+npm	w3c-keyname	2.2.8	MIT	LICENSE	869c30f368eb08735e779027b9f4bc9fea2f39624351856aebe42741f0bc0884	present
+npm	why-is-node-running	2.3.0	MIT	LICENSE	6a134e51aa31496c15a741592fc5d782b2dbf8d8b6b8524e15c8520ae0cd6374	present
+npm	yallist	3.1.1	ISC	LICENSE	4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b	present
+npm	zwitch	2.0.4	MIT	license	ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d	present
+rust	adler2	2.0.1	0BSD OR MIT OR Apache-2.0	LICENSE-0BSD	861399f8c21c042b110517e76dc6b63a2b334276c8cf17412fc3c8908ca8dc17	present
+rust	adler2	2.0.1	0BSD OR MIT OR Apache-2.0	LICENSE-APACHE	8ada45cd9f843acf64e4722ae262c622a2b3b3007c7310ef36ac1061a30f6adb	present
+rust	adler2	2.0.1	0BSD OR MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	aho-corasick	1.1.5	Unlicense OR MIT	COPYING	01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f	present
+rust	aho-corasick	1.1.5	Unlicense OR MIT	LICENSE-MIT	0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f	present
+rust	alloc-no-stdlib	3.0.0	BSD-3-Clause	LICENSE	c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae	present
+rust	alloc-stdlib	0.3.0	BSD-3-Clause			missing
+rust	anyhow	1.0.104	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	anyhow	1.0.104	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	autocfg	1.5.1	Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	autocfg	1.5.1	Apache-2.0 OR MIT	LICENSE-MIT	27995d58ad5c1145c1a8cd86244ce844886958a35eb2b78c6b772748669999ac	present
+rust	base64	0.21.7	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	base64	0.21.7	MIT OR Apache-2.0	LICENSE-MIT	0dd882e53de11566d50f8e8e2d5a651bcf3fabee4987d70f306233cf39094ba7	present
+rust	base64	0.23.1	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	base64	0.23.1	MIT OR Apache-2.0	LICENSE-MIT	ab499c75a0f0da8e0fe83bf9ba3a27e5c39705310f07107c6c66b69958d2401c	present
+rust	bit-set	0.8.0	Apache-2.0 OR MIT	LICENSE-APACHE	8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90	present
+rust	bit-set	0.8.0	Apache-2.0 OR MIT	LICENSE-MIT	f51ac2c59a222f7476ce507ca879960e2b64ea64bb2786eefdbeb7b0b538d1b7	present
+rust	bit-vec	0.8.0	Apache-2.0 OR MIT	LICENSE-APACHE	8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90	present
+rust	bit-vec	0.8.0	Apache-2.0 OR MIT	LICENSE-MIT	f51ac2c59a222f7476ce507ca879960e2b64ea64bb2786eefdbeb7b0b538d1b7	present
+rust	bitflags	1.3.2	MIT/Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	bitflags	1.3.2	MIT/Apache-2.0	LICENSE-MIT	6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb	present
+rust	bitflags	2.13.2	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	bitflags	2.13.2	MIT OR Apache-2.0	LICENSE-MIT	6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb	present
+rust	block-buffer	0.10.4	MIT OR Apache-2.0	LICENSE-APACHE	a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5	present
+rust	block-buffer	0.10.4	MIT OR Apache-2.0	LICENSE-MIT	d5c22aa3118d240e877ad41c5d9fa232f9c77d757d4aac0c2f943afc0a95e0ef	present
+rust	block2	0.6.2	MIT			missing
+rust	brotli	9.0.0	BSD-3-Clause AND MIT	LICENSE.BSD-3-Clause	c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae	present
+rust	brotli	9.0.0	BSD-3-Clause AND MIT	LICENSE.MIT	3d180008e36922a4e8daec11c34c7af264fed5962d07924aea928c38e8663c94	present
+rust	brotli-decompressor	6.0.1	BSD-3-Clause/MIT	LICENSE	c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae	present
+rust	bs58	0.5.1	MIT/Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	bs58	0.5.1	MIT/Apache-2.0	LICENSE-MIT	42d3bf7e7d4d49d72c0555d14ed99c3ee7ce9ce3cbffbc38bbafe8c103f50969	present
+rust	bytemuck	1.25.2	Zlib OR Apache-2.0 OR MIT	LICENSE-APACHE	e3ba223bb1423f0aad8c3dfce0fe3148db48926d41e6fbc3afbbf5ff9e1c89cb	present
+rust	bytemuck	1.25.2	Zlib OR Apache-2.0 OR MIT	LICENSE-MIT	9df9ba60a11af705f2e451b53762686e615d86f76b169cf075c3237730dbd7e2	present
+rust	bytemuck	1.25.2	Zlib OR Apache-2.0 OR MIT	LICENSE-ZLIB	84b34dd7608f7fb9b17bd588a6bf392bf7de504e2716f024a77d89f1b145a151	present
+rust	byteorder	1.5.0	Unlicense OR MIT	COPYING	01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f	present
+rust	byteorder	1.5.0	Unlicense OR MIT	LICENSE-MIT	0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f	present
+rust	byteorder-lite	0.1.0	Unlicense OR MIT	LICENSE-MIT	0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f	present
+rust	bytes	1.12.1	MIT	LICENSE	45f522cacecb1023856e46df79ca625dfc550c94910078bd8aec6e02880b3d42	present
+rust	camino	1.2.6	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	camino	1.2.6	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	cargo-platform	0.1.9	MIT OR Apache-2.0	LICENSE-APACHE	8ada45cd9f843acf64e4722ae262c622a2b3b3007c7310ef36ac1061a30f6adb	present
+rust	cargo-platform	0.1.9	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	cargo_metadata	0.19.2	MIT	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	cargo_toml	1.0.1	Apache-2.0 OR MIT	LICENSE	ee874098519e956c23a3c5c7e20581f8e9b1d70aa05eb178f983be9775090a2f	present
+rust	cc	1.10.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	cc	1.10.0	MIT OR Apache-2.0	LICENSE-MIT	378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397	present
+rust	cfb	0.14.0	MIT	LICENSE	ebaac853b53fec0ed475796f533ce676912a4df9ad9d8a621fa76d5060591e10	present
+rust	cfg-if	1.0.5	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	cfg-if	1.0.5	MIT OR Apache-2.0	LICENSE-MIT	378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397	present
+rust	chrono	0.4.45	MIT OR Apache-2.0	LICENSE.txt	946c9835d8034d24404f8cfec5f4654cee5dad17e944afc3d06d742cf2882831	present
+rust	color_quant	1.1.0	MIT	LICENSE	592dc80f1a865d20d61a2006a2d29ce34a2bc28cd7e868ab300fdeed6da154ca	present
+rust	cookie	0.18.2	MIT OR Apache-2.0	LICENSE-APACHE	2773e20df8f4c52a026b5b578c7f2457341f5aa3fb6612fd87e1d2e1bd8f48ad	present
+rust	cookie	0.18.2	MIT OR Apache-2.0	LICENSE-MIT	f28420c1906af38be726cd7842798f0194b27c41d6051c0d1e9ee348b8a4a0ea	present
+rust	core-foundation	0.10.1	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	core-foundation	0.10.1	MIT OR Apache-2.0	LICENSE-MIT	62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3	present
+rust	core-foundation-sys	0.8.7	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	core-foundation-sys	0.8.7	MIT OR Apache-2.0	LICENSE-MIT	62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3	present
+rust	core-graphics	0.25.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	core-graphics	0.25.0	MIT OR Apache-2.0	LICENSE-MIT	62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3	present
+rust	core-graphics-types	0.2.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	core-graphics-types	0.2.0	MIT OR Apache-2.0	LICENSE-MIT	62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3	present
+rust	cpufeatures	0.2.17	MIT OR Apache-2.0	LICENSE-APACHE	a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5	present
+rust	cpufeatures	0.2.17	MIT OR Apache-2.0	LICENSE-MIT	ae9baa7beea910273c2f384c2a6b721fb7bd02bda3436074a1072e4ee689f985	present
+rust	crc32fast	1.5.2	MIT OR Apache-2.0	LICENSE-APACHE	c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08	present
+rust	crc32fast	1.5.2	MIT OR Apache-2.0	LICENSE-MIT	61d383b05b87d78f94d2937e2580cce47226d17823c0430fbcad09596537efcf	present
+rust	crossbeam-channel	0.5.17	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	crossbeam-channel	0.5.17	MIT OR Apache-2.0	LICENSE-MIT	5734ed989dfca1f625b40281ee9f4530f91b2411ec01cb748223e7eb87e201ab	present
+rust	crossbeam-channel	0.5.17	MIT OR Apache-2.0	LICENSE-THIRD-PARTY	b16db96b93b1d7cf7bea533f572091ec6bca3234fbe0a83038be772ff391a44c	present
+rust	crossbeam-utils	0.8.23	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	crossbeam-utils	0.8.23	MIT OR Apache-2.0	LICENSE-MIT	5734ed989dfca1f625b40281ee9f4530f91b2411ec01cb748223e7eb87e201ab	present
+rust	crypto-common	0.1.7	MIT OR Apache-2.0	LICENSE-APACHE	a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5	present
+rust	crypto-common	0.1.7	MIT OR Apache-2.0	LICENSE-MIT	3521672491a3479422d5fe1aca6645dd2984090f85da6e5205abfb18fb7a6897	present
+rust	cssparser	0.37.0	MPL-2.0	LICENSE	fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85	present
+rust	cssparser-macros	0.7.1	MPL-2.0	LICENSE	fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85	present
+rust	ctor	1.0.13	Apache-2.0 OR MIT	LICENSE-APACHE	a8ad31b1c3f40dca5a84119351b8fa8ddc868edd77fad8a8ebf6d8f2d16fa4ae	present
+rust	ctor	1.0.13	Apache-2.0 OR MIT	LICENSE-MIT	bccaa8b6c09f94e81f06696e179dbe058464bbdfbc823b6d49cada1d71e84ac3	present
+rust	darling	0.24.1	MIT	LICENSE	8ea93490d74a5a1b1af3ff71d786271b3f1e5f0bea79ac16e02ec533cef040d6	present
+rust	darling_core	0.24.1	MIT	LICENSE	8ea93490d74a5a1b1af3ff71d786271b3f1e5f0bea79ac16e02ec533cef040d6	present
+rust	darling_macro	0.24.1	MIT	LICENSE	8ea93490d74a5a1b1af3ff71d786271b3f1e5f0bea79ac16e02ec533cef040d6	present
+rust	defmt	1.2.0	MIT OR Apache-2.0	LICENSE-APACHE	8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90	present
+rust	defmt	1.2.0	MIT OR Apache-2.0	LICENSE-MIT	2710a622a896bba67356913d4d0492cab5465f61b2ecce6d880aeb483834fb50	present
+rust	defmt-macros	1.2.0	MIT OR Apache-2.0	LICENSE-APACHE	8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90	present
+rust	defmt-macros	1.2.0	MIT OR Apache-2.0	LICENSE-MIT	2710a622a896bba67356913d4d0492cab5465f61b2ecce6d880aeb483834fb50	present
+rust	defmt-parser	1.1.0	MIT OR Apache-2.0	LICENSE-APACHE	8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90	present
+rust	defmt-parser	1.1.0	MIT OR Apache-2.0	LICENSE-MIT	2710a622a896bba67356913d4d0492cab5465f61b2ecce6d880aeb483834fb50	present
+rust	deranged	0.5.9	MIT OR Apache-2.0	LICENSE-Apache	edd65bdd88957a205c47d53fa499eed8865a70320f0f03f6391668cb304ea376	present
+rust	deranged	0.5.9	MIT OR Apache-2.0	LICENSE-MIT	231c837c45eb53f108fb48929e488965bc4fcc14e9ea21d35f50e6b99d98685b	present
+rust	derive_more	2.1.1	MIT	LICENSE	8a35369f3ca263b3c62fbb5032947e53b6bfebc6c8a4d1bb982de1c069f6fba5	present
+rust	derive_more-impl	2.1.1	MIT	LICENSE	8a35369f3ca263b3c62fbb5032947e53b6bfebc6c8a4d1bb982de1c069f6fba5	present
+rust	digest	0.10.7	MIT OR Apache-2.0	LICENSE-APACHE	a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5	present
+rust	digest	0.10.7	MIT OR Apache-2.0	LICENSE-MIT	9e0dfd2dd4173a530e238cb6adb37aa78c34c6bc7444e0e10c1ab5d8881f63ba	present
+rust	dirs	7.0.0	MIT OR Apache-2.0	LICENSE-APACHE	d3174ad63e721d4c9dccb8ad4320848992d314369bc46319720b5802c9153fe9	present
+rust	dirs	7.0.0	MIT OR Apache-2.0	LICENSE-MIT	6a2e0ade09a7d5f816f11566fee2b151b32235a7fad52b41d49cce96f833c1a9	present
+rust	dirs-sys	0.5.0	MIT OR Apache-2.0	LICENSE-APACHE	d3174ad63e721d4c9dccb8ad4320848992d314369bc46319720b5802c9153fe9	present
+rust	dirs-sys	0.5.0	MIT OR Apache-2.0	LICENSE-MIT	6a2e0ade09a7d5f816f11566fee2b151b32235a7fad52b41d49cce96f833c1a9	present
+rust	dispatch2	0.3.1	Zlib OR Apache-2.0 OR MIT			missing
+rust	displaydoc	0.2.7	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	displaydoc	0.2.7	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	dom_query	0.28.0	MIT	LICENSE	7554701d1e74fc434f68c522b1dd743c8c16d816a4b761b5213f367b898884c8	present
+rust	dpi	0.1.2	Apache-2.0 AND MIT	LICENSE	6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a	present
+rust	dpi	0.1.2	Apache-2.0 AND MIT	LICENSE-LIBM-MIT	9eff396a99bafd208e7126602420d6864f6066c08b84485a5b032320a9c01997	present
+rust	dtoa	1.0.11	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	dtoa	1.0.11	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	dtoa-short	0.3.5	MPL-2.0	LICENSE	1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5	present
+rust	dunce	1.0.5	CC0-1.0 OR MIT-0 OR Apache-2.0	LICENSE	a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499	present
+rust	dyn-clone	1.0.20	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	dyn-clone	1.0.20	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	embed-resource	3.0.12	MIT	LICENSE	1abdbbd4e3f95e56c79d4a8af190254c23ddb14db34aadadfafef9c3af041113	present
+rust	embed_plist	1.2.2	MIT OR Apache-2.0	LICENSE-APACHE	cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30	present
+rust	embed_plist	1.2.2	MIT OR Apache-2.0	LICENSE-MIT	daacc37f680c7dd0a758ac99a109f2f57d9f21d3683df9e9245055922842a695	present
+rust	equivalent	1.0.3	Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	equivalent	1.0.3	Apache-2.0 OR MIT	LICENSE-MIT	7365cc8878a1d7ce155a58c4ca09c3d7a6be413efa5334a80ea842912b669349	present
+rust	erased-serde	0.4.10	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	erased-serde	0.4.10	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	fastrand	2.5.0	Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	fastrand	2.5.0	Apache-2.0 OR MIT	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	fdeflate	0.3.7	MIT OR Apache-2.0	LICENSE-APACHE	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	fdeflate	0.3.7	MIT OR Apache-2.0	LICENSE-MIT	c77a4cf9da729987d0fe7ccd811e3bd27393914ddf3d23467c18cc22954513b3	present
+rust	find-msvc-tools	0.1.15	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	find-msvc-tools	0.1.15	MIT OR Apache-2.0	LICENSE-MIT	378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397	present
+rust	flate2	1.1.10	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	flate2	1.1.10	MIT OR Apache-2.0	LICENSE-MIT	025436edff4cfcdde17a5811fdea78892d8482efd1abdec5a17872d07a4f2112	present
+rust	fnv	1.0.7	Apache-2.0 / MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	fnv	1.0.7	Apache-2.0 / MIT	LICENSE-MIT	65fdb6c76cd61612070c066eec9ecdb30ee74fb27859d0d9af58b9f499fd0c3e	present
+rust	foldhash	0.2.0	Zlib	LICENSE	b1181a40b2a7b25cf66fd01481713bc1005df082c53ef73e851e55071b102744	present
+rust	foreign-types	0.5.0	MIT/Apache-2.0	LICENSE-APACHE	c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08	present
+rust	foreign-types	0.5.0	MIT/Apache-2.0	LICENSE-MIT	333ea3aaa3cadb819f4acd9f9153f9feee060a995ca8710f32bc5bd9a4b91734	present
+rust	foreign-types-macros	0.2.4	MIT/Apache-2.0	LICENSE-APACHE	c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08	present
+rust	foreign-types-macros	0.2.4	MIT/Apache-2.0	LICENSE-MIT	333ea3aaa3cadb819f4acd9f9153f9feee060a995ca8710f32bc5bd9a4b91734	present
+rust	foreign-types-shared	0.3.1	MIT/Apache-2.0	LICENSE-APACHE	c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08	present
+rust	foreign-types-shared	0.3.1	MIT/Apache-2.0	LICENSE-MIT	333ea3aaa3cadb819f4acd9f9153f9feee060a995ca8710f32bc5bd9a4b91734	present
+rust	form_urlencoded	1.2.2	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	form_urlencoded	1.2.2	MIT OR Apache-2.0	LICENSE-MIT	20c7855c364d57ea4c97889a5e8d98470a9952dade37bd9248b9a54431670e5e	present
+rust	generic-array	0.14.7	MIT	LICENSE	c09aae9d3c77b531f56351a9947bc7446511d6b025b3255312d3e3442a9a7583	present
+rust	getrandom	0.3.4	MIT OR Apache-2.0	LICENSE-APACHE	aaff376532ea30a0cd5330b9502ad4a4c8bf769c539c87ffe78819d188a18ebf	present
+rust	getrandom	0.3.4	MIT OR Apache-2.0	LICENSE-MIT	29e9fe5074bd27e0e5d5d110394fbbcd841baee2651a3c4b4560a632702cede4	present
+rust	getrandom	0.4.3	MIT OR Apache-2.0	LICENSE-APACHE	aaff376532ea30a0cd5330b9502ad4a4c8bf769c539c87ffe78819d188a18ebf	present
+rust	getrandom	0.4.3	MIT OR Apache-2.0	LICENSE-MIT	523a42c25d245dde9c015f882cec7f4555aad883382a6cf19b4b7d9b2cd5419b	present
+rust	gif	0.14.2	MIT OR Apache-2.0	LICENSE-APACHE	769f80b5bcb42ed0af4e4d2fd74e1ac9bf843cb80c5a29219d1ef3544428a6bb	present
+rust	gif	0.14.2	MIT OR Apache-2.0	LICENSE-MIT	77257f3d2181236b1aee78920238062ae64efe13c5d858b2db126e79c9e1b14f	present
+rust	glob	0.3.4	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	glob	0.3.4	MIT OR Apache-2.0	LICENSE-MIT	6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb	present
+rust	hashbrown	0.12.3	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	hashbrown	0.12.3	MIT OR Apache-2.0	LICENSE-MIT	ff8f68cb076caf8cefe7a6430d4ac086ce6af2ca8ce2c4e5a2004d4552ef52a2	present
+rust	hashbrown	0.17.1	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	hashbrown	0.17.1	MIT OR Apache-2.0	LICENSE-MIT	ff8f68cb076caf8cefe7a6430d4ac086ce6af2ca8ce2c4e5a2004d4552ef52a2	present
+rust	heck	0.5.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	heck	0.5.0	MIT OR Apache-2.0	LICENSE-MIT	7b63ecd5f1902af1b63729947373683c32745c16a10e8e6292e2e2dcd7e90ae0	present
+rust	hex	0.4.3	MIT OR Apache-2.0	LICENSE-APACHE	c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08	present
+rust	hex	0.4.3	MIT OR Apache-2.0	LICENSE-MIT	f7bdb3426d045cd50efd4953026e3eb5a83d0199f458a075602611b9344da5b9	present
+rust	html5ever	0.39.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	html5ever	0.39.0	MIT OR Apache-2.0	LICENSE-MIT	86dd7f026f916daf7511e39951ad8ea8cf55a8db67ae64060dacf829761c18f3	present
+rust	http	1.5.0	MIT OR Apache-2.0	LICENSE-APACHE	8bb1b50b0e5c9399ae33bd35fab2769010fa6c14e8860c729a52295d84896b7a	present
+rust	http	1.5.0	MIT OR Apache-2.0	LICENSE-MIT	dc91f8200e4b2a1f9261035d4c18c33c246911a6c0f7b543d75347e61b249cff	present
+rust	iana-time-zone	0.1.65	MIT OR Apache-2.0	LICENSE-APACHE	696759d65dfe558ff7d9f031c76db19ec5c0767470fb67c4e8d990820d1e99c9	present
+rust	iana-time-zone	0.1.65	MIT OR Apache-2.0	LICENSE-MIT	da28ccc6b158fc2d8cccc74e99794b1cff1d29bd7bbeb019442fcf0c04c6cad9	present
+rust	ico	0.5.0	MIT	LICENSE	41ca90213441b294e7517d5858f0cc85bc12e19ec044001b45bc213de461d33b	present
+rust	icu_collections	2.3.0	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	icu_locale_core	2.3.0	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	icu_normalizer	2.3.0	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	icu_normalizer_data	2.3.0	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	icu_properties	2.3.0	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	icu_properties_data	2.3.0	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	icu_provider	2.3.1	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	ident_case	1.0.1	MIT/Apache-2.0	LICENSE	508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1	present
+rust	idna	1.1.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	idna	1.1.0	MIT OR Apache-2.0	LICENSE-MIT	b38f11f6096706e6de553dabe2a7ed142d59b6fa8c97e290c67496154745cdd5	present
+rust	idna_adapter	1.2.2	Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	idna_adapter	1.2.2	Apache-2.0 OR MIT	LICENSE-MIT	8b43ce8accd61e9d370b5ca9e9c4f953279b5c239926c62315b40e24df51b726	present
+rust	image	0.25.10	MIT OR Apache-2.0	LICENSE-APACHE	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	image	0.25.10	MIT OR Apache-2.0	LICENSE-MIT	c77a4cf9da729987d0fe7ccd811e3bd27393914ddf3d23467c18cc22954513b3	present
+rust	image-webp	0.2.4	MIT OR Apache-2.0	LICENSE-APACHE	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	image-webp	0.2.4	MIT OR Apache-2.0	LICENSE-MIT	c77a4cf9da729987d0fe7ccd811e3bd27393914ddf3d23467c18cc22954513b3	present
+rust	indexmap	1.9.3	Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	indexmap	1.9.3	Apache-2.0 OR MIT	LICENSE-MIT	ecc269ef87fd38a1d98e30bfac9ba964a9dbd9315c3770fed98d4d7cb5882055	present
+rust	indexmap	2.14.2	Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	indexmap	2.14.2	Apache-2.0 OR MIT	LICENSE-MIT	ecc269ef87fd38a1d98e30bfac9ba964a9dbd9315c3770fed98d4d7cb5882055	present
+rust	infer	0.22.0	MIT	LICENSE	270b0d81891aa44c7e8726cf9432dade9556a01c848bacd2f3ef839c9c1a1859	present
+rust	itoa	1.0.18	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	itoa	1.0.18	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	jiff	0.2.38	Unlicense OR MIT	COPYING	01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f	present
+rust	jiff	0.2.38	Unlicense OR MIT	LICENSE-MIT	0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f	present
+rust	jiff-core	0.1.1	Unlicense OR MIT	COPYING	01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f	present
+rust	jiff-core	0.1.1	Unlicense OR MIT	LICENSE-MIT	0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f	present
+rust	json-patch	4.2.0	MIT/Apache-2.0	LICENSE-APACHE	b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1	present
+rust	json-patch	4.2.0	MIT/Apache-2.0	LICENSE-MIT	87f7527b1066337751f7f4d717089bf514ff8f7ee7d66c4c5b891b09e744ec11	present
+rust	jsonptr	0.7.1	MIT OR Apache-2.0	LICENSE-APACHE	2cf31f2ae7f3feba667d50fc1d4d21ecf217703c04c3068b83c9a73b6dde723a	present
+rust	jsonptr	0.7.1	MIT OR Apache-2.0	LICENSE-MIT	2bc107bdc18a74263d20bdefdb8073e17bc1a01b6b374dc5835683a33ee5ba7d	present
+rust	keyboard-types	0.8.3	MIT OR Apache-2.0	LICENSE-APACHE	769f80b5bcb42ed0af4e4d2fd74e1ac9bf843cb80c5a29219d1ef3544428a6bb	present
+rust	keyboard-types	0.8.3	MIT OR Apache-2.0	LICENSE-MIT	31dbbab009f1b2e59a1622d5955dfafc38ebe834000215b49d954c6f85fe927c	present
+rust	libc	0.2.191	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	libc	0.2.191	MIT OR Apache-2.0	LICENSE-MIT	123a331b5dbf04c30097fa43b8f858bc85df671fe776de498d01f3d6b7c1f69e	present
+rust	litemap	0.8.3	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	lock_api	0.4.14	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	lock_api	0.4.14	MIT OR Apache-2.0	LICENSE-MIT	c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5	present
+rust	log	0.4.34	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	log	0.4.34	MIT OR Apache-2.0	LICENSE-MIT	6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb	present
+rust	markup5ever	0.39.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	markup5ever	0.39.0	MIT OR Apache-2.0	LICENSE-MIT	86dd7f026f916daf7511e39951ad8ea8cf55a8db67ae64060dacf829761c18f3	present
+rust	memchr	2.8.3	Unlicense OR MIT	COPYING	01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f	present
+rust	memchr	2.8.3	Unlicense OR MIT	LICENSE-MIT	0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f	present
+rust	mime	0.3.17	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	mime	0.3.17	MIT OR Apache-2.0	LICENSE-MIT	df9cfd06d8a44d9a671eadd39ffd97f166481da015a30f45dfd27886209c5922	present
+rust	miniz_oxide	0.8.9	MIT OR Zlib OR Apache-2.0	LICENSE	4108245a1f2df9d4e94df8abed5b4ba0759bb2f9b40a6b939f1be141077ae50b	present
+rust	miniz_oxide	0.8.9	MIT OR Zlib OR Apache-2.0	LICENSE-APACHE.md	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	miniz_oxide	0.8.9	MIT OR Zlib OR Apache-2.0	LICENSE-MIT.md	799e9ca9d179295ef372f25d3769cdda7d25bb2668add6a6a1e22d1e4c678b8d	present
+rust	miniz_oxide	0.8.9	MIT OR Zlib OR Apache-2.0	LICENSE-ZLIB.md	0a54e647fe54104658b5e563c04c6f9edf251710e47bce692e0bd990a4ddaa39	present
+rust	miniz_oxide	0.9.1	MIT OR Zlib OR Apache-2.0	LICENSE	4108245a1f2df9d4e94df8abed5b4ba0759bb2f9b40a6b939f1be141077ae50b	present
+rust	miniz_oxide	0.9.1	MIT OR Zlib OR Apache-2.0	LICENSE-APACHE.md	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	miniz_oxide	0.9.1	MIT OR Zlib OR Apache-2.0	LICENSE-MIT.md	799e9ca9d179295ef372f25d3769cdda7d25bb2668add6a6a1e22d1e4c678b8d	present
+rust	miniz_oxide	0.9.1	MIT OR Zlib OR Apache-2.0	LICENSE-ZLIB.md	0a54e647fe54104658b5e563c04c6f9edf251710e47bce692e0bd990a4ddaa39	present
+rust	mio	1.2.4	MIT	LICENSE	07919255c7e04793d8ea760d6c2ce32d19f9ff02bdbdde3ce90b1e1880929a9b	present
+rust	moxcms	0.8.1	BSD-3-Clause OR Apache-2.0	LICENSE-APACHE.md	90bf2d659c43045111b65c733ab2a6d4cbcb422a098368c8c58a9ba3db4ed0c5	present
+rust	moxcms	0.8.1	BSD-3-Clause OR Apache-2.0	LICENSE.md	2aa92cada6431e75615e3fe6cb1a9082c98f777d48ae1c087c0da0e37f7b8bff	present
+rust	muda	0.20.0	Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	muda	0.20.0	Apache-2.0 OR MIT	LICENSE-MIT	2ab5537b8c0cb1d475e2145b6a7994b04e7c71e6e5bd836f7f9c47c221a5ad9a	present
+rust	muda	0.20.0	Apache-2.0 OR MIT	LICENSE.spdx	b99f9d43803f2ac979c50949df630bd8eeaf2fcd1b9fdb9093710d70f5dfb63d	present
+rust	new_debug_unreachable	1.0.6	MIT	LICENSE-MIT	f7715d38a3fa1b4ac97c5729740752505a39cb92ee83ab5b102aeb5eaa7cdea4	present
+rust	num-conv	0.2.2	MIT OR Apache-2.0	LICENSE-Apache	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	num-conv	0.2.2	MIT OR Apache-2.0	LICENSE-MIT	e2e245f2b566d0bfafb0f6a04c16b82d710c4e6e7d799e39bb4ef6e541b85b98	present
+rust	num-traits	0.2.19	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	num-traits	0.2.19	MIT OR Apache-2.0	LICENSE-MIT	6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb	present
+rust	objc2	0.6.5	MIT			missing
+rust	objc2-app-kit	0.3.2	Zlib OR Apache-2.0 OR MIT			missing
+rust	objc2-core-foundation	0.3.2	Zlib OR Apache-2.0 OR MIT			missing
+rust	objc2-core-graphics	0.3.2	Zlib OR Apache-2.0 OR MIT			missing
+rust	objc2-encode	4.1.0	MIT			missing
+rust	objc2-exception-helper	0.1.1	Zlib OR Apache-2.0 OR MIT			missing
+rust	objc2-foundation	0.3.2	MIT			missing
+rust	objc2-io-surface	0.3.2	Zlib OR Apache-2.0 OR MIT			missing
+rust	objc2-quartz-core	0.3.2	Zlib OR Apache-2.0 OR MIT			missing
+rust	objc2-web-kit	0.3.2	Zlib OR Apache-2.0 OR MIT			missing
+rust	once_cell	1.21.4	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	once_cell	1.21.4	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	option-ext	0.2.0	MPL-2.0	LICENSE.txt	66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172	present
+rust	parking_lot	0.12.5	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	parking_lot	0.12.5	MIT OR Apache-2.0	LICENSE-MIT	c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5	present
+rust	parking_lot_core	0.9.12	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	parking_lot_core	0.9.12	MIT OR Apache-2.0	LICENSE-MIT	c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5	present
+rust	percent-encoding	2.3.2	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	percent-encoding	2.3.2	MIT OR Apache-2.0	LICENSE-MIT	b38f11f6096706e6de553dabe2a7ed142d59b6fa8c97e290c67496154745cdd5	present
+rust	phf	0.13.1	MIT	LICENSE	0ab4d106b6faac07fb6a051815fd1b4d862d730895e2d7d7358c2f13565e7a38	present
+rust	phf_codegen	0.13.1	MIT	LICENSE	0ab4d106b6faac07fb6a051815fd1b4d862d730895e2d7d7358c2f13565e7a38	present
+rust	phf_generator	0.13.1	MIT	LICENSE	0ab4d106b6faac07fb6a051815fd1b4d862d730895e2d7d7358c2f13565e7a38	present
+rust	phf_macros	0.13.1	MIT	LICENSE	0ab4d106b6faac07fb6a051815fd1b4d862d730895e2d7d7358c2f13565e7a38	present
+rust	phf_shared	0.13.1	MIT	LICENSE	0ab4d106b6faac07fb6a051815fd1b4d862d730895e2d7d7358c2f13565e7a38	present
+rust	pin-project-lite	0.2.17	Apache-2.0 OR MIT	LICENSE-APACHE	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	pin-project-lite	0.2.17	Apache-2.0 OR MIT	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	plist	1.10.2	MIT	LICENCE	5b0ae40d1a35f7ae6591a28e44771240e6a88cb03a66c9189a45b9681639b466	present
+rust	png	0.17.16	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	png	0.17.16	MIT OR Apache-2.0	LICENSE-MIT	eaf40297c75da471f7cda1f3458e8d91b4b2ec866e609527a13acfa93b638652	present
+rust	png	0.18.1	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	png	0.18.1	MIT OR Apache-2.0	LICENSE-MIT	eaf40297c75da471f7cda1f3458e8d91b4b2ec866e609527a13acfa93b638652	present
+rust	potential_utf	0.1.6	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	powerfmt	0.2.1	MIT OR Apache-2.0	LICENSE-Apache	155420c6403d4e0fca34105e3c03fdd6939b64c393c7ec6f95f5b72c5474eab0	present
+rust	powerfmt	0.2.1	MIT OR Apache-2.0	LICENSE-MIT	070dbc7dda03a29296f2d58bdb9b7331af90f2abc9f31df22875d1eabaf29852	present
+rust	precomputed-hash	0.1.1	MIT	LICENSE	7ca6700600dfa9c9497bf5556365067daa802c871ea78239f129309c7a2048f7	present
+rust	proc-macro2	1.0.107	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	proc-macro2	1.0.107	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	pulldown-cmark	0.13.6	MIT	LICENSE	c4f10f55904bdb9f27d3fbf94c354926d6cfe8b982276e556238c258941b243b	present
+rust	pxfm	0.1.30	BSD-3-Clause OR Apache-2.0	LICENSE-APACHE.md	90bf2d659c43045111b65c733ab2a6d4cbcb422a098368c8c58a9ba3db4ed0c5	present
+rust	pxfm	0.1.30	BSD-3-Clause OR Apache-2.0	LICENSE.md	2aa92cada6431e75615e3fe6cb1a9082c98f777d48ae1c087c0da0e37f7b8bff	present
+rust	quick-error	2.0.1	MIT/Apache-2.0	LICENSE-APACHE	c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08	present
+rust	quick-error	2.0.1	MIT/Apache-2.0	LICENSE-MIT	058f01fe181608d027fcde7e528fc03ea3cf90f30903c407644b0a9bbc54f500	present
+rust	quick-xml	0.42.0	MIT	LICENSE-MIT.md	f0cf9b1c62bbe3bd3a69f5f79c7158f513f612b4940a0a812d1db39d605318bc	present
+rust	quote	1.0.47	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	quote	1.0.47	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	raw-window-handle	0.6.2	MIT OR Apache-2.0 OR Zlib	LICENSE-APACHE.md	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	raw-window-handle	0.6.2	MIT OR Apache-2.0 OR Zlib	LICENSE-MIT.md	9c5a80639a57c1c945570e7ebbca0706305849ce3c098021325cca9db2f7acc4	present
+rust	raw-window-handle	0.6.2	MIT OR Apache-2.0 OR Zlib	LICENSE-ZLIB.md	ae895c8576e682f310fb70d93d9f99b1dd82872094c54a8f6cdfe2ca5c2d6ecb	present
+rust	ref-cast	1.0.27	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	ref-cast	1.0.27	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	ref-cast-impl	1.0.27	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	ref-cast-impl	1.0.27	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	regex	1.13.1	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	regex	1.13.1	MIT OR Apache-2.0	LICENSE-MIT	6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb	present
+rust	regex-automata	0.4.18	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	regex-automata	0.4.18	MIT OR Apache-2.0	LICENSE-MIT	6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb	present
+rust	regex-syntax	0.8.11	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	regex-syntax	0.8.11	MIT OR Apache-2.0	LICENSE-MIT	6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb	present
+rust	rfd	0.17.2	MIT	LICENSE	65fc947f4bac882a2cd104ef73c246b1b037059df9f2b3a58b7f77f0b9e56071	present
+rust	rustc-hash	2.1.3	Apache-2.0 OR MIT	LICENSE-APACHE	95bd3988beee069fa2848f648dab43cc6e0b2add2ad6bcb17360caf749802bcc	present
+rust	rustc-hash	2.1.3	Apache-2.0 OR MIT	LICENSE-MIT	30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652	present
+rust	rustc_version	0.4.1	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	rustc_version	0.4.1	MIT OR Apache-2.0	LICENSE-MIT	c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5	present
+rust	same-file	1.0.6	Unlicense/MIT	COPYING	01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f	present
+rust	same-file	1.0.6	Unlicense/MIT	LICENSE-MIT	cb3c929a05e6cbc9de9ab06a4c57eeb60ca8c724bef6c138c87d3a577e27aa14	present
+rust	schemars	0.8.22	MIT	LICENSE	1954992a2b32e8a2af24a4c11b726902e344c1934b947a77f04d404908f8db30	present
+rust	schemars	0.9.0	MIT	LICENSE	1954992a2b32e8a2af24a4c11b726902e344c1934b947a77f04d404908f8db30	present
+rust	schemars	1.2.3	MIT	LICENSE	1954992a2b32e8a2af24a4c11b726902e344c1934b947a77f04d404908f8db30	present
+rust	schemars_derive	0.8.22	MIT	LICENSE	1954992a2b32e8a2af24a4c11b726902e344c1934b947a77f04d404908f8db30	present
+rust	scopeguard	1.2.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	scopeguard	1.2.0	MIT OR Apache-2.0	LICENSE-MIT	fb77f0a9c53e473abe5103c8632ef9f0f2874d4fb3f17cb2d8c661aab9cee9d7	present
+rust	selectors	0.38.0	MPL-2.0			missing
+rust	semver	1.0.28	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	semver	1.0.28	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	serde	1.0.229	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	serde	1.0.229	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	serde-untagged	0.1.9	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	serde-untagged	0.1.9	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	serde_core	1.0.229	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	serde_core	1.0.229	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	serde_derive	1.0.229	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	serde_derive	1.0.229	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	serde_derive_internals	0.29.1	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	serde_derive_internals	0.29.1	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	serde_json	1.0.154	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	serde_json	1.0.154	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	serde_repr	0.1.21	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	serde_repr	0.1.21	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	serde_spanned	1.1.2	MIT OR Apache-2.0	LICENSE-APACHE	249fdb6694467dd615b259f7ddde07be3f8ae5a72cecebb0e24f6629af4215fe	present
+rust	serde_spanned	1.1.2	MIT OR Apache-2.0	LICENSE-MIT	6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6	present
+rust	serde_with	3.24.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	serde_with	3.24.0	MIT OR Apache-2.0	LICENSE-MIT	7576269ea71f767b99297934c0b2367532690f8c4badc695edf8e04ab6a1e545	present
+rust	serde_with_macros	3.24.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	serde_with_macros	3.24.0	MIT OR Apache-2.0	LICENSE-MIT	7576269ea71f767b99297934c0b2367532690f8c4badc695edf8e04ab6a1e545	present
+rust	serialize-to-javascript	0.1.2	MIT OR Apache-2.0	LICENSE-APACHE	c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4	present
+rust	serialize-to-javascript	0.1.2	MIT OR Apache-2.0	LICENSE-MIT	e53a7165e8bc3ced5e5628404b3d2d28ecc14ad720f1c09ba28385d5151ecf93	present
+rust	serialize-to-javascript-impl	0.1.2	MIT OR Apache-2.0	LICENSE-APACHE	c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4	present
+rust	serialize-to-javascript-impl	0.1.2	MIT OR Apache-2.0	LICENSE-MIT	e53a7165e8bc3ced5e5628404b3d2d28ecc14ad720f1c09ba28385d5151ecf93	present
+rust	servo_arc	0.4.3	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	servo_arc	0.4.3	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	sha2	0.10.9	MIT OR Apache-2.0	LICENSE-APACHE	a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5	present
+rust	sha2	0.10.9	MIT OR Apache-2.0	LICENSE-MIT	b4eb00df6e2a4d22518fcaa6a2b4646f249b3a3c9814509b22bd2091f1392ff1	present
+rust	shlex	2.0.1	MIT OR Apache-2.0	LICENSE-APACHE	553fffcd9b1cb158bc3e9edc35da85ca5c3b3d7d2e61c883ebcfa8a65814b583	present
+rust	shlex	2.0.1	MIT OR Apache-2.0	LICENSE-MIT	4455bf75a91154108304cb283e0fea9948c14f13e20d60887cf2552449dea3b1	present
+rust	simd-adler32	0.3.10	MIT	LICENSE.md	42a35170233e83e18856792e748de4c1ce4a63b2afce9a370c89ef3fe23f9f2d	present
+rust	siphasher	1.0.4	MIT OR Apache-2.0	COPYING	c962ee4d1d05ddc138b202b2540219ebc57893fcf97b364852094a9a94ce1365	present
+rust	siphasher	1.0.4	MIT OR Apache-2.0	LICENSE-APACHE	cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30	present
+rust	siphasher	1.0.4	MIT OR Apache-2.0	LICENSE-MIT	f9c4c77baa3828004ee54b8a4f2db2e88ed44a6237a493965bf551fac0fcb62d	present
+rust	smallvec	1.16.4	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	smallvec	1.16.4	MIT OR Apache-2.0	LICENSE-MIT	0b28172679e0009b655da42797c03fd163a3379d5cfa67ba1f1655e974a2a1a9	present
+rust	socket2	0.6.5	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	socket2	0.6.5	MIT OR Apache-2.0	LICENSE-MIT	378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397	present
+rust	stable_deref_trait	1.2.1	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	stable_deref_trait	1.2.1	MIT OR Apache-2.0	LICENSE-MIT	5e05b024f653a5ce199e77cbbbd42fb5553562ec714b819421ed0c3e552a75d7	present
+rust	static_vcruntime	3.0.0	MIT OR Apache-2.0 OR Zlib	LICENSE	b9290e9d37bc53272ff4f3fb392c1762169fc0a8b797d164803049c81eacb48c	present
+rust	static_vcruntime	3.0.0	MIT OR Apache-2.0 OR Zlib	LICENSE-APACHE	e3ba223bb1423f0aad8c3dfce0fe3148db48926d41e6fbc3afbbf5ff9e1c89cb	present
+rust	static_vcruntime	3.0.0	MIT OR Apache-2.0 OR Zlib	LICENSE-MIT	748c208045a6f00734dbc85a1c0e401c9a25e1f83fc756e99916750dbd2469a7	present
+rust	static_vcruntime	3.0.0	MIT OR Apache-2.0 OR Zlib	LICENSE-ZLIB	c1ff532091cac33bdecedf7268ff4f9bc3ddcffba494249fb723033e9e782f1a	present
+rust	string_cache	0.9.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	string_cache	0.9.0	MIT OR Apache-2.0	LICENSE-MIT	62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3	present
+rust	string_cache_codegen	0.6.1	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	string_cache_codegen	0.6.1	MIT OR Apache-2.0	LICENSE-MIT	62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3	present
+rust	strsim	0.11.1	MIT	LICENSE	1e697ce8d21401fbf1bddd9b5c3fd4c4c79ae1e3bdf51f81761c85e11d5a89cd	present
+rust	swift-rs	1.0.9	MIT OR Apache-2.0	LICENSE-APACHE	908a661cf763bddfa04f2739bea561be62a246f03ad53fcb2272d3ddbd1d943f	present
+rust	swift-rs	1.0.9	MIT OR Apache-2.0	LICENSE-MIT	f3c3e9f4febe81ff14ccc233c344e6e60051290d1c1e5a2c670d63cc3608a5bb	present
+rust	syn	2.0.119	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	syn	2.0.119	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	syn	3.0.9	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	syn	3.0.9	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	synstructure	0.14.0	MIT	LICENSE	219920e865eee70b7dcfc948a86b099e7f4fe2de01bcca2ca9a20c0a033f2b59	present
+rust	tao	0.37.1	Apache-2.0	LICENSE	6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a	present
+rust	tao	0.37.1	Apache-2.0	LICENSE.spdx	02b6448337b757772d90e5f31caaa0f9e6afaad2221c01771d0a3deaa4d4196c	present
+rust	tauri	2.12.4	Apache-2.0 OR MIT	LICENSE-APACHE-2.0	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	tauri	2.12.4	Apache-2.0 OR MIT	LICENSE-MIT	9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d	present
+rust	tauri-build	2.7.3	Apache-2.0 OR MIT	LICENSE-APACHE-2.0	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	tauri-build	2.7.3	Apache-2.0 OR MIT	LICENSE-MIT	9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d	present
+rust	tauri-codegen	2.7.3	Apache-2.0 OR MIT	LICENSE-APACHE-2.0	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	tauri-codegen	2.7.3	Apache-2.0 OR MIT	LICENSE-MIT	9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d	present
+rust	tauri-macros	2.7.3	Apache-2.0 OR MIT	LICENSE-APACHE-2.0	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	tauri-macros	2.7.3	Apache-2.0 OR MIT	LICENSE-MIT	9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d	present
+rust	tauri-plugin	2.7.2	Apache-2.0 OR MIT			missing
+rust	tauri-plugin-dialog	2.8.4	Apache-2.0 OR MIT	LICENSE.spdx	eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef	present
+rust	tauri-plugin-dialog	2.8.4	Apache-2.0 OR MIT	LICENSE_APACHE-2.0	0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9	present
+rust	tauri-plugin-dialog	2.8.4	Apache-2.0 OR MIT	LICENSE_MIT	89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607	present
+rust	tauri-plugin-fs	2.7.1	Apache-2.0 OR MIT	LICENSE.spdx	eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef	present
+rust	tauri-plugin-fs	2.7.1	Apache-2.0 OR MIT	LICENSE_APACHE-2.0	0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9	present
+rust	tauri-plugin-fs	2.7.1	Apache-2.0 OR MIT	LICENSE_MIT	89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607	present
+rust	tauri-runtime	2.12.2	Apache-2.0 OR MIT	LICENSE-APACHE-2.0	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	tauri-runtime	2.12.2	Apache-2.0 OR MIT	LICENSE-MIT	9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d	present
+rust	tauri-runtime-wry	2.12.2	Apache-2.0 OR MIT	LICENSE-APACHE-2.0	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	tauri-runtime-wry	2.12.2	Apache-2.0 OR MIT	LICENSE-MIT	9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d	present
+rust	tauri-utils	2.10.2	Apache-2.0 OR MIT	LICENSE-APACHE-2.0	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	tauri-utils	2.10.2	Apache-2.0 OR MIT	LICENSE-MIT	9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d	present
+rust	tauri-winres	0.3.7	MIT	LICENSE	d9fa6b0e6fed50d4961b9c931587af6bd127df13e9473418d3e324f427db4f06	present
+rust	tendril	0.5.1	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	tendril	0.5.1	MIT OR Apache-2.0	LICENSE-MIT	60a7062291b01ba068f300612cdbdc20382ac1d4934f07bcdd7167c15299f309	present
+rust	thiserror	2.0.21	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	thiserror	2.0.21	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	thiserror-impl	2.0.21	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	thiserror-impl	2.0.21	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	time	0.3.55	MIT OR Apache-2.0	LICENSE-Apache	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	time	0.3.55	MIT OR Apache-2.0	LICENSE-MIT	2537228d9a1b44a5dc595241349cae7090b326c8de165aaf89bfddef4a00d0fc	present
+rust	time-core	0.1.9	MIT OR Apache-2.0	LICENSE-Apache	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	time-core	0.1.9	MIT OR Apache-2.0	LICENSE-MIT	2537228d9a1b44a5dc595241349cae7090b326c8de165aaf89bfddef4a00d0fc	present
+rust	time-macros	0.2.32	MIT OR Apache-2.0	LICENSE-Apache	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
+rust	time-macros	0.2.32	MIT OR Apache-2.0	LICENSE-MIT	2537228d9a1b44a5dc595241349cae7090b326c8de165aaf89bfddef4a00d0fc	present
+rust	tinystr	0.8.4	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	tinyvec	1.13.3	Zlib OR Apache-2.0 OR MIT	LICENSE-APACHE.md	cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30	present
+rust	tinyvec	1.13.3	Zlib OR Apache-2.0 OR MIT	LICENSE-MIT.md	fd80a26fbb3f644af1fa994134446702932968519797227e07a1368dea80f0bc	present
+rust	tinyvec	1.13.3	Zlib OR Apache-2.0 OR MIT	LICENSE-ZLIB.md	84b34dd7608f7fb9b17bd588a6bf392bf7de504e2716f024a77d89f1b145a151	present
+rust	tokio	1.54.1	MIT	LICENSE	253cd04c6714889df2d32f3f64d669179a1c95c76ac43c40882c52eb06bc3552	present
+rust	toml	1.1.8+spec-1.1.0	MIT OR Apache-2.0	LICENSE-APACHE	249fdb6694467dd615b259f7ddde07be3f8ae5a72cecebb0e24f6629af4215fe	present
+rust	toml	1.1.8+spec-1.1.0	MIT OR Apache-2.0	LICENSE-MIT	6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6	present
+rust	toml_datetime	1.1.2+spec-1.1.0	MIT OR Apache-2.0	LICENSE-APACHE	249fdb6694467dd615b259f7ddde07be3f8ae5a72cecebb0e24f6629af4215fe	present
+rust	toml_datetime	1.1.2+spec-1.1.0	MIT OR Apache-2.0	LICENSE-MIT	6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6	present
+rust	toml_parser	1.1.5+spec-1.1.0	MIT OR Apache-2.0	LICENSE-APACHE	249fdb6694467dd615b259f7ddde07be3f8ae5a72cecebb0e24f6629af4215fe	present
+rust	toml_parser	1.1.5+spec-1.1.0	MIT OR Apache-2.0	LICENSE-MIT	6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6	present
+rust	toml_writer	1.1.3+spec-1.1.0	MIT OR Apache-2.0	LICENSE-APACHE	249fdb6694467dd615b259f7ddde07be3f8ae5a72cecebb0e24f6629af4215fe	present
+rust	toml_writer	1.1.3+spec-1.1.0	MIT OR Apache-2.0	LICENSE-MIT	6efb0476a1cc085077ed49357026d8c173bf33017278ef440f222fb9cbcb66e6	present
+rust	tray-icon	0.25.1	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	tray-icon	0.25.1	MIT OR Apache-2.0	LICENSE-MIT	2ab5537b8c0cb1d475e2145b6a7994b04e7c71e6e5bd836f7f9c47c221a5ad9a	present
+rust	tray-icon	0.25.1	MIT OR Apache-2.0	LICENSE.spdx	6c1e5d0ccf5e8951401cb964036ae664d52fc8d1148173b53bc54fc534f5d404	present
+rust	typeid	1.0.3	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	typeid	1.0.3	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	typenum	1.20.1	MIT OR Apache-2.0	LICENSE	db11fec9946737df39ca3898d9cd8c10ec6f6c3a884a6802b0ad0b81b4e8f23a	present
+rust	typenum	1.20.1	MIT OR Apache-2.0	LICENSE-APACHE	516b24e051bf5630880ebbd55c40a25ce9552ebaf8970a53e8976eb70e522406	present
+rust	typenum	1.20.1	MIT OR Apache-2.0	LICENSE-MIT	a825bd853ab71619a4923d7b4311221427848070ff44d990da39b0b274c1683f	present
+rust	unicase	2.10.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	unicase	2.10.0	MIT OR Apache-2.0	LICENSE-MIT	4f6bd11a0f17fe5b085ace1daaedb7b002a08316850dd9577c246c6a68a68e8c	present
+rust	unicode-ident	1.0.27	(MIT OR Apache-2.0) AND Unicode-3.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	unicode-ident	1.0.27	(MIT OR Apache-2.0) AND Unicode-3.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	unicode-ident	1.0.27	(MIT OR Apache-2.0) AND Unicode-3.0	LICENSE-UNICODE	f7db81051789b729fea528a63ec4c938fdcb93d9d61d97dc8cc2e9df6d47f2a1	present
+rust	url	2.5.8	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	url	2.5.8	MIT OR Apache-2.0	LICENSE-MIT	b38f11f6096706e6de553dabe2a7ed142d59b6fa8c97e290c67496154745cdd5	present
+rust	urlpattern	0.6.0	MIT	LICENSE	5cf1c9dc617e4cad7fa03181ff893601ad5243aa3be527ef39034e1cd6377676	present
+rust	utf8_iter	1.0.4	Apache-2.0 OR MIT	LICENSE-APACHE	cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30	present
+rust	utf8_iter	1.0.4	Apache-2.0 OR MIT	LICENSE-MIT	3fa4ca83dcc9237839b1bdeb2e6d16bdfb5ec0c5ce42b24694d8bbf0dcbef72c	present
+rust	uuid	1.29.0	Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	uuid	1.29.0	Apache-2.0 OR MIT	LICENSE-MIT	436bc5a105d8e57dcd8778730f3754f7bf39c14d2f530e4cde4bd2d17a83ec3d	present
+rust	version_check	0.9.5	MIT/Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	version_check	0.9.5	MIT/Apache-2.0	LICENSE-MIT	b7e650f3fce5c53249d1cdc608b54df156a97edd636cf9d23498d0cfe7aec63e	present
+rust	walkdir	2.5.0	Unlicense/MIT	COPYING	01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f	present
+rust	walkdir	2.5.0	Unlicense/MIT	LICENSE-MIT	0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f	present
+rust	web-time	1.1.0	MIT OR Apache-2.0	LICENSE-APACHE	54a744942eb3fa63a74d8d359989ed6962c04f3f10ff20cfa08ff8aa7efbe4e6	present
+rust	web-time	1.1.0	MIT OR Apache-2.0	LICENSE-MIT	f428305bbf2e70fbd807af0f3c7ac1b7acfb95311640f451e9d2e48db6d7e96b	present
+rust	web_atoms	0.2.6	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	web_atoms	0.2.6	MIT OR Apache-2.0	LICENSE-MIT	86dd7f026f916daf7511e39951ad8ea8cf55a8db67ae64060dacf829761c18f3	present
+rust	weezl	0.1.12	MIT OR Apache-2.0	LICENSE-APACHE	769f80b5bcb42ed0af4e4d2fd74e1ac9bf843cb80c5a29219d1ef3544428a6bb	present
+rust	weezl	0.1.12	MIT OR Apache-2.0	LICENSE-MIT	573f5227db835cd30bbdd3aed3f82615f80119a4d5c82b4daf642dbfe2b6afde	present
+rust	window-vibrancy	0.8.1	Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	window-vibrancy	0.8.1	Apache-2.0 OR MIT	LICENSE-MIT	617b85f62a4f1b6a62d3d9f28f6d7003b7f68a70b7675a8174bbcc68401ac62d	present
+rust	window-vibrancy	0.8.1	Apache-2.0 OR MIT	LICENSE.spdx	7ccef0d35e8507fa02d7e904a5277d62723f9ec576d52f6a865cab7b4dbf12ad	present
+rust	winnow	1.0.4	MIT	LICENSE-MIT	cb5aedb296c5246d1f22e9099f925a65146f9f0d6b4eebba97fd27a6cdbbab2d	present
+rust	writeable	0.6.4	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	wry	0.57.0	Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	wry	0.57.0	Apache-2.0 OR MIT	LICENSE-MIT	ef88893533af22ffbb68ceef0724ba1389518df26165a34f3c99ad30b884df4f	present
+rust	wry	0.57.0	Apache-2.0 OR MIT	LICENSE.spdx	26235c41e314fb0da35b33b2bb5bcbc4dd523839f8eeca52efcd43586f441fb5	present
+rust	yoke	0.8.3	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	yoke-derive	0.8.4	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	zerofrom	0.1.8	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	zerofrom-derive	0.1.8	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	zerotrie	0.2.5	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	zerovec	0.11.8	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	zerovec-derive	0.11.6	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	zlib-rs	0.6.8	Zlib	LICENSE	e72111c52b7d96ebe25348dee19f0744f444d3c95ae6b1ecb6ccaecc5bce05ba	present
+rust	zmij	1.0.23	MIT	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	zune-core	0.5.3	MIT OR Apache-2.0 OR Zlib	LICENSE-APACHE	c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4	present
+rust	zune-core	0.5.3	MIT OR Apache-2.0 OR Zlib	LICENSE-MIT	d30047bca3b516639339a3c279bb84c3483124fb5a9dafe3c75056a85090e745	present
+rust	zune-core	0.5.3	MIT OR Apache-2.0 OR Zlib	LICENSE-ZLIB	d201d14804d3bcd3b944147173175e4abfbd838b7c8069b6bd3452496bf13e6c	present
+rust	zune-jpeg	0.5.15	MIT OR Apache-2.0 OR Zlib	LICENSE-APACHE	c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4	present
+rust	zune-jpeg	0.5.15	MIT OR Apache-2.0 OR Zlib	LICENSE-MIT	d30047bca3b516639339a3c279bb84c3483124fb5a9dafe3c75056a85090e745	present
+rust	zune-jpeg	0.5.15	MIT OR Apache-2.0 OR Zlib	LICENSE-ZLIB	d201d14804d3bcd3b944147173175e4abfbd838b7c8069b6bd3452496bf13e6c	present

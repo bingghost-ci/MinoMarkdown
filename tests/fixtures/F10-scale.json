@@ -1,0 +1,19 @@
+{
+  "id": "F10",
+  "generator": "scripts/generate-scale-fixtures.mjs",
+  "seed": "xorshift32(index+1)",
+  "output": "a caller-supplied empty temporary directory",
+  "expected": {
+    "count": 10023,
+    "totalBytes": 24511362,
+    "manifestSha256": "4db0dd87dc7d3936a4f0efc44ec4a7b1c8fa4d4d021a3ac8d0490a891ad53c34",
+    "documents": [
+      {"path":"documents/ordinary-100KiB.md","bytes":102400,"sha256":"473b5579eceb8f6c3487c9e24b293fa892b11c66c12137a55aff4562a89ebecd"},
+      {"path":"documents/middle-1MiB-10000-lines.md","bytes":1048576,"sha256":"0001e9403a32e0929de0f8cb0a9bd035d7ac1c05d1df97896b947c61704fbc27"},
+      {"path":"documents/boundary-5MiB.md","bytes":5242880,"sha256":"dad57d9941babbf2679c802332a18f0182c1baf53fb4d99f279fe12beac1023d"}
+    ],
+    "directoryEntries": 10000,
+    "imageCount": 20,
+    "imageDimensions": [512, 512]
+  }
+}

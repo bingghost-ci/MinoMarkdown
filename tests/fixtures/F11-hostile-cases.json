@@ -1,0 +1,14 @@
+{
+  "id": "F11",
+  "document": "markdown/F11-hostile.md",
+  "cases": [
+    {"kind": "script", "source": "<script>alert('fixture only')</script>"},
+    {"kind": "event-attribute", "source": "<img src=x onerror=alert(1)>"},
+    {"kind": "dangerous-url", "source": "javascript:alert%281%29"},
+    {"kind": "path-traversal", "source": "../outside.png"},
+    {"kind": "encoded-traversal", "source": "%2e%2e%2foutside.png"},
+    {"kind": "symlink-escape", "recipe": "create a symlink inside a temporary authorized workspace pointing to a synthetic marker outside that workspace"},
+    {"kind": "oversize-pixels", "asset": "assets/synthetic-large-4096.png", "dimensions": [4096, 4096]}
+  ],
+  "expected": "Source protection or rejection before unsafe rendering, navigation, resource access, or export"
+}

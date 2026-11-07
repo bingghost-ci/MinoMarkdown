@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "The initial main window has no filesystem or network plugin permissions.",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:window:allow-set-size"]
+}
