@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -8,6 +8,7 @@ import { compareMarkdown } from '../core/markdown/compatibility'
 import { composeVisualMarkdown, prepareMarkdown, type PreparedMarkdown } from '../core/markdown/codec'
 import { EditorAdapter, type EditorCommand, type PendingAsset, type ToolbarState } from '../features/editor/EditorAdapter'
 import { safeLinkHref } from '../features/editor/linkSafety'
+import { renderMarkdownPreview } from '../features/preview/renderMarkdownPreview'
 import { beginSave, clearExternalConflict, createSession, editSession, externalConflict, isDirty, saveCanceled, saveFailed, saveSucceeded, type DocumentSession } from '../features/document/session'
 import { mayLeaveDocument, type UnsavedAction } from '../features/document/lifecycle'
 import { renderHtml } from '../features/export/renderHtml'
@@ -138,6 +139,8 @@ async function hydrateImages(opened: OpenResult): Promise<DocumentState> {
 
 export function App() {
   const editorRoot = useRef<HTMLDivElement>(null)
+  const previewRoot = useRef<HTMLDivElement>(null)
+  const forceSourceView = useRef(false)
   const sidebarRoot = useRef<HTMLElement>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const imageInputAction = useRef<'insert' | 'replace'>('insert')
@@ -171,6 +174,7 @@ export function App() {
   const [draftsOpen, setDraftsOpen] = useState(false)
   const [toolbar, setToolbar] = useState<ToolbarState>({ ready: false, composing: false, block: 'paragraph', marks: [], canUndo: false, canRedo: false, inTable: false, linkHref: null, imageAlt: null })
   const [linkOpen, setLinkOpen] = useState(false)
+  const [sourceView, setSourceView] = useState(false)
   const [tablePicker, setTablePicker] = useState<{ x: number; y: number } | null>(null)
   const [linkHref, setLinkHref] = useState('')
   const [imageAltOpen, setImageAltOpen] = useState(false)
@@ -194,6 +198,11 @@ export function App() {
   const desktop = isTauri()
   busyRef.current = busy
   const dirty = isDirty(session)
+  const previewHtml = useMemo(() => {
+    if (document.mode !== 'source-protected' || sourceView || document.sourceText.length > 5 * 1024 * 1024) return null
+    try { return renderMarkdownPreview(document.sourceText) }
+    catch { return null }
+  }, [document.mode, document.sourceText, sourceView])
   const canProceedRef = useRef<(finalizeDiscard?: boolean) => Promise<boolean>>(async () => true)
   const saveDocumentRef = useRef<() => Promise<boolean>>(async () => false)
   const closeWindowRef = useRef<() => Promise<void>>(async () => undefined)
@@ -363,6 +372,8 @@ export function App() {
     if (sessionRef.current.generation !== document.id) updateSession(createSession(document.id, document.revision || null))
     setToolbar({ ready: false, composing: false, block: 'paragraph', marks: [], canUndo: false, canRedo: false, inTable: false, linkHref: null, imageAlt: null })
     setLinkOpen(false)
+    setSourceView(forceSourceView.current)
+    forceSourceView.current = false
     setTablePicker(null)
     setImageAltOpen(false)
     setImageError(null)
@@ -1178,6 +1189,7 @@ export function App() {
       ? composeVisualMarkdown(document.prepared.analysis, instance.getPersistableMarkdown())
       : document.originalMarkdown
     const id = nextDocumentId++
+    forceSourceView.current = true
     updateSession({ ...sessionRef.current, generation: id })
     setDocument({ ...document, id, mode: 'source-protected', sourceText })
   }
@@ -1203,6 +1215,29 @@ export function App() {
     event.currentTarget.closest('details')?.removeAttribute('open')
     const rect = event.currentTarget.getBoundingClientRect()
     setTablePicker({ x: rect.left, y: rect.bottom })
+  }
+
+  function onPreviewClick(event: MouseEvent<HTMLDivElement>) {
+    const target = event.target
+    if (!(target instanceof Element)) return
+    const anchor = target.closest<HTMLAnchorElement>('a[href]')
+    if (!anchor) return
+    event.preventDefault()
+    const href = anchor.getAttribute('href') ?? ''
+    if (!href.startsWith('#')) {
+      if (!document.entryToken) return
+      let name: string
+      try { name = decodeURIComponent(href.split(/[?#]/, 1)[0]).replace(/^\.\//, '') } catch { return }
+      if (!name || name.includes('/') || name.includes('\\') || name === '.' || name === '..' || !/\.(?:md|markdown)$/i.test(name)) return
+      const siblings = Object.values(tree).find((state) => state.entries.some((entry) => entry.token === document.entryToken))?.entries
+      const sibling = siblings?.find((entry) => !entry.directory && entry.name === name)
+      if (sibling) void openWorkspaceEntry(sibling.token)
+      return
+    }
+    let id: string
+    try { id = decodeURIComponent(href.slice(1)) } catch { return }
+    const destination = window.document.getElementById(`user-content-${id}`)
+    if (destination && previewRoot.current?.contains(destination)) destination.scrollIntoView({ block: 'start' })
   }
 
   async function switchToVisual() {
@@ -1317,6 +1352,10 @@ export function App() {
               {toolbar.imageAlt !== null && <><div className="menu-separator" /><button type="button" className="menu-command" onClick={() => { adapter.current?.captureSelection(); setImageAltText(toolbar.imageAlt ?? ''); setImageAltOpen(true) }}><Pencil aria-hidden="true" />{t('图片说明')}</button><button type="button" className="menu-command" onClick={() => { adapter.current?.captureSelection(); imageInputAction.current = 'replace'; imageInput.current?.click() }}><ImageIcon aria-hidden="true" />{t('替换图片')}</button></>}
             </div></details>
             </>}
+            {document.mode === 'source-protected' && <div className="editor-width-switch" role="group" aria-label={t('文档视图')}>
+              <button type="button" aria-pressed={!sourceView} disabled={previewHtml === null} onClick={() => setSourceView(false)}>{t('预览')}</button>
+              <button type="button" aria-pressed={sourceView || previewHtml === null} onClick={() => setSourceView(true)}>{t('编辑源码')}</button>
+            </div>}
             <span className="toolbar-spacer" />
             {document.mode === 'visual' && <div className="toolbar-group">{toolbarItems.filter((item) => item.command === 'undo' || item.command === 'redo').map((item) => renderToolbarButton(item))}</div>}
             <span className="toolbar-divider" aria-hidden="true" />
@@ -1335,7 +1374,9 @@ export function App() {
           </div>}
           {document.mode === 'visual'
             ? <div key={document.id} ref={editorRoot} className="editor-root" />
-            : <textarea key={document.id} className="source-editor" aria-label={t('源码保护编辑区域')} value={document.sourceText} onChange={(event) => {
+            : !sourceView && previewHtml !== null
+              ? <div key={document.id} ref={previewRoot} className="editor-root markdown-preview" aria-label={t('Markdown 预览')} onClick={onPreviewClick}><article className="markdown-preview-content" dangerouslySetInnerHTML={{ __html: previewHtml }} /></div>
+              : <textarea key={document.id} className="source-editor" aria-label={t('源码保护编辑区域')} value={document.sourceText} onChange={(event) => {
               const value = event.target.value
               setDocument((current) => ({ ...current, sourceText: value }))
               if (sessionRef.current.generation === document.id) updateSession(editSession(sessionRef.current))

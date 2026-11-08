@@ -4,6 +4,7 @@ const english: Record<string, string> = {
   '新建文档': 'New Document', '打开文件夹': 'Open Folder', '打开文件': 'Open File', '新建': 'New', '保存': 'Save', '另存为': 'Save As',
   '隐藏文件栏': 'Hide Sidebar', '显示文件栏': 'Show Sidebar', '文档操作': 'File Actions', '文档更多操作': 'More File Actions',
   '源码模式': 'Source Mode', '可视化模式': 'Visual Mode', '导出 HTML': 'Export HTML', '打印 / PDF': 'Print / PDF',
+  '文档视图': 'Document View', '编辑源码': 'Edit Source', 'Markdown 预览': 'Markdown Preview',
   '导出 MD + 图片': 'Export MD + Images', '仅正文 MD': 'Text-only MD', '图片处理失败': 'Image Processing Failed', '重试': 'Retry',
   '也可删除该图片后重新插入。': 'You can also remove the image and insert it again.',
   '磁盘文件已删除': 'File Deleted on Disk', '磁盘文件已改变': 'File Changed on Disk',
