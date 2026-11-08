@@ -21,6 +21,7 @@ const english: Record<string, string> = {
   'Markdown 编辑区域': 'Markdown Editor', '打开的文档': 'Open Documents', '未保存': 'Unsaved', '源码保护': 'Source Protection',
   '可视化编辑': 'Visual Editor', '编辑工具栏': 'Editor Toolbar', '段落样式': 'Paragraph Style', '正文': 'Paragraph', '标题': 'Heading',
   '插入链接': 'Insert Link', '插入图片': 'Insert Image', '更多编辑工具': 'More Editor Tools', '插入表格': 'Insert Table',
+  '选择表格列数和行数': 'Choose table columns and rows', '移动鼠标选择大小，松开创建': 'Drag to select a size, release to insert',
   '加行': 'Add Row', '加列': 'Add Column', '删行': 'Delete Row', '删列': 'Delete Column',
   '左对齐': 'Align Left', '居中': 'Center', '右对齐': 'Align Right', '图片说明': 'Image Description', '替换图片': 'Replace Image',
   '正文显示模式': 'Editor Width', '宽屏': 'Wide', '编辑链接': 'Edit Link', '链接地址': 'Link Address',

@@ -1,9 +1,9 @@
 import { Crepe, CrepeFeature } from '@milkdown/crepe'
 import { insertImageCommand } from '@milkdown/kit/preset/commonmark'
 import { callCommand } from '@milkdown/kit/utils'
-import { editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
+import { commandsCtx, editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import { undoDepth, redoDepth } from '@milkdown/kit/prose/history'
-import { toggleStrongCommand, toggleEmphasisCommand, toggleInlineCodeCommand, wrapInHeadingCommand, turnIntoTextCommand, wrapInBulletListCommand, wrapInOrderedListCommand, wrapInBlockquoteCommand, insertHrCommand, createCodeBlockCommand } from '@milkdown/kit/preset/commonmark'
+import { toggleStrongCommand, toggleEmphasisCommand, toggleInlineCodeCommand, wrapInHeadingCommand, turnIntoTextCommand, wrapInBulletListCommand, wrapInOrderedListCommand, wrapInBlockquoteCommand, insertHrCommand, createCodeBlockCommand, clearTextInCurrentBlockCommand } from '@milkdown/kit/preset/commonmark'
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
 import { undoCommand, redoCommand } from '@milkdown/kit/plugin/history'
 import { TextSelection, NodeSelection } from '@milkdown/kit/prose/state'
@@ -31,7 +31,7 @@ export class EditorAdapter {
   private readonly onToolbarChange?: (state: ToolbarState) => void
   private readonly onImageError?: (message: string | null) => void
 
-  constructor(root: HTMLElement, markdown: string, onChange?: () => void, imageUrls: Map<string, string> = new Map(), recoveredAssets: Map<string, { bytes: number[]; mime: string }> = new Map(), pendingFiles: Map<string, File> = new Map(), onToolbarChange?: (state: ToolbarState) => void, onImageError?: (message: string | null) => void) {
+  constructor(root: HTMLElement, markdown: string, onChange?: () => void, imageUrls: Map<string, string> = new Map(), recoveredAssets: Map<string, { bytes: number[]; mime: string }> = new Map(), pendingFiles: Map<string, File> = new Map(), onToolbarChange?: (state: ToolbarState) => void, onImageError?: (message: string | null) => void, onTableRequest?: (anchor: { x: number; y: number }) => void) {
     this.root = root
     this.persisted = imageUrls
     this.onToolbarChange = onToolbarChange
@@ -50,6 +50,20 @@ export class EditorAdapter {
         [CrepeFeature.TopBar]: false,
       },
       featureConfigs: {
+        [CrepeFeature.BlockEdit]: {
+          buildMenu: (builder) => {
+            const table = builder.getGroup('advanced').group.items.find((item) => item.key === 'table')
+            if (!table) return
+            table.onRun = (ctx) => {
+              ctx.get(commandsCtx).call(clearTextInCurrentBlockCommand.key)
+              const view = ctx.get(editorViewCtx)
+              const { from, to } = view.state.selection
+              this.savedSelection = { from, to, node: false }
+              const rect = view.coordsAtPos(from)
+              onTableRequest?.({ x: rect.left, y: rect.bottom })
+            }
+          },
+        },
         [CrepeFeature.ImageBlock]: {
           onUpload: async (file) => this.registerImage(file),
         },
@@ -75,12 +89,23 @@ export class EditorAdapter {
     this.root.addEventListener('click', this.onClick, true)
     this.root.addEventListener('compositionstart', this.onCompositionStart, true)
     this.root.addEventListener('compositionend', this.onCompositionEnd, true)
+    this.root.addEventListener('keydown', this.onBackslashShortcut, true)
     this.created = true
     this.emitToolbarState()
   }
 
   private onCompositionStart = () => { this.composing = true; this.emitToolbarState() }
   private onCompositionEnd = () => { this.composing = false; this.emitToolbarState() }
+  private onBackslashShortcut = (event: KeyboardEvent) => {
+    if (event.key !== '\\' || event.metaKey || event.ctrlKey || event.altKey || this.composing || !this.created) return
+    this.crepe.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx)
+      const { selection } = view.state
+      if (!selection.empty || selection.$from.parent.type.name !== 'paragraph' || selection.$from.parent.textContent !== '') return
+      event.preventDefault()
+      view.dispatch(view.state.tr.insertText('/'))
+    })
+  }
 
   private emitToolbarState(): void {
     if (!this.created || !this.onToolbarChange) return
@@ -158,10 +183,11 @@ export class EditorAdapter {
     this.emitToolbarState()
   }
 
-  runTableCommand(command: TableCommand): void {
+  runTableCommand(command: TableCommand, rows = 3, columns = 3): void {
     if (!this.created || this.composing) return
+    if (command === 'insert') this.restoreSelection()
     const milkdown = {
-      insert: () => callCommand(insertTableCommand.key, { row: 3, col: 3 }),
+      insert: () => callCommand(insertTableCommand.key, { row: rows, col: columns }),
       row: () => callCommand(addRowAfterCommand.key),
       column: () => callCommand(addColAfterCommand.key),
       alignLeft: () => callCommand(setAlignCommand.key, 'left'),
@@ -175,6 +201,7 @@ export class EditorAdapter {
         view.focus()
       })
     } else this.crepe.editor.action(milkdown[command]())
+    if (command === 'insert') this.focus()
     this.emitToolbarState()
   }
 
@@ -339,6 +366,7 @@ export class EditorAdapter {
     this.root.removeEventListener('click', this.onClick, true)
     this.root.removeEventListener('compositionstart', this.onCompositionStart, true)
     this.root.removeEventListener('compositionend', this.onCompositionEnd, true)
+    this.root.removeEventListener('keydown', this.onBackslashShortcut, true)
     if (this.created) await this.crepe.destroy()
     if (revokeUrls) {
       for (const url of this.pending.keys()) URL.revokeObjectURL(url)

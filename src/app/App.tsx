@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -14,6 +14,7 @@ import { renderHtml } from '../features/export/renderHtml'
 import { printHtml } from '../features/export/printHtml'
 import { imageUrlsIn, localAssetPath, rewriteImageUrls } from '../features/export/snapshot'
 import { translate, translateStatus, type Language } from './i18n'
+import { TableSizePicker } from './TableSizePicker'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/classic.css'
 import basic from '../../tests/fixtures/markdown/F01-basic.md?raw'
@@ -170,6 +171,7 @@ export function App() {
   const [draftsOpen, setDraftsOpen] = useState(false)
   const [toolbar, setToolbar] = useState<ToolbarState>({ ready: false, composing: false, block: 'paragraph', marks: [], canUndo: false, canRedo: false, inTable: false, linkHref: null, imageAlt: null })
   const [linkOpen, setLinkOpen] = useState(false)
+  const [tablePicker, setTablePicker] = useState<{ x: number; y: number } | null>(null)
   const [linkHref, setLinkHref] = useState('')
   const [imageAltOpen, setImageAltOpen] = useState(false)
   const [imageAltText, setImageAltText] = useState('')
@@ -361,6 +363,7 @@ export function App() {
     if (sessionRef.current.generation !== document.id) updateSession(createSession(document.id, document.revision || null))
     setToolbar({ ready: false, composing: false, block: 'paragraph', marks: [], canUndo: false, canRedo: false, inTable: false, linkHref: null, imageAlt: null })
     setLinkOpen(false)
+    setTablePicker(null)
     setImageAltOpen(false)
     setImageError(null)
     if (document.mode === 'source-protected') {
@@ -370,7 +373,7 @@ export function App() {
     if (!editorRoot.current) return
     const instance = new EditorAdapter(editorRoot.current, document.markdown, () => {
       if (sessionRef.current.generation === document.id) updateSession(editSession(sessionRef.current))
-    }, document.imageUrls, document.recoveredAssets, document.pendingFiles, setToolbar, setImageError)
+    }, document.imageUrls, document.recoveredAssets, document.pendingFiles, setToolbar, setImageError, setTablePicker)
     adapter.current = instance
     let disposed = false
     const creation = instance.create()
@@ -1186,6 +1189,22 @@ export function App() {
     setLinkOpen(false)
   }
 
+  useEffect(() => {
+    if (!tablePicker) return
+    const closeOutside = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement).closest('.table-size-picker')) setTablePicker(null)
+    }
+    window.addEventListener('pointerdown', closeOutside, true)
+    return () => window.removeEventListener('pointerdown', closeOutside, true)
+  }, [tablePicker])
+
+  function openTablePickerFromToolbar(event: MouseEvent<HTMLButtonElement>) {
+    adapter.current?.captureSelection()
+    event.currentTarget.closest('details')?.removeAttribute('open')
+    const rect = event.currentTarget.getBoundingClientRect()
+    setTablePicker({ x: rect.left, y: rect.bottom })
+  }
+
   async function switchToVisual() {
     if (busy || document.mode !== 'source-protected') return
     const prepared = prepareMarkdown(document.sourceText)
@@ -1293,7 +1312,7 @@ export function App() {
             <details className="toolbar-more"><summary title={t('更多编辑工具')} aria-label={t('更多编辑工具')}><MoreHorizontal aria-hidden="true" /></summary><div className="toolbar-more-menu">
               {toolbarItems.filter((item) => !item.primary).map((item) => renderToolbarButton(item, true))}
               <div className="menu-separator" />
-              <button type="button" className="menu-command" disabled={!toolbar.ready || toolbar.composing} onClick={() => adapter.current?.runTableCommand('insert')}><Table2 aria-hidden="true" />{t('插入表格')}</button>
+              <button type="button" className="menu-command" disabled={!toolbar.ready || toolbar.composing} onClick={openTablePickerFromToolbar}><Table2 aria-hidden="true" />{t('插入表格')}</button>
               {toolbar.inTable && <><div className="menu-separator" />{([['row', '加行'], ['column', '加列'], ['deleteRow', '删行'], ['deleteColumn', '删列'], ['alignLeft', '左对齐'], ['alignCenter', '居中'], ['alignRight', '右对齐']] as const).map(([command, label]) => <button key={command} type="button" className="menu-command" onClick={() => adapter.current?.runTableCommand(command)}><Table2 aria-hidden="true" />{t(label)}</button>)}</>}
               {toolbar.imageAlt !== null && <><div className="menu-separator" /><button type="button" className="menu-command" onClick={() => { adapter.current?.captureSelection(); setImageAltText(toolbar.imageAlt ?? ''); setImageAltOpen(true) }}><Pencil aria-hidden="true" />{t('图片说明')}</button><button type="button" className="menu-command" onClick={() => { adapter.current?.captureSelection(); imageInputAction.current = 'replace'; imageInput.current?.click() }}><ImageIcon aria-hidden="true" />{t('替换图片')}</button></>}
             </div></details>
@@ -1323,6 +1342,7 @@ export function App() {
             }} />}
         </section>
       </div>
+      {tablePicker && <TableSizePicker anchor={tablePicker} label={t} onClose={() => { setTablePicker(null); adapter.current?.focus() }} onSelect={({ rows, columns }) => { adapter.current?.runTableCommand('insert', rows, columns); setTablePicker(null) }} />}
       <footer className="app-status"><span className="status-message" role="status" title={translateStatus(status, settings.language)}>{translateStatus(status, settings.language)}</span><span className="status-mode">{document.mode === 'source-protected' ? t('源码保护') : 'Markdown'}</span><label className="theme-control">{t('外观')} <select aria-label={t('外观主题')} value={settings.theme} onChange={(event) => setSettings((current) => ({ ...current, theme: event.target.value as Settings['theme'] }))}><option value="system">{t('跟随系统')}</option><option value="light">{t('浅色')}</option><option value="dark">{t('深色')}</option><option value="paper">{t('暖纸')}</option><option value="graphite">{t('石墨')}</option></select></label></footer>
       {tabMenu && <div className="tab-context-menu" role="menu" style={{ left: Math.min(tabMenu.x, window.innerWidth - 180), top: Math.min(tabMenu.y, window.innerHeight - 120) }} onClick={(event) => event.stopPropagation()}><button type="button" role="menuitem" onClick={() => void detachTab(tabMenu.key)}>{t('移到新窗口')}</button><button type="button" role="menuitem" onClick={() => void closeTabs([tabMenu.key])}>{t('关闭当前')}</button><button type="button" role="menuitem" onClick={() => void closeTabs(tabs.slice(tabs.findIndex((tab) => tab.key === tabMenu.key) + 1).map((tab) => tab.key))} disabled={tabs.findIndex((tab) => tab.key === tabMenu.key) === tabs.length - 1}>{t('关闭右边')}</button><button type="button" role="menuitem" onClick={() => void closeTabs(tabs.map((tab) => tab.key))}>{t('关闭所有文档')}</button></div>}
       {draftsOpen && <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDraftsOpen(false) }}><section className="drafts-dialog" role="dialog" aria-modal="true" aria-label={t('恢复草稿')}><div className="settings-title"><h2>{t('恢复草稿')}</h2><button type="button" aria-label={t('关闭恢复草稿')} onClick={() => setDraftsOpen(false)}><X aria-hidden="true" /></button></div>{drafts.length === 0 ? <p>{t('没有可恢复的草稿')}</p> : drafts.map((item) => <div key={item.draftId} className="recovery-item"><span>{item.name}{t(item.targetStatus === 'changed' ? ' · 原文件已变化' : item.targetStatus === 'deleted' ? ' · 原文件已删除' : '')}</span><button type="button" disabled={busy} onClick={() => void previewDraft(item.draftId)}>{t('预览')}</button><button type="button" disabled={busy} onClick={() => void recoverDraft(item.draftId)}>{t('恢复')}</button><button type="button" disabled={busy} onClick={() => void discardDraft(item.draftId).catch((error: unknown) => setStatus(errorText(error)))}>{t('丢弃')}</button></div>)}{draftPreview && <div className="draft-preview"><strong>{draftPreview.name} · {draftPreview.assets.length} {t('张图片')}</strong><pre>{draftPreview.markdown.slice(0, 100_000)}</pre></div>}</section></div>}
