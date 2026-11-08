@@ -1,4 +1,5 @@
 import { analyzeMarkdown, type DocumentAnalysis } from './compatibility'
+import { normalizeAdjacentStrong } from './cjkEmphasis'
 
 export type PreparedMarkdown = {
   analysis: DocumentAnalysis
@@ -7,7 +8,7 @@ export type PreparedMarkdown = {
 
 export function prepareMarkdown(source: string): PreparedMarkdown {
   const analysis = analyzeMarkdown(new TextEncoder().encode(source))
-  return { analysis, editorMarkdown: analysis.mode === 'visual' ? analysis.body : source }
+  return { analysis, editorMarkdown: analysis.mode === 'visual' ? normalizeAdjacentStrong(analysis.body) : source }
 }
 
 export function composeVisualMarkdown(analysis: DocumentAnalysis, editorMarkdown: string): string {
