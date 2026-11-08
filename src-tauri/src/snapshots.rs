@@ -29,7 +29,7 @@ pub struct ExportResult { name: String, sha256: String, assets: Vec<ExportedAsse
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotOut { markdown: String, title: String, assets: Vec<SnapshotAsset>, generation: u64, revision: u64 }
 
-fn main_window(window: &WebviewWindow) -> Result<(), String> { if window.label() == "main" { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
+fn main_window(window: &WebviewWindow) -> Result<(), String> { if crate::is_workspace_window(window.label()) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
 fn digest(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
 fn register(store: &SnapshotStore, markdown: String, title: String, assets: Vec<SnapshotAsset>, generation: u64, revision: u64) -> Result<String, String> {
     if markdown.len() > MAX_DOCUMENT || title.len() > 256 || assets.len() > MAX_ASSETS { return Err("SNAPSHOT_TOO_LARGE".into()); }

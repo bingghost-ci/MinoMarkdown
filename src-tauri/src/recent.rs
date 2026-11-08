@@ -15,8 +15,18 @@ struct RecentFile { schema_version: u32, entries: Vec<RecentEntry> }
 #[serde(rename_all = "camelCase")]
 pub struct RecentSummary { id: String, name: String, kind: String, available: bool, last_opened: u64 }
 
-fn require_main(window: &WebviewWindow) -> Result<(), String> { if window.label() == "main" { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
+fn require_main(window: &WebviewWindow) -> Result<(), String> { if crate::is_workspace_window(window.label()) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
 fn storage(app: &AppHandle) -> Result<PathBuf, String> { Ok(ensure_dir(&app.path().app_data_dir().map_err(|_| "IO_ERROR")?)?.join("recent.json")) }
+#[cfg(target_os = "macos")]
+fn note_system_recent(app: &AppHandle, path: PathBuf) {
+    let _ = app.run_on_main_thread(move || {
+        let Some(mtm) = objc2::MainThreadMarker::new() else { return; };
+        let controller = objc2_app_kit::NSDocumentController::sharedDocumentController(mtm);
+        let name = objc2_foundation::NSString::from_str(&path.to_string_lossy());
+        let url = objc2_foundation::NSURL::fileURLWithPath(&name);
+        controller.noteNewRecentDocumentURL(&url);
+    });
+}
 fn hash(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
 fn id_for(entry: &RecentEntry) -> String { hash(format!("{}:{}", entry.kind, entry.path).as_bytes())[..24].into() }
 fn load(path: &Path) -> RecentFile {
@@ -52,7 +62,11 @@ pub fn list_recent(app: AppHandle, window: WebviewWindow) -> Result<Vec<RecentSu
 #[tauri::command]
 pub fn remember_recent_document(app: AppHandle, window: WebviewWindow, documents: State<'_, DocumentStore>, token: String) -> Result<(), String> {
     require_main(&window)?;
-    remember_at(&storage(&app)?, Path::new(&draft_target(&documents, &token)?), "file")
+    let path = PathBuf::from(draft_target(&documents, &token)?);
+    remember_at(&storage(&app)?, &path, "file")?;
+    #[cfg(target_os = "macos")]
+    note_system_recent(&app, path);
+    Ok(())
 }
 #[tauri::command]
 pub fn remember_recent_workspace(app: AppHandle, window: WebviewWindow, workspaces: State<'_, WorkspaceStore>, token: String) -> Result<(), String> {

@@ -7,9 +7,19 @@ mod snapshots;
 mod open_intents;
 mod recent;
 mod settings;
+mod windows;
+mod native_menu;
 
 use tauri::{Emitter, Manager};
 use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
+
+pub(crate) fn is_workspace_window(label: &str) -> bool { label == "main" || label.starts_with("workspace-") }
+fn focused_workspace(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+    app.webview_windows().into_values().find(|window| is_workspace_window(window.label()) && window.is_focused().unwrap_or(false))
+        .or_else(|| app.state::<windows::ActiveWindow>().0.lock().ok().and_then(|label| app.get_webview_window(&label)))
+        .or_else(|| app.get_webview_window("main"))
+        .or_else(|| app.webview_windows().into_values().find(|window| is_workspace_window(window.label())))
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,50 +29,84 @@ pub fn run() {
         .manage(workspace::WorkspaceStore::default())
         .manage(snapshots::SnapshotStore::default())
         .manage(open_intents::IntentStore::default())
+        .manage(windows::TransferStore::default())
+        .manage(windows::ActiveWindow::default())
+        .setup(|app| {
+            let handle = app.handle();
+            native_menu::set_language(handle, &settings::initial_language(handle));
+            #[cfg(target_os = "macos")]
+            native_menu::install_dock_menu(handle);
+            Ok(())
+        })
         .menu(|app| {
             let menu = Menu::default(app)?;
+            let english = settings::initial_language(app) == "en-US";
             for item in menu.items()? {
                 if let MenuItemKind::Submenu(submenu) = item {
                     let title = submenu.text()?;
                     if title == "File" || title == "文件" {
                         submenu.prepend_items(&[
-                            &MenuItem::with_id(app, "new", "新建文档", true, Some("Cmd+N"))?,
-                            &MenuItem::with_id(app, "open", "打开文件…", true, Some("Cmd+O"))?,
-                            &MenuItem::with_id(app, "open-folder", "打开文件夹…", true, Some("Cmd+Shift+O"))?,
+                            &MenuItem::with_id(app, "new", native_menu::label("new", english), true, Some("Cmd+N"))?,
+                            &MenuItem::with_id(app, "new-window", native_menu::label("new-window", english), true, Some("Cmd+Shift+N"))?,
+                            &MenuItem::with_id(app, "open", native_menu::label("open", english), true, Some("Cmd+O"))?,
+                            &MenuItem::with_id(app, "open-folder", native_menu::label("open-folder", english), true, Some("Cmd+Shift+O"))?,
                             &PredefinedMenuItem::separator(app)?,
-                            &MenuItem::with_id(app, "save", "保存", true, Some("Cmd+S"))?,
-                            &MenuItem::with_id(app, "save-as", "另存为…", true, Some("Cmd+Shift+S"))?,
-                            &MenuItem::with_id(app, "close-tab", "关闭当前文档", true, Some("Cmd+W"))?,
+                            &MenuItem::with_id(app, "save", native_menu::label("save", english), true, Some("Cmd+S"))?,
+                            &MenuItem::with_id(app, "save-as", native_menu::label("save-as", english), true, Some("Cmd+Shift+S"))?,
+                            &MenuItem::with_id(app, "recover-drafts", native_menu::label("recover-drafts", english), true, None::<&str>)?,
+                            &MenuItem::with_id(app, "close-tab", native_menu::label("close-tab", english), true, Some("Cmd+W"))?,
                             &PredefinedMenuItem::separator(app)?,
-                            &MenuItem::with_id(app, "export-md", "导出 Markdown 与图片…", true, None::<&str>)?,
-                            &MenuItem::with_id(app, "export-html", "导出 HTML…", true, None::<&str>)?,
-                            &MenuItem::with_id(app, "print", "打印 / 存储为 PDF…", true, Some("Cmd+P"))?,
+                            &MenuItem::with_id(app, "export-md", native_menu::label("export-md", english), true, None::<&str>)?,
+                            &MenuItem::with_id(app, "export-html", native_menu::label("export-html", english), true, None::<&str>)?,
+                            &MenuItem::with_id(app, "print", native_menu::label("print", english), true, Some("Cmd+P"))?,
                             &PredefinedMenuItem::separator(app)?,
                         ])?;
                     } else if title == "View" || title == "视图" {
                         submenu.prepend_items(&[
-                            &MenuItem::with_id(app, "view-toolbar", "显示或隐藏操作栏", true, None::<&str>)?,
-                            &MenuItem::with_id(app, "view-sidebar", "显示或隐藏文件栏", true, None::<&str>)?,
+                            &MenuItem::with_id(app, "view-toolbar", native_menu::label("view-toolbar", english), true, None::<&str>)?,
+                            &MenuItem::with_id(app, "view-sidebar", native_menu::label("view-sidebar", english), true, None::<&str>)?,
                             &PredefinedMenuItem::separator(app)?,
                         ])?;
                     } else if title == app.package_info().name || title == "MinoMarkdown" {
                         submenu.insert_items(&[
-                            &MenuItem::with_id(app, "preferences", "设置…", true, Some("Cmd+,"))?,
+                            &MenuItem::with_id(app, "preferences", native_menu::label("preferences", english), true, Some("Cmd+,"))?,
                             &PredefinedMenuItem::separator(app)?,
                         ], 2)?;
+                        for existing in submenu.items()? {
+                            if let MenuItemKind::Predefined(item) = existing {
+                                let text = item.text()?;
+                                if text.starts_with("Quit ") || text.starts_with("退出") {
+                                    submenu.remove(&item)?;
+                                }
+                            }
+                        }
+                        submenu.append(&MenuItem::with_id(app, "quit", native_menu::label("quit", english), true, Some("Cmd+Q"))?)?;
                     }
                 }
             }
             Ok(menu)
         })
-        .on_menu_event(|app, event| { let _ = app.emit("menu-action", event.id().as_ref()); })
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "quit" {
+                for window in app.webview_windows().into_values().filter(|window| is_workspace_window(window.label())) {
+                    let _ = app.emit_to(window.label(), "app-quit-requested", ());
+                }
+            } else if event.id().as_ref() == "new-window" {
+                let _ = windows::create(app, &app.state::<windows::TransferStore>(), None);
+            } else if let Some(window) = focused_workspace(app) {
+                let _ = app.emit_to(window.label(), "menu-action", event.id().as_ref());
+            }
+        })
         .on_window_event(|window, event| {
-            if window.label() != "main" { return; }
+            if !is_workspace_window(window.label()) { return; }
+            if let tauri::WindowEvent::Focused(true) = event {
+                if let Ok(mut active) = window.app_handle().state::<windows::ActiveWindow>().0.lock() { *active = window.label().into(); }
+            }
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
                 if paths.is_empty() {
-                    let _ = window.emit("open-intents-empty-drop", ());
-                } else if open_intents::enqueue_dropped(&window.app_handle().state::<open_intents::IntentStore>(), paths) {
-                    let _ = window.emit("open-intents-available", ());
+                    let _ = window.app_handle().emit_to(window.label(), "open-intents-empty-drop", ());
+                } else if open_intents::enqueue_dropped(&window.app_handle().state::<open_intents::IntentStore>(), paths, window.label()) {
+                    let _ = window.app_handle().emit_to(window.label(), "open-intents-available", ());
                 }
             }
         })
@@ -108,14 +152,20 @@ pub fn run() {
             recent::choose_recent_workspace,
             settings::get_settings,
             settings::update_settings,
+            windows::create_workspace_window,
+            windows::take_window_transfer,
+            windows::close_workspace_window,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build MinoMarkdown")
         .run(|app, event| {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = event {
-                if open_intents::enqueue_opened(&app.state::<open_intents::IntentStore>(), &urls) {
-                    let _ = app.emit("open-intents-available", ());
+                let target = focused_workspace(app).map(|window| window.label().to_owned()).unwrap_or_else(|| "main".into());
+                if open_intents::enqueue_opened(&app.state::<open_intents::IntentStore>(), &urls, &target) {
+                    if let Some(window) = app.get_webview_window(&target) {
+                        let _ = app.emit_to(window.label(), "open-intents-available", ());
+                    }
                 }
             }
         });

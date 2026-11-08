@@ -21,7 +21,7 @@ pub struct WorkspaceEntry { token: String, name: String, directory: bool }
 #[serde(rename_all = "camelCase")]
 pub struct ChildrenPage { entries: Vec<WorkspaceEntry>, next_offset: Option<usize> }
 
-fn require_main(window: &WebviewWindow) -> Result<(), String> { if window.label() == "main" { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
+fn require_main(window: &WebviewWindow) -> Result<(), String> { if crate::is_workspace_window(window.label()) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
 fn is_markdown(path: &Path) -> bool { path.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("md") || x.eq_ignore_ascii_case("markdown")) }
 fn ignored(name: &str) -> bool { name.starts_with('.') || matches!(name, "node_modules" | "target" | "dist" | "build" | "assets" | "venv" | "__pycache__") }
 fn valid_name(name: &str, directory: bool) -> bool {

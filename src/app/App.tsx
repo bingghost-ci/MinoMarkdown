@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
-import { exit } from '@tauri-apps/api/app'
+import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
-import { listen } from '@tauri-apps/api/event'
-import { ArrowDown, ArrowUp, Bold, ChevronDown, ChevronRight, Code2, Download, FilePlus2, FileText, Folder, FolderOpen, FolderPlus, Image as ImageIcon, Italic, Link2, List, ListOrdered, Minus, MoreHorizontal, PanelLeft, Pencil, Plus, Printer, Quote, Redo2, RefreshCw, RemoveFormatting, Save, Strikethrough, Table2, Trash2, Undo2, X, type LucideIcon } from 'lucide-react'
+import { Bold, ChevronDown, ChevronRight, Code2, Download, FilePlus2, FileText, Folder, FolderOpen, FolderPlus, Image as ImageIcon, Italic, Link2, List, ListOrdered, Minus, MoreHorizontal, PanelLeft, Pencil, Plus, Printer, Quote, Redo2, RefreshCw, RemoveFormatting, Save, Strikethrough, Table2, Trash2, Undo2, X, type LucideIcon } from 'lucide-react'
 import { compareMarkdown } from '../core/markdown/compatibility'
 import { composeVisualMarkdown, prepareMarkdown, type PreparedMarkdown } from '../core/markdown/codec'
 import { EditorAdapter, type EditorCommand, type PendingAsset, type ToolbarState } from '../features/editor/EditorAdapter'
@@ -14,6 +13,7 @@ import { mayLeaveDocument, type UnsavedAction } from '../features/document/lifec
 import { renderHtml } from '../features/export/renderHtml'
 import { printHtml } from '../features/export/printHtml'
 import { imageUrlsIn, localAssetPath, rewriteImageUrls } from '../features/export/snapshot'
+import { translate, translateStatus, type Language } from './i18n'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/classic.css'
 import basic from '../../tests/fixtures/markdown/F01-basic.md?raw'
@@ -58,10 +58,11 @@ type ChildrenPage = { entries: WorkspaceEntry[]; nextOffset: number | null }
 type SnapshotOut = { markdown: string; title: string; assets: PendingAsset[]; generation: number; revision: number }
 type OpenIntent = { token: string; name: string; kind: 'markdown' | 'image' | 'folder' }
 type NativeImageIntent = { name: string; mime: string; bytes: number[] }
-type RecentItem = { id: string; name: string; kind: 'file' | 'folder'; available: boolean; lastOpened: number }
-type Settings = { schemaVersion: number; theme: 'system' | 'light' | 'dark'; sidebarWidth: number; windowWidth: number; windowHeight: number; showFileToolbar: boolean }
-const defaultSettings: Settings = { schemaVersion: 1, theme: 'system', sidebarWidth: 230, windowWidth: 1100, windowHeight: 760, showFileToolbar: false }
+type Settings = { schemaVersion: number; theme: 'system' | 'light' | 'dark' | 'paper' | 'graphite'; sidebarWidth: number; windowWidth: number; windowHeight: number; showFileToolbar: boolean; showSidebar: boolean; editorWidth: 'centered' | 'wide'; editorFont: 'system' | 'serif' | 'mono'; editorFontSize: number; editorLineHeight: 'compact' | 'comfortable' | 'relaxed'; language: Language }
+const defaultSettings: Settings = { schemaVersion: 1, theme: 'system', sidebarWidth: 230, windowWidth: 1100, windowHeight: 760, showFileToolbar: false, showSidebar: true, editorWidth: 'centered', editorFont: 'system', editorFontSize: 15, editorLineHeight: 'comfortable', language: 'zh-CN' }
 type TabItem = { key: string; document: DocumentState; session: DocumentSession }
+type DetachedAsset = { url: string; bytes: number[]; mime: string; relative?: string }
+type DetachedTransfer = { name: string; token: string; revision: string; markdown: string; originalMarkdown: string; sourceText: string; mode: DocumentState['mode']; draftId: string; session: DocumentSession; assets: DetachedAsset[] }
 type TreeState = { entries: WorkspaceEntry[]; nextOffset: number | null; expanded: boolean; loading: boolean; error: string | null }
 let nextDocumentId = 1
 const uiPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('ui-preview') === 'editor'
@@ -71,7 +72,7 @@ const previewTree: Record<string, TreeState> = {
   'preview-plan': { entries: [{ token: 'preview-spec', name: '编辑器需求.md', directory: false }], nextOffset: null, expanded: true, loading: false, error: null },
 }
 
-function makeDocument(markdown: string, name = '未命名文档', sampleId?: string): DocumentState {
+function makeDocument(markdown: string, name = '未命名', sampleId?: string): DocumentState {
   const prepared = prepareMarkdown(markdown)
   return { id: nextDocumentId++, draftId: crypto.randomUUID(), name, token: '', revision: '', markdown: prepared.editorMarkdown, originalMarkdown: markdown, imageUrls: new Map(), recoveredAssets: new Map(), pendingFiles: new Map(), sampleId, prepared, sourceText: markdown, mode: prepared.analysis.mode }
 }
@@ -97,7 +98,7 @@ function errorText(error: unknown): string {
     EXPORT_TOO_LARGE: '导出文件超过当前 100 MB 限制。',
     EXPORT_RESOURCE_MISSING: '图片附件缺失或包含远程图片，无法生成完整资源包。可选择“仅正文 MD”。',
     SNAPSHOT_BUDGET: '同时进行的导出作业过多，请稍后重试。',
-    NOT_FOUND: '原文件或文件夹已经不在原位置，请从最近使用中移除该记录，或重新打开。',
+    NOT_FOUND: '原文件或文件夹已经不在原位置，请重新选择文件或文件夹。',
   }
   return messages[code] ?? `操作失败：${code}`
 }
@@ -153,18 +154,20 @@ export function App() {
   const [activeTabKey, setActiveTabKey] = useState<string>(initialTabKey.current)
   const activeTabKeyRef = useRef<string>(activeTabKey)
   const [tabMenu, setTabMenu] = useState<{ key: string; x: number; y: number } | null>(null)
+  const tabDragRef = useRef<{ key: string; x: number; y: number } | null>(null)
   const closingTabsRef = useRef(false)
   const closingWindowRef = useRef(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<'appearance' | 'editor' | 'workspace'>('appearance')
   const queuedSave = useRef(false)
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(busy)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [status, setStatus] = useState('选择新建文档或打开本地文件')
+  const [status, setStatus] = useState('编辑器正在启动')
   const [diskChange, setDiskChange] = useState<DiskStatus | null>(null)
   const [diskPreview, setDiskPreview] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<DraftSummary[]>([])
   const [draftPreview, setDraftPreview] = useState<DraftContent | null>(null)
+  const [draftsOpen, setDraftsOpen] = useState(false)
   const [toolbar, setToolbar] = useState<ToolbarState>({ ready: false, composing: false, block: 'paragraph', marks: [], canUndo: false, canRedo: false, inTable: false, linkHref: null, imageAlt: null })
   const [linkOpen, setLinkOpen] = useState(false)
   const [linkHref, setLinkHref] = useState('')
@@ -172,8 +175,9 @@ export function App() {
   const [imageAltText, setImageAltText] = useState('')
   const [imageError, setImageError] = useState<string | null>(null)
   const [workspace, setWorkspace] = useState<WorkspaceRoot | null>(uiPreview ? { token: 'preview-root', name: 'MinoMarkdown' } : null)
-  const [recent, setRecent] = useState<RecentItem[]>([])
   const [settings, setSettings] = useState<Settings>(() => uiPreview ? { ...defaultSettings, theme: new URLSearchParams(window.location.search).get('ui-theme') === 'light' ? 'light' : 'dark' } : defaultSettings)
+  const sidebarOpen = settings.showSidebar
+  const t = (value: string) => translate(value, settings.language)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [systemDark, setSystemDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false)
   const [tree, setTree] = useState<Record<string, TreeState>>(uiPreview ? previewTree : {})
@@ -188,8 +192,9 @@ export function App() {
   const desktop = isTauri()
   busyRef.current = busy
   const dirty = isDirty(session)
-  const welcomeVisible = tabs.length === 1 && document.id === initialDocumentId.current && !document.token && !workspace && document.markdown === '' && !dirty
   const canProceedRef = useRef<(finalizeDiscard?: boolean) => Promise<boolean>>(async () => true)
+  const saveDocumentRef = useRef<() => Promise<boolean>>(async () => false)
+  const closeWindowRef = useRef<() => Promise<void>>(async () => undefined)
 
   function updateSession(next: DocumentSession) {
     sessionRef.current = next
@@ -289,13 +294,75 @@ export function App() {
     updateTabs(next)
   }
 
+  async function detachTab(key: string) {
+    if (!desktop || busyRef.current || closingTabsRef.current) return
+    if (key !== activeTabKeyRef.current) {
+      switchTab(key)
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+    }
+    const tab = captureCurrentTab()
+    const note = tab.document
+    const markdown = note.mode === 'visual' ? note.markdown : note.sourceText
+    const referenced = new Set(imageUrlsIn(markdown))
+    setBusy(true)
+    try {
+      const assets: DetachedAsset[] = []
+      if (note.mode === 'visual') {
+        for (const [url, relative] of note.imageUrls) {
+          if (referenced.has(url)) assets.push({ url, relative, bytes: await invoke<number[]>('read_asset', { token: note.token, relative: localAssetPath(relative) }), mime: imageMime(relative) })
+        }
+        const pending = adapter.current?.isReady() ? await adapter.current.pendingAssets(markdown, false) : await Promise.all(Array.from(note.pendingFiles, async ([url, file]) => ({ url, mime: file.type, bytes: Array.from(new Uint8Array(await file.arrayBuffer())) })))
+        assets.push(...pending.filter((asset) => referenced.has(asset.url)))
+        for (const [url, asset] of note.recoveredAssets) if (referenced.has(url) && !assets.some((item) => item.url === url)) assets.push({ url, ...asset })
+      }
+      await draftWriteChain.current.catch(() => undefined)
+      const transfer: DetachedTransfer = { name: note.name, token: note.token, revision: note.revision, markdown, originalMarkdown: note.originalMarkdown, sourceText: note.sourceText, mode: note.mode, draftId: note.draftId, session: tab.session, assets }
+      await invoke('create_workspace_window', { transfer })
+      const index = tabsRef.current.findIndex((item) => item.key === key)
+      const remaining = tabsRef.current.filter((item) => item.key !== key)
+      if (remaining.length) { updateTabs(remaining); activateTab(remaining[Math.min(index, remaining.length - 1)]) }
+      else {
+        const empty = makeDocument('')
+        initialDocumentId.current = empty.id
+        const replacement = { key: crypto.randomUUID(), document: empty, session: createSession(empty.id) }
+        updateTabs([replacement]); activateTab(replacement)
+      }
+      for (const url of note.imageUrls.keys()) URL.revokeObjectURL(url)
+      for (const url of note.pendingFiles.keys()) URL.revokeObjectURL(url)
+      for (const url of note.recoveredAssets.keys()) URL.revokeObjectURL(url)
+      setStatus(`已将 ${note.name} 移到新窗口`)
+    } catch (error) { setStatus(errorText(error)) }
+    finally { setBusy(false) }
+  }
+
+  useEffect(() => {
+    if (!desktop) return
+    void invoke<DetachedTransfer | null>('take_window_transfer').then((transfer) => {
+      if (!transfer) return
+      const next = makeDocument(transfer.originalMarkdown, transfer.name)
+      const replacements = new Map<string, string>()
+      for (const asset of transfer.assets) {
+        const url = URL.createObjectURL(new Blob([new Uint8Array(asset.bytes)], { type: asset.mime }))
+        replacements.set(asset.url, url)
+        if (asset.relative) next.imageUrls.set(url, asset.relative)
+        else next.recoveredAssets.set(url, { bytes: asset.bytes, mime: asset.mime })
+      }
+      next.token = transfer.token
+      next.revision = transfer.revision
+      next.draftId = transfer.draftId
+      next.markdown = rewriteImageUrls(transfer.markdown, replacements)
+      next.sourceText = transfer.sourceText
+      next.mode = transfer.mode
+      openTab(next, { ...transfer.session, generation: next.id })
+    }).catch((error: unknown) => setStatus(errorText(error)))
+  }, [desktop])
+
   useEffect(() => {
     if (sessionRef.current.generation !== document.id) updateSession(createSession(document.id, document.revision || null))
     setToolbar({ ready: false, composing: false, block: 'paragraph', marks: [], canUndo: false, canRedo: false, inTable: false, linkHref: null, imageAlt: null })
     setLinkOpen(false)
     setImageAltOpen(false)
     setImageError(null)
-    if (welcomeVisible) return
     if (document.mode === 'source-protected') {
       setStatus(`源码模式：${document.prepared.analysis.issues.map((issue) => issue.code === 'VISUAL_SIZE_LIMIT' ? '超过 5 MiB 可视化上限' : issue.code).join('、') || '手动切换'}；可保存原文，HTML/PDF 暂不可导出`)
       return
@@ -308,7 +375,10 @@ export function App() {
     let disposed = false
     const creation = instance.create()
     void creation.then(() => {
-      if (!disposed) setStatus(document.token ? `已打开 ${document.name}` : '编辑器已就绪 · 新文档尚未保存')
+      if (!disposed) {
+        setStatus(document.token ? `已打开 ${document.name}` : '编辑器已就绪 · 新文档尚未保存')
+        if (!document.token) instance.focus()
+      }
     }).catch((error: unknown) => {
       if (!disposed) setStatus(`编辑器启动失败：${error instanceof Error ? error.message : String(error)}`)
     })
@@ -317,18 +387,12 @@ export function App() {
       if (adapter.current === instance) adapter.current = null
       void creation.finally(() => instance.destroy(false)).catch(() => undefined)
     }
-  }, [document.id, welcomeVisible])
+  }, [document.id])
 
   useEffect(() => {
     setDiskChange(null)
     setDiskPreview(null)
   }, [document.id])
-
-  useEffect(() => {
-    if (!desktop) return
-    void invoke<DraftSummary[]>('list_drafts').then(setDrafts).catch((error: unknown) => setStatus(errorText(error)))
-    void invoke<RecentItem[]>('list_recent').then(setRecent).catch(() => undefined)
-  }, [desktop])
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -340,6 +404,40 @@ export function App() {
   useEffect(() => {
     window.document.documentElement.dataset.theme = settings.theme === 'system' ? (systemDark ? 'dark' : 'light') : settings.theme
   }, [settings.theme, systemDark])
+
+  useEffect(() => {
+    const root = window.document.documentElement
+    const fonts = { system: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", serif: "Georgia, 'Songti SC', 'Noto Serif CJK SC', serif", mono: 'ui-monospace, SFMono-Regular, Menlo, monospace' }
+    const lineHeights = { compact: '1.45', comfortable: '1.7', relaxed: '1.95' }
+    root.style.setProperty('--editor-font', fonts[settings.editorFont])
+    root.style.setProperty('--editor-font-size', `${settings.editorFontSize}px`)
+    root.style.setProperty('--editor-line-height', lineHeights[settings.editorLineHeight])
+  }, [settings.editorFont, settings.editorFontSize, settings.editorLineHeight])
+
+  useEffect(() => {
+    window.document.documentElement.lang = settings.language
+  }, [settings.language])
+
+  useEffect(() => {
+    const current = documentRef.current
+    if (current.token || !['未命名', 'Untitled'].includes(current.name)) return
+    const name = settings.language === 'en-US' ? 'Untitled' : '未命名'
+    if (current.name === name) return
+    documentRef.current = { ...current, name }
+    setDocument(documentRef.current)
+    updateTabs(tabsRef.current.map((tab) => tab.key === activeTabKeyRef.current ? { ...tab, document: documentRef.current } : tab))
+  }, [settings.language])
+
+  useEffect(() => {
+    if (!desktop) return
+    let stop: (() => void) | undefined
+    void listen<Language>('language-changed', (event) => {
+      if (event.payload === 'zh-CN' || event.payload === 'en-US') {
+        setSettings((current) => current.language === event.payload ? current : { ...current, language: event.payload })
+      }
+    }).then((unlisten) => { stop = unlisten })
+    return () => stop?.()
+  }, [desktop])
 
   useEffect(() => {
     if (!desktop) return
@@ -376,12 +474,10 @@ export function App() {
 
   async function rememberDocument(token: string): Promise<void> {
     await invoke('remember_recent_document', { token })
-    setRecent(await invoke<RecentItem[]>('list_recent'))
   }
 
   async function rememberWorkspace(token: string): Promise<void> {
     await invoke('remember_recent_workspace', { token })
-    setRecent(await invoke<RecentItem[]>('list_recent'))
   }
 
   function persistTabDraft(tab: TabItem, instance: EditorAdapter | null): Promise<void> {
@@ -466,6 +562,8 @@ export function App() {
       }
       next.recoveredAssets = sourceAssets
       openTab(next, editSession(createSession(next.id)))
+      setDraftsOpen(false)
+      setDraftPreview(null)
       setStatus(recovered.targetStatus === 'changed' ? '已恢复草稿；原文件已有新版本，保存时请选择新文件名' : '已恢复草稿；请检查内容后保存')
     } catch (error) { setStatus(errorText(error)) }
     finally { setBusy(false) }
@@ -519,7 +617,7 @@ export function App() {
     if (busy) { setStatus('当前操作尚未完成，请稍后再试'); return false }
     if (!isDirty(sessionRef.current)) { pendingDiscardDraftId.current = null; return true }
     pendingDiscardDraftId.current = null
-    if (!desktop) return window.confirm('当前修改尚未保存。确定放弃修改吗？')
+    if (!desktop) return window.confirm(translateStatus('当前修改尚未保存。确定放弃修改吗？', settings.language))
     try {
       const action = await invoke<UnsavedAction>('choose_unsaved_action')
       const allowed = await mayLeaveDocument(action, saveDocument)
@@ -597,15 +695,15 @@ export function App() {
       } catch (error) { setStatus(errorText(error)) }
       finally { draining = false }
     }
-    void listen('open-intents-available', () => void drain()).then((stop) => { if (canceled) stop(); else unlisten = stop }).catch((error: unknown) => setStatus(errorText(error)))
-    void listen('open-intents-empty-drop', () => setStatus('macOS 未提供拖入文件路径，请从 Finder 拖入本地 Markdown 文件')).then((stop) => { if (canceled) stop(); else unlistenEmpty = stop }).catch((error: unknown) => setStatus(errorText(error)))
+    void getCurrentWindow().listen('open-intents-available', () => void drain()).then((stop) => { if (canceled) stop(); else unlisten = stop }).catch((error: unknown) => setStatus(errorText(error)))
+    void getCurrentWindow().listen('open-intents-empty-drop', () => setStatus('macOS 未提供拖入文件路径，请从 Finder 拖入本地 Markdown 文件')).then((stop) => { if (canceled) stop(); else unlistenEmpty = stop }).catch((error: unknown) => setStatus(errorText(error)))
     void drain()
     return () => { canceled = true; unlisten?.(); unlistenEmpty?.() }
   }, [desktop])
 
   async function newDocument() {
     if (busy) return
-    openTab(makeDocument(''))
+    openTab(makeDocument('', settings.language === 'en-US' ? 'Untitled' : '未命名'))
   }
 
   async function openDocument() {
@@ -654,7 +752,7 @@ export function App() {
     setTree({})
     setSelectedDirectory(chosen.token)
     setSelectedEntry(null)
-    setSidebarOpen(true)
+    setSettings((current) => ({ ...current, showSidebar: true }))
     await loadChildren(chosen.token)
     setStatus(`已打开文件夹 ${chosen.name}`)
     void rememberWorkspace(chosen.token).catch(() => undefined)
@@ -679,42 +777,6 @@ export function App() {
     if (!workspace) return
     try { await invoke('release_workspace', { token: workspace.token }); setWorkspace(null); setTree({}); setSelectedDirectory(null); setSelectedEntry(null) }
     catch (error) { setStatus(errorText(error)) }
-  }
-
-  async function openRecent(item: RecentItem) {
-    if (busy) return
-    let candidateToken: string | null = null
-    try {
-      if (item.kind === 'file') {
-        const opened = await invoke<OpenResult | null>('choose_recent_file', { id: item.id })
-        if (!opened) return
-        candidateToken = opened.token
-        const hydrated = await hydrateImages(opened)
-        openTab(hydrated, createSession(hydrated.id, hydrated.revision))
-        candidateToken = null
-        void rememberDocument(opened.token).catch(() => undefined)
-      } else {
-        const chosen = await invoke<WorkspaceRoot | null>('choose_recent_workspace', { id: item.id })
-        if (!chosen) return
-        await activateWorkspace(chosen)
-      }
-    } catch (error) { await releaseCandidate(candidateToken); setStatus(errorText(error)) }
-  }
-
-  async function removeRecent(id: string) {
-    try { await invoke('remove_recent', { id }); setRecent(await invoke<RecentItem[]>('list_recent')) }
-    catch (error) { setStatus(errorText(error)) }
-  }
-
-  async function moveRecent(id: string, delta: number) {
-    const from = recent.findIndex((item) => item.id === id)
-    const to = from + delta
-    if (from < 0 || to < 0 || to >= recent.length) return
-    const ordered = [...recent]
-    ordered.splice(to, 0, ordered.splice(from, 1)[0])
-    setRecent(ordered)
-    try { await invoke('reorder_recent', { ids: ordered.map((item) => item.id) }) }
-    catch (error) { setRecent(await invoke<RecentItem[]>('list_recent')); setStatus(errorText(error)) }
   }
 
   function toggleDirectory(token: string) {
@@ -747,9 +809,9 @@ export function App() {
         </button>
         {entry.directory && renderChildren(entry.token, depth + 1)}
       </div>)}
-      {state.loading && <p className="tree-note">正在读取…</p>}
-      {state.error && <p className="tree-note" role="alert">{state.error}<button type="button" onClick={() => void loadChildren(token, state.entries.length)}>重试</button></p>}
-      {state.nextOffset !== null && !state.loading && <button type="button" className="tree-more" onClick={() => void loadChildren(token, state.nextOffset ?? 0)}>加载更多</button>}
+      {state.loading && <p className="tree-note">{t('正在读取…')}</p>}
+      {state.error && <p className="tree-note" role="alert">{translateStatus(state.error, settings.language)}<button type="button" onClick={() => void loadChildren(token, state.entries.length)}>{t('重试')}</button></p>}
+      {state.nextOffset !== null && !state.loading && <button type="button" className="tree-more" onClick={() => void loadChildren(token, state.nextOffset ?? 0)}>{t('加载更多')}</button>}
     </div>
   }
 
@@ -778,7 +840,7 @@ export function App() {
   }
 
   async function trashEntry() {
-    if (!selectedEntry || !window.confirm(`将“${selectedEntry.name}”移到废纸篓？`)) return
+    if (!selectedEntry || !window.confirm(settings.language === 'en-US' ? `Move “${selectedEntry.name}” to the Trash?` : `将“${selectedEntry.name}”移到废纸篓？`)) return
     const affected = tabsRef.current.filter((tab) => tab.document.entryToken === selectedEntry.token).map((tab) => tab.key)
     if (affected.length && !await closeTabs(affected)) return
     try {
@@ -858,6 +920,7 @@ export function App() {
       setBusy(false)
     }
   }
+  saveDocumentRef.current = () => saveDocument()
 
   async function exportPage(mode: 'html' | 'print') {
     const instance = adapter.current
@@ -936,7 +999,7 @@ export function App() {
 
   async function reloadDiskVersion() {
     if (!document.token || busy || diskChange?.kind === 'deleted') return
-    if (isDirty(sessionRef.current) && !window.confirm('重新加载将放弃当前未保存内容。确定继续吗？')) return
+    if (isDirty(sessionRef.current) && !window.confirm(translateStatus('重新加载将放弃当前未保存内容。确定继续吗？', settings.language))) return
     setBusy(true)
     try {
       const opened = await invoke<OpenResult>('reload_document', { token: document.token })
@@ -983,8 +1046,13 @@ export function App() {
     if (action === 'export-html') void exportPage('html')
     if (action === 'print') void exportPage('print')
     if (action === 'view-toolbar') setSettings((current) => ({ ...current, showFileToolbar: !current.showFileToolbar }))
-    if (action === 'view-sidebar') setSidebarOpen((current) => !current)
+    if (action === 'view-sidebar') setSettings((current) => ({ ...current, showSidebar: !current.showSidebar }))
     if (action === 'preferences') setSettingsOpen(true)
+    if (action === 'recover-drafts') {
+      setDraftsOpen(true)
+      void invoke<DraftSummary[]>('list_drafts').then(setDrafts).catch((error: unknown) => setStatus(errorText(error)))
+    }
+    if (action === 'new-window') void invoke('create_workspace_window', { transfer: null }).catch((error: unknown) => setStatus(errorText(error)))
     if (action === 'close-tab') void closeTabs([activeTabKeyRef.current])
   }
 
@@ -996,7 +1064,7 @@ export function App() {
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
         event.preventDefault()
-        runFileAction('new')
+        runFileAction(event.shiftKey ? 'new-window' : 'new')
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'o') {
         event.preventDefault()
@@ -1013,6 +1081,7 @@ export function App() {
       if (event.key === 'Escape') {
         setTabMenu(null)
         setSettingsOpen(false)
+        setDraftsOpen(false)
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -1025,7 +1094,7 @@ export function App() {
     if (!desktop) return
     let stop: (() => void) | undefined
     let canceled = false
-    void listen<string>('menu-action', (event) => menuActionRef.current(event.payload)).then((unlisten) => { if (canceled) unlisten(); else stop = unlisten })
+    void getCurrentWindow().listen<string>('menu-action', (event) => menuActionRef.current(event.payload)).then((unlisten) => { if (canceled) unlisten(); else stop = unlisten })
     return () => { canceled = true; stop?.() }
   }, [desktop])
 
@@ -1036,33 +1105,45 @@ export function App() {
     }
   }, [busy, session.revision])
 
+  async function requestCloseWindow(): Promise<void> {
+    if (closingWindowRef.current) return
+    closingWindowRef.current = true
+    try {
+      for (const key of tabsRef.current.map((tab) => tab.key)) {
+        if (key !== activeTabKeyRef.current) {
+          switchTab(key)
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+        }
+        const active = documentRef.current
+        if (active.token && isDirty(sessionRef.current)) {
+          if (!await saveDocumentRef.current()) return
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+        } else if (!await canProceedRef.current(true)) return
+      }
+      await draftWriteChain.current.catch(() => undefined)
+      await invoke('close_workspace_window')
+    } finally { closingWindowRef.current = false }
+  }
+  closeWindowRef.current = requestCloseWindow
+
   useEffect(() => {
     if (!desktop) return
-    let unlisten: (() => void) | undefined
+    let unlistenClose: (() => void) | undefined
+    let unlistenQuit: (() => void) | undefined
     let canceled = false
     getCurrentWindow().onCloseRequested((event) => {
       event.preventDefault()
-      if (closingWindowRef.current) return
-      closingWindowRef.current = true
-      void (async () => {
-        try {
-          for (const key of tabsRef.current.map((tab) => tab.key)) {
-            if (key !== activeTabKeyRef.current) {
-              switchTab(key)
-              await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
-            }
-            if (!await canProceedRef.current(true)) return
-          }
-          await draftWriteChain.current.catch(() => undefined)
-          await exit(0)
-        } finally { closingWindowRef.current = false }
-      })().catch((error: unknown) => setStatus(errorText(error)))
-    }).then((stop) => {
-      if (canceled) stop()
-      else unlisten = stop
-    }).catch((error: unknown) => setStatus(errorText(error)))
-    return () => { canceled = true; unlisten?.() }
+      void closeWindowRef.current().catch((error: unknown) => setStatus(errorText(error)))
+    }).then((stop) => { if (canceled) stop(); else unlistenClose = stop }).catch((error: unknown) => setStatus(errorText(error)))
+    void getCurrentWindow().listen('app-quit-requested', () => {
+      void closeWindowRef.current().catch((error: unknown) => setStatus(errorText(error)))
+    }).then((stop) => { if (canceled) stop(); else unlistenQuit = stop }).catch((error: unknown) => setStatus(errorText(error)))
+    return () => { canceled = true; unlistenClose?.(); unlistenQuit?.() }
   }, [desktop])
+
+  useEffect(() => {
+    if (desktop) void getCurrentWindow().setTitle(document.name).catch(() => undefined)
+  }, [desktop, document.name])
 
   async function selectSample(sampleId: string) {
     if (busy || !await canProceed()) {
@@ -1139,143 +1220,147 @@ export function App() {
     const active = ({ bold: 'strong', italic: 'emphasis', strike: 'strike_through', inlineCode: 'inlineCode', bullet: 'bullet_list', ordered: 'ordered_list', quote: 'blockquote', codeBlock: 'code_block' } as Record<string, string>)[item.command]
     const pressed = active ? (['bullet', 'ordered', 'quote', 'codeBlock'].includes(item.command) ? toolbar.block === active : toolbar.marks.includes(active)) : undefined
     const Icon = item.icon
-    return <button key={item.command} type="button" className={inMenu ? 'menu-command' : 'icon-button'} title={item.label} aria-label={item.label} aria-pressed={pressed} disabled={!toolbar.ready || toolbar.composing || item.command === 'undo' && !toolbar.canUndo || item.command === 'redo' && !toolbar.canRedo} onClick={() => adapter.current?.runCommand(item.command)}><Icon aria-hidden="true" />{inMenu && <span>{item.label}</span>}</button>
+    return <button key={item.command} type="button" className={inMenu ? 'menu-command' : 'icon-button'} title={t(item.label)} aria-label={t(item.label)} aria-pressed={pressed} disabled={!toolbar.ready || toolbar.composing || item.command === 'undo' && !toolbar.canUndo || item.command === 'redo' && !toolbar.canRedo} onClick={() => adapter.current?.runCommand(item.command)}><Icon aria-hidden="true" />{inMenu && <span>{t(item.label)}</span>}</button>
   }
   const persistenceLabel = session.persistence === 'saving' ? '保存中' : session.persistence === 'failed' ? '保存失败' : session.persistence === 'conflict' ? '磁盘冲突' : dirty ? '未保存' : document.token ? '已保存' : '未保存到磁盘'
 
   return (
     <main className="app-shell" onClick={() => { if (tabMenu) setTabMenu(null) }}>
-      {settings.showFileToolbar && <div className="file-controls" aria-label="文档操作">
-        <button type="button" className="icon-button sidebar-toggle" onClick={() => setSidebarOpen((value) => !value)} aria-expanded={sidebarOpen} aria-controls="document-sidebar" aria-label={sidebarOpen ? '隐藏文件栏' : '显示文件栏'} title={sidebarOpen ? '隐藏文件栏' : '显示文件栏'}><PanelLeft aria-hidden="true" /></button>
+      {settings.showFileToolbar && <div className="file-controls" aria-label={t('文档操作')}>
+        <button type="button" className="icon-button sidebar-toggle" onClick={() => setSettings((current) => ({ ...current, showSidebar: !current.showSidebar }))} aria-expanded={sidebarOpen} aria-controls="document-sidebar" aria-label={sidebarOpen ? t('隐藏文件栏') : t('显示文件栏')} title={sidebarOpen ? t('隐藏文件栏') : t('显示文件栏')}><PanelLeft aria-hidden="true" /></button>
         <span className="control-divider" aria-hidden="true" />
-        <button type="button" className="control-button" onClick={() => void chooseWorkspace()} disabled={!desktop || busy}><FolderOpen aria-hidden="true" />打开文件夹</button>
-        <button type="button" className="control-button" onClick={() => void openDocument()} disabled={!desktop || busy}><FileText aria-hidden="true" />打开文件</button>
-        <button type="button" className="control-button" onClick={() => void newDocument()} disabled={busy}><Plus aria-hidden="true" />新建</button>
+        <button type="button" className="control-button" onClick={() => void chooseWorkspace()} disabled={!desktop || busy}><FolderOpen aria-hidden="true" />{t('打开文件夹')}</button>
+        <button type="button" className="control-button" onClick={() => void openDocument()} disabled={!desktop || busy}><FileText aria-hidden="true" />{t('打开文件')}</button>
+        <button type="button" className="control-button" onClick={() => void newDocument()} disabled={busy}><Plus aria-hidden="true" />{t('新建')}</button>
         <span className="control-spacer" />
-        {!welcomeVisible && <button type="button" className="control-button save-button" onClick={() => void saveDocument()} disabled={!desktop || busy}><Save aria-hidden="true" />保存 <kbd>⌘S</kbd></button>}
-        {!welcomeVisible && <details className="more-actions"><summary aria-label="文档更多操作" title="文档更多操作"><MoreHorizontal aria-hidden="true" /></summary><div className="more-actions-menu">
-          <button type="button" onClick={() => void saveDocument(true)} disabled={!desktop || busy || !document.token}><Save aria-hidden="true" />另存为</button>
+        <button type="button" className="control-button save-button" onClick={() => void saveDocument()} disabled={!desktop || busy}><Save aria-hidden="true" />{t('保存')} <kbd>⌘S</kbd></button>
+        <details className="more-actions"><summary aria-label={t('文档更多操作')} title={t('文档更多操作')}><MoreHorizontal aria-hidden="true" /></summary><div className="more-actions-menu">
+          <button type="button" onClick={() => void saveDocument(true)} disabled={!desktop || busy || !document.token}><Save aria-hidden="true" />{t('另存为')}</button>
           {document.mode === 'visual'
-            ? <button type="button" onClick={switchToSource} disabled={busy}><Code2 aria-hidden="true" />源码模式</button>
-            : <button type="button" onClick={() => void switchToVisual()} disabled={busy}><FileText aria-hidden="true" />可视化模式</button>}
+            ? <button type="button" onClick={switchToSource} disabled={busy}><Code2 aria-hidden="true" />{t('源码模式')}</button>
+            : <button type="button" onClick={() => void switchToVisual()} disabled={busy}><FileText aria-hidden="true" />{t('可视化模式')}</button>}
           <div className="menu-separator" />
-          <button type="button" onClick={() => void exportPage('html')} disabled={!desktop || busy || document.mode === 'source-protected'}><Download aria-hidden="true" />导出 HTML</button>
-          <button type="button" onClick={() => void exportPage('print')} disabled={!desktop || busy || document.mode === 'source-protected'}><Printer aria-hidden="true" />打印 / PDF</button>
-          {document.mode === 'visual' && <button type="button" onClick={() => void exportSnapshotMD(false)} disabled={!desktop || busy}><Download aria-hidden="true" />导出 MD + 图片</button>}
-          <button type="button" onClick={() => void exportSnapshotMD(true)} disabled={!desktop || busy}><Download aria-hidden="true" />仅正文 MD</button>
-        </div></details>}
+          <button type="button" onClick={() => void exportPage('html')} disabled={!desktop || busy || document.mode === 'source-protected'}><Download aria-hidden="true" />{t('导出 HTML')}</button>
+          <button type="button" onClick={() => void exportPage('print')} disabled={!desktop || busy || document.mode === 'source-protected'}><Printer aria-hidden="true" />{t('打印 / PDF')}</button>
+          {document.mode === 'visual' && <button type="button" onClick={() => void exportSnapshotMD(false)} disabled={!desktop || busy}><Download aria-hidden="true" />{t('导出 MD + 图片')}</button>}
+          <button type="button" onClick={() => void exportSnapshotMD(true)} disabled={!desktop || busy}><Download aria-hidden="true" />{t('仅正文 MD')}</button>
+        </div></details>
       </div>}
-      {imageError && <div className="conflict-panel" role="alert"><strong>图片处理失败</strong><span>{imageError}</span><button type="button" onClick={() => void adapter.current?.retryFailedImages()}>重试</button><span>也可删除该图片后重新插入。</span></div>}
-      {drafts.length > 0 && <section className="recovery-panel" aria-label="恢复草稿">
-        <strong>可恢复草稿</strong>
-        {drafts.map((item) => <div key={item.draftId} className="recovery-item">
-          <span>{item.name}{item.targetStatus === 'changed' ? ' · 原文件已变化' : item.targetStatus === 'deleted' ? ' · 原文件已删除' : ''}</span>
-          <button type="button" disabled={busy} onClick={() => void previewDraft(item.draftId)}>预览</button>
-          <button type="button" disabled={busy} onClick={() => void recoverDraft(item.draftId)}>恢复到新文档</button>
-          <button type="button" disabled={busy} onClick={() => void discardDraft(item.draftId).catch((error: unknown) => setStatus(errorText(error)))}>丢弃</button>
-        </div>)}
-      </section>}
-      {draftPreview && <section className="disk-preview" aria-label="草稿预览">
-        <div><strong>草稿预览：{draftPreview.name} · {draftPreview.assets.length} 张图片</strong><button type="button" onClick={() => setDraftPreview(null)}>关闭预览</button></div>
-        {draftPreview.targetPath && <p>原文件：{draftPreview.targetPath} · {draftPreview.targetStatus === 'same' ? '与草稿基线相同' : '已变化或不可确认'}</p>}
-        <pre>{draftPreview.markdown.slice(0, 100_000)}{draftPreview.markdown.length > 100_000 ? '\n…预览仅显示前 100000 字符' : ''}</pre>
-      </section>}
+      {imageError && <div className="conflict-panel" role="alert"><strong>{t('图片处理失败')}</strong><span>{imageError}</span><button type="button" onClick={() => void adapter.current?.retryFailedImages()}>{t('重试')}</button><span>{t('也可删除该图片后重新插入。')}</span></div>}
       {diskChange && <div className="conflict-panel" role="alert">
-        <strong>{diskChange.kind === 'deleted' ? '磁盘文件已删除' : '磁盘文件已改变'}</strong>
-        <span>当前编辑内容仍在本窗口中。请选择下一步。</span>
-        {diskChange.kind !== 'deleted' && <button type="button" onClick={() => void previewDiskVersion()}>查看磁盘版本</button>}
-        <button type="button" onClick={() => void saveConflictCopy()}>保留本地副本</button>
-        {diskChange.kind !== 'deleted' && <button type="button" onClick={() => void reloadDiskVersion()}>重新加载磁盘版本</button>}
+        <strong>{t(diskChange.kind === 'deleted' ? '磁盘文件已删除' : '磁盘文件已改变')}</strong>
+        <span>{t('当前编辑内容仍在本窗口中。请选择下一步。')}</span>
+        {diskChange.kind !== 'deleted' && <button type="button" onClick={() => void previewDiskVersion()}>{t('查看磁盘版本')}</button>}
+        <button type="button" onClick={() => void saveConflictCopy()}>{t('保留本地副本')}</button>
+        {diskChange.kind !== 'deleted' && <button type="button" onClick={() => void reloadDiskVersion()}>{t('重新加载磁盘版本')}</button>}
       </div>}
-      {diskPreview !== null && <section className="disk-preview" aria-label="磁盘版本预览">
-        <div><strong>磁盘版本预览</strong><button type="button" onClick={() => setDiskPreview(null)}>关闭预览</button></div>
+      {diskPreview !== null && <section className="disk-preview" aria-label={t('磁盘版本预览')}>
+        <div><strong>{t('磁盘版本预览')}</strong><button type="button" onClick={() => setDiskPreview(null)}>{t('关闭预览')}</button></div>
         <pre>{diskPreview.slice(0, 100_000)}{diskPreview.length > 100_000 ? '\n…预览仅显示前 100000 字符' : ''}</pre>
       </section>}
       <div className="workspace-layout">
-        {sidebarOpen && <aside id="document-sidebar" ref={sidebarRoot} className="document-sidebar" aria-label="文件浏览器" style={{ width: settings.sidebarWidth }}>
-          <div className="sidebar-heading"><h2>文件</h2><button type="button" className="icon-button" title="打开文件夹" aria-label="打开文件夹" onClick={() => void chooseWorkspace()} disabled={!desktop}><FolderOpen aria-hidden="true" /></button></div>
-          {document.token && !document.entryToken && <div className="standalone-file"><h3>单独打开</h3><div className="tree-entry" aria-current="page" title={document.name}><FileText className="tree-icon" aria-hidden="true" /><span className="tree-name">{document.name}</span></div></div>}
-          {!workspace && !document.token && <div className="sidebar-empty"><FileText className="sidebar-empty-icon" aria-hidden="true" /><p>还没有打开文档</p><span>拖入 Markdown 文件或文件夹，也可以使用上方按钮</span></div>}
+        {sidebarOpen && <aside id="document-sidebar" ref={sidebarRoot} className="document-sidebar" aria-label={t('文件浏览器')} style={{ width: settings.sidebarWidth }}>
+          <div className="sidebar-heading"><h2>{t('文件')}</h2><button type="button" className="icon-button" title={t('打开文件夹')} aria-label={t('打开文件夹')} onClick={() => void chooseWorkspace()} disabled={!desktop}><FolderOpen aria-hidden="true" /></button></div>
+          {!workspace && <div className="sidebar-empty"><FolderOpen className="sidebar-empty-icon" aria-hidden="true" /><p>{t('尚未打开文件夹')}</p><span>{t('拖入文件夹或使用上方按钮；已打开的文档显示在右侧标签栏')}</span></div>}
           {workspace && <>
-            <div className="tree-header"><ChevronDown aria-hidden="true" /><strong title={workspace.name}>{workspace.name}</strong><button type="button" className="icon-button" onClick={() => void loadChildren(workspace.token)} title="刷新目录" aria-label="刷新目录"><RefreshCw aria-hidden="true" /></button></div>
-            <div role="tree" aria-label="文件夹目录" className="file-tree">{renderChildren(workspace.token)}</div>
-            <div className="tree-actions"><button type="button" onClick={() => { setNewEntryType('file'); setNewEntryName('新文档.md') }}><FilePlus2 aria-hidden="true" />新建文档</button><details className="tree-action-menu"><summary aria-label="目录操作" title="目录操作"><MoreHorizontal aria-hidden="true" /></summary><div className="tree-action-popup">
-              <button type="button" onClick={() => { setNewEntryType('directory'); setNewEntryName('新目录') }}><FolderPlus aria-hidden="true" />新建目录</button>
-              <button type="button" disabled={!selectedEntry} onClick={() => { setRenameName(selectedEntry?.name ?? ''); setRenaming(true) }}><Pencil aria-hidden="true" />重命名</button>
-              <button type="button" disabled={!selectedEntry} onClick={() => void trashEntry()}><Trash2 aria-hidden="true" />移到废纸篓</button>
+            <div className="tree-header"><ChevronDown aria-hidden="true" /><strong title={workspace.name}>{workspace.name}</strong><button type="button" className="icon-button" onClick={() => void loadChildren(workspace.token)} title={t('刷新目录')} aria-label={t('刷新目录')}><RefreshCw aria-hidden="true" /></button></div>
+            <div role="tree" aria-label={t('文件夹目录')} className="file-tree">{renderChildren(workspace.token)}</div>
+            <div className="tree-actions"><button type="button" onClick={() => { setNewEntryType('file'); setNewEntryName('新文档.md') }}><FilePlus2 aria-hidden="true" />{t('新建文档')}</button><details className="tree-action-menu"><summary aria-label={t('目录操作')} title={t('目录操作')}><MoreHorizontal aria-hidden="true" /></summary><div className="tree-action-popup">
+              <button type="button" onClick={() => { setNewEntryType('directory'); setNewEntryName('新目录') }}><FolderPlus aria-hidden="true" />{t('新建目录')}</button>
+              <button type="button" disabled={!selectedEntry} onClick={() => { setRenameName(selectedEntry?.name ?? ''); setRenaming(true) }}><Pencil aria-hidden="true" />{t('重命名')}</button>
+              <button type="button" disabled={!selectedEntry} onClick={() => void trashEntry()}><Trash2 aria-hidden="true" />{t('移到废纸篓')}</button>
               <div className="menu-separator" />
-              <button type="button" onClick={() => void closeWorkspace()}><X aria-hidden="true" />关闭文件夹</button>
+              <button type="button" onClick={() => void closeWorkspace()}><X aria-hidden="true" />{t('关闭文件夹')}</button>
             </div></details></div>
-            {newEntryType && <div className="tree-form"><label>{newEntryType === 'file' ? '文件名' : '目录名'}<input value={newEntryName} onChange={(event) => setNewEntryName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void createEntry(); if (event.key === 'Escape') setNewEntryType(null) }} /></label><button type="button" onClick={() => void createEntry()}>创建</button><button type="button" onClick={() => setNewEntryType(null)}>取消</button></div>}
-            {renaming && <div className="tree-form"><label>新名称<input value={renameName} onChange={(event) => setRenameName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void renameEntry(); if (event.key === 'Escape') setRenaming(false) }} /></label><button type="button" onClick={() => void renameEntry()}>确定</button><button type="button" onClick={() => setRenaming(false)}>取消</button></div>}
+            {newEntryType && <div className="tree-form"><label>{t(newEntryType === 'file' ? '文件名' : '目录名')}<input value={newEntryName} onChange={(event) => setNewEntryName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void createEntry(); if (event.key === 'Escape') setNewEntryType(null) }} /></label><button type="button" onClick={() => void createEntry()}>{t('创建')}</button><button type="button" onClick={() => setNewEntryType(null)}>{t('取消')}</button></div>}
+            {renaming && <div className="tree-form"><label>{t('新名称')}<input value={renameName} onChange={(event) => setRenameName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void renameEntry(); if (event.key === 'Escape') setRenaming(false) }} /></label><button type="button" onClick={() => void renameEntry()}>{t('确定')}</button><button type="button" onClick={() => setRenaming(false)}>{t('取消')}</button></div>}
           </>}
-          {recent.length > 0 && <div className="recent-list"><h2>最近使用</h2>{recent.map((item, index) => <div className="recent-item" key={item.id}><button type="button" onClick={() => void openRecent(item)} title={item.name}>{item.kind === 'folder' ? <Folder aria-hidden="true" /> : <FileText aria-hidden="true" />}<span>{item.name}{!item.available ? ' · 失效' : ''}</span></button><button type="button" className="recent-move" aria-label={`上移 ${item.name}`} title="上移" disabled={index === 0} onClick={() => void moveRecent(item.id, -1)}><ArrowUp aria-hidden="true" /></button><button type="button" className="recent-move" aria-label={`下移 ${item.name}`} title="下移" disabled={index === recent.length - 1} onClick={() => void moveRecent(item.id, 1)}><ArrowDown aria-hidden="true" /></button><button type="button" className="recent-remove" aria-label={`移除 ${item.name}`} title="移除记录" onClick={() => void removeRecent(item.id)}><X aria-hidden="true" /></button></div>)}</div>}
         </aside>}
-      {welcomeVisible ? <section className="welcome-panel" aria-label="开始使用 MinoMarkdown">
-        <div className="welcome-content">
-        <FileText className="welcome-icon" aria-hidden="true" />
-        <h2>打开 Markdown 文档</h2>
-        <p>直接打开一篇文档，或打开文件夹浏览多级目录。都可以从 Finder 拖入窗口。</p>
-        <div className="welcome-actions">
-          <button type="button" className="welcome-primary" onClick={() => void openDocument()} disabled={!desktop}><FileText aria-hidden="true" />打开 Markdown 文件</button>
-          <button type="button" onClick={() => void chooseWorkspace()} disabled={!desktop}><FolderOpen aria-hidden="true" />打开文件夹</button>
-        </div>
-        <div className="drop-hint">从 Finder 拖入 <strong>.md / .markdown 文件</strong>或文件夹到窗口任意位置</div>
-        </div>
-      </section> : <>
-        <section className="editor-panel" aria-label="Markdown 编辑区域">
-          <div className="document-tabbar" role="tablist" aria-label="打开的文档"><div className="document-tabs">{tabs.map((tab) => <div key={tab.key} className="document-tab" role="tab" aria-selected={tab.key === activeTabKey} draggable onDragStart={(event) => event.dataTransfer.setData('text/x-mino-tab', tab.key)} onDragOver={(event) => { if (event.dataTransfer.types.includes('text/x-mino-tab')) event.preventDefault() }} onDrop={(event) => { const from = event.dataTransfer.getData('text/x-mino-tab'); if (from) { event.preventDefault(); reorderTabs(from, tab.key) } }} onContextMenu={(event) => { event.preventDefault(); setTabMenu({ key: tab.key, x: event.clientX, y: event.clientY }) }}><button type="button" className="tab-select" onClick={() => switchTab(tab.key)} title={tab.document.name}><FileText aria-hidden="true" /><span>{tab.key === activeTabKey ? document.name : tab.document.name}</span>{isDirty(tab.key === activeTabKey ? session : tab.session) && <i className="unsaved-dot" aria-label="未保存" />}</button><button type="button" className="tab-close" onClick={() => void closeTabs([tab.key])} title={`关闭 ${tab.document.name}`} aria-label={`关闭 ${tab.document.name}`}><X aria-hidden="true" /></button></div>)}</div><div className="document-context">{document.mode === 'source-protected' ? '源码保护' : '可视化编辑'} <span className="document-save-state">{persistenceLabel}</span></div></div>
-          {document.mode === 'visual' && <div className="editor-toolbar" role="toolbar" aria-label="编辑工具栏" onMouseDown={(event) => { if ((event.target as HTMLElement).closest('button')) event.preventDefault() }}>
-            <select aria-label="段落样式" value={toolbar.block.startsWith('heading') ? toolbar.block : 'paragraph'} disabled={!toolbar.ready || toolbar.composing} onChange={(event) => adapter.current?.runCommand(event.target.value as EditorCommand)}>
-              <option value="paragraph">正文</option>
-              {[1, 2, 3, 4, 5, 6].map((level) => <option key={level} value={`heading${level}`}>标题 {level}</option>)}
+        <section className="editor-panel" data-editor-width={settings.editorWidth} aria-label={t('Markdown 编辑区域')}>
+          <div className="document-tabbar" role="tablist" aria-label={t('打开的文档')}><div className="document-tabs">{tabs.map((tab) => <div key={tab.key} className="document-tab" role="tab" aria-selected={tab.key === activeTabKey} data-tab-key={tab.key} onPointerDown={(event) => { if (event.button !== 0 || (event.target as HTMLElement).closest(".tab-close")) return; tabDragRef.current = { key: tab.key, x: event.clientX, y: event.clientY }; event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={(event) => { const drag = tabDragRef.current; if (!drag || drag.key !== tab.key || Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 8) return; if (event.clientX <= 6 || event.clientY <= 6 || event.clientX >= window.innerWidth - 6 || event.clientY >= window.innerHeight - 6) { tabDragRef.current = null; event.currentTarget.releasePointerCapture(event.pointerId); void detachTab(tab.key) } }} onPointerUp={(event) => { const drag = tabDragRef.current; tabDragRef.current = null; if (!drag || drag.key !== tab.key) return; event.currentTarget.releasePointerCapture(event.pointerId); if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 8) return; if (event.clientX <= 0 || event.clientY <= 0 || event.clientX >= window.innerWidth || event.clientY >= window.innerHeight) { void detachTab(tab.key); return } const target = window.document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-tab-key]")?.dataset.tabKey; if (target) reorderTabs(tab.key, target) }} onPointerCancel={() => { tabDragRef.current = null }} onContextMenu={(event) => { event.preventDefault(); setTabMenu({ key: tab.key, x: event.clientX, y: event.clientY }) }}><button type="button" className="tab-select" onClick={() => switchTab(tab.key)} title={tab.document.name}><FileText aria-hidden="true" /><span>{tab.key === activeTabKey ? document.name : tab.document.name}</span>{isDirty(tab.key === activeTabKey ? session : tab.session) && <i className="unsaved-dot" aria-label={t('未保存')} />}</button><button type="button" className="tab-close" onClick={() => void closeTabs([tab.key])} title={settings.language === 'en-US' ? `Close ${tab.document.name}` : `关闭 ${tab.document.name}`} aria-label={settings.language === 'en-US' ? `Close ${tab.document.name}` : `关闭 ${tab.document.name}`}><X aria-hidden="true" /></button></div>)}</div><div className="document-context">{t(document.mode === 'source-protected' ? '源码保护' : '可视化编辑')} <span className="document-save-state">{t(persistenceLabel)}</span></div></div>
+          <div className="editor-toolbar" role="toolbar" aria-label={t('编辑工具栏')} onMouseDown={(event) => { if ((event.target as HTMLElement).closest('button')) event.preventDefault() }}>
+            {document.mode === 'visual' && <>
+            <select aria-label={t('段落样式')} value={toolbar.block.startsWith('heading') ? toolbar.block : 'paragraph'} disabled={!toolbar.ready || toolbar.composing} onChange={(event) => adapter.current?.runCommand(event.target.value as EditorCommand)}>
+              <option value="paragraph">{t('正文')}</option>
+              {[1, 2, 3, 4, 5, 6].map((level) => <option key={level} value={`heading${level}`}>{t('标题')} {level}</option>)}
             </select>
             <span className="toolbar-divider" aria-hidden="true" />
             <div className="toolbar-group">{toolbarItems.filter((item) => item.primary && item.command !== 'undo' && item.command !== 'redo').map((item) => renderToolbarButton(item))}</div>
             <span className="toolbar-divider" aria-hidden="true" />
-            <button type="button" className="icon-button" title="插入链接" aria-label="插入链接" disabled={!toolbar.ready || toolbar.composing} onClick={() => { setLinkHref(adapter.current?.captureSelection() ?? ''); setLinkOpen(true) }}><Link2 aria-hidden="true" /></button>
-            <button type="button" className="icon-button" title="插入图片" aria-label="插入图片" disabled={!toolbar.ready || toolbar.composing} onClick={() => { imageInputAction.current = 'insert'; imageInput.current?.click() }}><ImageIcon aria-hidden="true" /></button>
+            <button type="button" className="icon-button" title={t('插入链接')} aria-label={t('插入链接')} disabled={!toolbar.ready || toolbar.composing} onClick={() => { setLinkHref(adapter.current?.captureSelection() ?? ''); setLinkOpen(true) }}><Link2 aria-hidden="true" /></button>
+            <button type="button" className="icon-button" title={t('插入图片')} aria-label={t('插入图片')} disabled={!toolbar.ready || toolbar.composing} onClick={() => { imageInputAction.current = 'insert'; imageInput.current?.click() }}><ImageIcon aria-hidden="true" /></button>
             <input ref={imageInput} hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(event) => { const file = event.target.files?.[0]; if (file) { try { if (imageInputAction.current === 'replace') adapter.current?.replaceSelectedImage(file); else adapter.current?.insertFile(file) } catch (error) { setStatus(errorText(error)) } } event.target.value = '' }} />
-            <details className="toolbar-more"><summary title="更多编辑工具" aria-label="更多编辑工具"><MoreHorizontal aria-hidden="true" /></summary><div className="toolbar-more-menu">
+            <details className="toolbar-more"><summary title={t('更多编辑工具')} aria-label={t('更多编辑工具')}><MoreHorizontal aria-hidden="true" /></summary><div className="toolbar-more-menu">
               {toolbarItems.filter((item) => !item.primary).map((item) => renderToolbarButton(item, true))}
               <div className="menu-separator" />
-              <button type="button" className="menu-command" disabled={!toolbar.ready || toolbar.composing} onClick={() => adapter.current?.runTableCommand('insert')}><Table2 aria-hidden="true" />插入表格</button>
-              {toolbar.inTable && <><div className="menu-separator" />{([['row', '加行'], ['column', '加列'], ['deleteRow', '删行'], ['deleteColumn', '删列'], ['alignLeft', '左对齐'], ['alignCenter', '居中'], ['alignRight', '右对齐']] as const).map(([command, label]) => <button key={command} type="button" className="menu-command" onClick={() => adapter.current?.runTableCommand(command)}><Table2 aria-hidden="true" />{label}</button>)}</>}
-              {toolbar.imageAlt !== null && <><div className="menu-separator" /><button type="button" className="menu-command" onClick={() => { adapter.current?.captureSelection(); setImageAltText(toolbar.imageAlt ?? ''); setImageAltOpen(true) }}><Pencil aria-hidden="true" />图片说明</button><button type="button" className="menu-command" onClick={() => { adapter.current?.captureSelection(); imageInputAction.current = 'replace'; imageInput.current?.click() }}><ImageIcon aria-hidden="true" />替换图片</button></>}
+              <button type="button" className="menu-command" disabled={!toolbar.ready || toolbar.composing} onClick={() => adapter.current?.runTableCommand('insert')}><Table2 aria-hidden="true" />{t('插入表格')}</button>
+              {toolbar.inTable && <><div className="menu-separator" />{([['row', '加行'], ['column', '加列'], ['deleteRow', '删行'], ['deleteColumn', '删列'], ['alignLeft', '左对齐'], ['alignCenter', '居中'], ['alignRight', '右对齐']] as const).map(([command, label]) => <button key={command} type="button" className="menu-command" onClick={() => adapter.current?.runTableCommand(command)}><Table2 aria-hidden="true" />{t(label)}</button>)}</>}
+              {toolbar.imageAlt !== null && <><div className="menu-separator" /><button type="button" className="menu-command" onClick={() => { adapter.current?.captureSelection(); setImageAltText(toolbar.imageAlt ?? ''); setImageAltOpen(true) }}><Pencil aria-hidden="true" />{t('图片说明')}</button><button type="button" className="menu-command" onClick={() => { adapter.current?.captureSelection(); imageInputAction.current = 'replace'; imageInput.current?.click() }}><ImageIcon aria-hidden="true" />{t('替换图片')}</button></>}
             </div></details>
+            </>}
             <span className="toolbar-spacer" />
-            <div className="toolbar-group">{toolbarItems.filter((item) => item.command === 'undo' || item.command === 'redo').map((item) => renderToolbarButton(item))}</div>
+            {document.mode === 'visual' && <div className="toolbar-group">{toolbarItems.filter((item) => item.command === 'undo' || item.command === 'redo').map((item) => renderToolbarButton(item))}</div>}
+            <span className="toolbar-divider" aria-hidden="true" />
+            <div className="editor-width-switch" role="group" aria-label={t('正文显示模式')}>
+              <button type="button" aria-pressed={settings.editorWidth === 'centered'} onClick={() => setSettings((current) => ({ ...current, editorWidth: 'centered' }))}>{t('居中')}</button>
+              <button type="button" aria-pressed={settings.editorWidth === 'wide'} onClick={() => setSettings((current) => ({ ...current, editorWidth: 'wide' }))}>{t('宽屏')}</button>
+            </div>
+          </div>
+          {linkOpen && <div className="editor-popover" role="dialog" aria-label={t('编辑链接')}>
+            <label>{t('链接地址')} <input autoFocus value={linkHref} onChange={(event) => setLinkHref(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') applyLink(); if (event.key === 'Escape') { setLinkOpen(false); adapter.current?.focus() } }} /></label>
+            <button type="button" onClick={applyLink}>{t('确定')}</button><button type="button" onClick={() => { setLinkOpen(false); adapter.current?.focus() }}>{t('取消')}</button>
           </div>}
-          {linkOpen && <div className="editor-popover" role="dialog" aria-label="编辑链接">
-            <label>链接地址 <input autoFocus value={linkHref} onChange={(event) => setLinkHref(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') applyLink(); if (event.key === 'Escape') { setLinkOpen(false); adapter.current?.focus() } }} /></label>
-            <button type="button" onClick={applyLink}>确定</button><button type="button" onClick={() => { setLinkOpen(false); adapter.current?.focus() }}>取消</button>
-          </div>}
-          {imageAltOpen && <div className="editor-popover" role="dialog" aria-label="编辑图片说明">
-            <label>替代文本 <input autoFocus value={imageAltText} onChange={(event) => setImageAltText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setImageAltOpen(false); adapter.current?.focus() } }} /></label>
-            <button type="button" onClick={() => { adapter.current?.setImageAlt(imageAltText); setImageAltOpen(false) }}>确定</button><button type="button" onClick={() => { setImageAltOpen(false); adapter.current?.focus() }}>取消</button>
+          {imageAltOpen && <div className="editor-popover" role="dialog" aria-label={t('编辑图片说明')}>
+            <label>{t('替代文本')} <input autoFocus value={imageAltText} onChange={(event) => setImageAltText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setImageAltOpen(false); adapter.current?.focus() } }} /></label>
+            <button type="button" onClick={() => { adapter.current?.setImageAlt(imageAltText); setImageAltOpen(false) }}>{t('确定')}</button><button type="button" onClick={() => { setImageAltOpen(false); adapter.current?.focus() }}>{t('取消')}</button>
           </div>}
           {document.mode === 'visual'
             ? <div key={document.id} ref={editorRoot} className="editor-root" />
-            : <textarea key={document.id} className="source-editor" aria-label="源码保护编辑区域" value={document.sourceText} onChange={(event) => {
+            : <textarea key={document.id} className="source-editor" aria-label={t('源码保护编辑区域')} value={document.sourceText} onChange={(event) => {
               const value = event.target.value
               setDocument((current) => ({ ...current, sourceText: value }))
               if (sessionRef.current.generation === document.id) updateSession(editSession(sessionRef.current))
             }} />}
         </section>
-      </>}
       </div>
-      <footer className="app-status"><span className="status-message" role="status" title={status}>{status}</span><span className="status-mode">{welcomeVisible ? '准备就绪' : document.mode === 'source-protected' ? '源码保护' : 'Markdown'}</span><label className="theme-control">外观 <select aria-label="外观主题" value={settings.theme} onChange={(event) => setSettings((current) => ({ ...current, theme: event.target.value as Settings['theme'] }))}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></footer>
-      {tabMenu && <div className="tab-context-menu" role="menu" style={{ left: Math.min(tabMenu.x, window.innerWidth - 180), top: Math.min(tabMenu.y, window.innerHeight - 120) }} onClick={(event) => event.stopPropagation()}><button type="button" role="menuitem" onClick={() => void closeTabs([tabMenu.key])}>关闭当前</button><button type="button" role="menuitem" onClick={() => void closeTabs(tabs.slice(tabs.findIndex((tab) => tab.key === tabMenu.key) + 1).map((tab) => tab.key))} disabled={tabs.findIndex((tab) => tab.key === tabMenu.key) === tabs.length - 1}>关闭右边</button><button type="button" role="menuitem" onClick={() => void closeTabs(tabs.map((tab) => tab.key))}>关闭所有文档</button></div>}
-      {settingsOpen && <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}><section className="settings-dialog" role="dialog" aria-modal="true" aria-label="设置"><div className="settings-title"><h2>设置</h2><button type="button" aria-label="关闭设置" onClick={() => setSettingsOpen(false)}><X aria-hidden="true" /></button></div><label className="settings-row"><span>外观主题</span><select value={settings.theme} onChange={(event) => setSettings((current) => ({ ...current, theme: event.target.value as Settings['theme'] }))}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label><label className="settings-row"><span>显示文件操作栏<small>打开、新建、保存等按钮；也可从菜单栏使用这些功能</small></span><input type="checkbox" checked={settings.showFileToolbar} onChange={(event) => setSettings((current) => ({ ...current, showFileToolbar: event.target.checked }))} /></label></section></div>}
-      {import.meta.env.DEV && !uiPreview && !welcomeVisible && <details className="verification-panel">
-        <summary>编辑器验证样本</summary>
+      <footer className="app-status"><span className="status-message" role="status" title={translateStatus(status, settings.language)}>{translateStatus(status, settings.language)}</span><span className="status-mode">{document.mode === 'source-protected' ? t('源码保护') : 'Markdown'}</span><label className="theme-control">{t('外观')} <select aria-label={t('外观主题')} value={settings.theme} onChange={(event) => setSettings((current) => ({ ...current, theme: event.target.value as Settings['theme'] }))}><option value="system">{t('跟随系统')}</option><option value="light">{t('浅色')}</option><option value="dark">{t('深色')}</option><option value="paper">{t('暖纸')}</option><option value="graphite">{t('石墨')}</option></select></label></footer>
+      {tabMenu && <div className="tab-context-menu" role="menu" style={{ left: Math.min(tabMenu.x, window.innerWidth - 180), top: Math.min(tabMenu.y, window.innerHeight - 120) }} onClick={(event) => event.stopPropagation()}><button type="button" role="menuitem" onClick={() => void detachTab(tabMenu.key)}>{t('移到新窗口')}</button><button type="button" role="menuitem" onClick={() => void closeTabs([tabMenu.key])}>{t('关闭当前')}</button><button type="button" role="menuitem" onClick={() => void closeTabs(tabs.slice(tabs.findIndex((tab) => tab.key === tabMenu.key) + 1).map((tab) => tab.key))} disabled={tabs.findIndex((tab) => tab.key === tabMenu.key) === tabs.length - 1}>{t('关闭右边')}</button><button type="button" role="menuitem" onClick={() => void closeTabs(tabs.map((tab) => tab.key))}>{t('关闭所有文档')}</button></div>}
+      {draftsOpen && <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDraftsOpen(false) }}><section className="drafts-dialog" role="dialog" aria-modal="true" aria-label={t('恢复草稿')}><div className="settings-title"><h2>{t('恢复草稿')}</h2><button type="button" aria-label={t('关闭恢复草稿')} onClick={() => setDraftsOpen(false)}><X aria-hidden="true" /></button></div>{drafts.length === 0 ? <p>{t('没有可恢复的草稿')}</p> : drafts.map((item) => <div key={item.draftId} className="recovery-item"><span>{item.name}{t(item.targetStatus === 'changed' ? ' · 原文件已变化' : item.targetStatus === 'deleted' ? ' · 原文件已删除' : '')}</span><button type="button" disabled={busy} onClick={() => void previewDraft(item.draftId)}>{t('预览')}</button><button type="button" disabled={busy} onClick={() => void recoverDraft(item.draftId)}>{t('恢复')}</button><button type="button" disabled={busy} onClick={() => void discardDraft(item.draftId).catch((error: unknown) => setStatus(errorText(error)))}>{t('丢弃')}</button></div>)}{draftPreview && <div className="draft-preview"><strong>{draftPreview.name} · {draftPreview.assets.length} {t('张图片')}</strong><pre>{draftPreview.markdown.slice(0, 100_000)}</pre></div>}</section></div>}
+      {settingsOpen && <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}>
+        <section className="settings-dialog" role="dialog" aria-modal="true" aria-label={t('设置')}>
+          <header className="settings-title"><div><h2>{t('设置')}</h2><p>{t('自定义阅读、写作和工作区')}</p></div><button type="button" aria-label={t('关闭设置')} onClick={() => setSettingsOpen(false)}><X aria-hidden="true" /></button></header>
+          <nav className="settings-tabs" aria-label={t('设置分类')}>
+            {([['appearance', '外观'], ['editor', '编辑器'], ['workspace', '工作区']] as const).map(([key, label]) => <button key={key} type="button" aria-current={settingsTab === key ? 'page' : undefined} onClick={() => setSettingsTab(key)}>{t(label)}</button>)}
+          </nav>
+          <div className="settings-content">
+            {settingsTab === 'appearance' && <>
+              <label className="settings-row"><span>{t('界面语言')}<small>{t('菜单、按钮和提示使用的语言')}</small></span><select value={settings.language} onChange={(event) => setSettings((current) => ({ ...current, language: event.target.value as Language }))}><option value="zh-CN">中文</option><option value="en-US">English</option></select></label>
+              <div className="settings-section-heading"><strong>{t('外观主题')}</strong><small>{t('选择适合当前环境的配色')}</small></div>
+              <div className="theme-options">{([['system', '跟随系统'], ['light', '浅色'], ['dark', '深色'], ['paper', '暖纸'], ['graphite', '石墨']] as const).map(([value, label]) => <button key={value} type="button" className="theme-option" aria-pressed={settings.theme === value} onClick={() => setSettings((current) => ({ ...current, theme: value }))}><span className={`theme-swatch theme-swatch-${value}`}><i /><b /><em /></span><span>{t(label)}</span></button>)}</div>
+            </>}
+            {settingsTab === 'editor' && <>
+              <label className="settings-row"><span>{t('正文字体')}<small>{t('用于可视化编辑区')}</small></span><select value={settings.editorFont} onChange={(event) => setSettings((current) => ({ ...current, editorFont: event.target.value as Settings['editorFont'] }))}><option value="system">{t('系统字体')}</option><option value="serif">{t('衬线字体')}</option><option value="mono">{t('等宽字体')}</option></select></label>
+              <div className="settings-row"><span>{t('字号')}<small>{t('正文大小，标题按比例调整')}</small></span><div className="settings-stepper"><button type="button" aria-label={t('缩小字号')} disabled={settings.editorFontSize <= 13} onClick={() => setSettings((current) => ({ ...current, editorFontSize: Math.max(13, current.editorFontSize - 1) }))}>−</button><output>{settings.editorFontSize} px</output><button type="button" aria-label={t('增大字号')} disabled={settings.editorFontSize >= 22} onClick={() => setSettings((current) => ({ ...current, editorFontSize: Math.min(22, current.editorFontSize + 1) }))}>+</button></div></div>
+              <div className="settings-row"><span>{t('行距')}<small>{t('控制正文段落的疏密')}</small></span><div className="settings-segmented">{([['compact', '紧凑'], ['comfortable', '舒适'], ['relaxed', '宽松']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={settings.editorLineHeight === value} onClick={() => setSettings((current) => ({ ...current, editorLineHeight: value }))}>{t(label)}</button>)}</div></div>
+              <div className="settings-row"><span>{t('正文显示模式')}<small>{t('控制文章在窗口中的宽度')}</small></span><div className="settings-segmented">{([['centered', '居中'], ['wide', '宽屏']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={settings.editorWidth === value} onClick={() => setSettings((current) => ({ ...current, editorWidth: value }))}>{t(label)}</button>)}</div></div>
+              <div className="settings-preview" style={{ fontFamily: 'var(--editor-font)', fontSize: 'var(--editor-font-size)', lineHeight: 'var(--editor-line-height)' }}><strong>{t('写作预览')}</strong><p>{t('清晰的文字和合适的间距，让注意力留在内容上。')}</p></div>
+            </>}
+            {settingsTab === 'workspace' && <>
+              <label className="settings-row settings-toggle"><span>{t('显示文件栏')}<small>{t('在左侧显示文件夹目录')}</small></span><input type="checkbox" checked={settings.showSidebar} onChange={(event) => setSettings((current) => ({ ...current, showSidebar: event.target.checked }))} /></label>
+              <label className="settings-row settings-toggle"><span>{t('显示文件操作栏')}<small>{t('打开、新建、保存等按钮；也可从菜单栏使用这些功能')}</small></span><input type="checkbox" checked={settings.showFileToolbar} onChange={(event) => setSettings((current) => ({ ...current, showFileToolbar: event.target.checked }))} /></label>
+            </>}
+          </div>
+        </section>
+      </div>}
+      {import.meta.env.DEV && !uiPreview && <details className="verification-panel">
+        <summary>{t('编辑器验证样本')}</summary>
         <div className="spike-controls">
-          <label htmlFor="sample-select">样本</label>
+          <label htmlFor="sample-select">{t('样本')}</label>
           <select id="sample-select" value={document.sampleId ?? ''} disabled={busy} onChange={(event) => void selectSample(event.target.value)}>
-            <option value="">当前文档</option>
-            {samples.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            <option value="">{t('当前文档')}</option>
+            {samples.map((item) => <option key={item.id} value={item.id}>{t(item.label)}</option>)}
           </select>
-          <button type="button" onClick={checkRoundTrip}>检查语义往返</button>
+          <button type="button" onClick={checkRoundTrip}>{t('检查语义往返')}</button>
         </div>
       </details>}
     </main>

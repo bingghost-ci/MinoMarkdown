@@ -39,7 +39,7 @@ fn root(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(meta) = fs::symlink_metadata(&path) { if meta.file_type().is_symlink() || !meta.is_dir() { return Err("OUT_OF_SCOPE".into()); } }
     Ok(path)
 }
-fn require_main(window: &WebviewWindow) -> Result<(), String> { if window.label() == "main" { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
+fn require_main(window: &WebviewWindow) -> Result<(), String> { if crate::is_workspace_window(window.label()) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
 #[cfg(not(target_os = "macos"))]
 fn write_sync(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let mut file = OpenOptions::new().create_new(true).write(true).open(path).map_err(|_| "IO_ERROR")?;

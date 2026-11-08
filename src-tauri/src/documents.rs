@@ -93,7 +93,7 @@ fn main_window(window: &WebviewWindow) -> Result<(), String> {
 }
 
 fn require_main(label: &str) -> Result<(), String> {
-    if label == "main" { Ok(()) } else { Err("OUT_OF_SCOPE".into()) }
+    if crate::is_workspace_window(label) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) }
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -196,15 +196,22 @@ pub(crate) fn open_granted_path(store: &DocumentStore, path: &Path) -> Result<Op
 #[tauri::command]
 pub async fn choose_unsaved_action(app: AppHandle, window: WebviewWindow) -> Result<&'static str, String> {
     main_window(&window)?;
-    let result = app.dialog().message("当前文档有未保存修改。")
-        .title("关闭或切换文档")
-        .buttons(MessageDialogButtons::YesNoCancelCustom("保存".into(), "放弃修改".into(), "取消".into()))
+    let english = crate::settings::initial_language(&app) == "en-US";
+    let result = app.dialog().message(if english { "This document has unsaved changes." } else { "当前文档有未保存修改。" })
+        .title(if english { "Close or Switch Document" } else { "关闭或切换文档" })
+        .buttons(MessageDialogButtons::YesNoCancelCustom(
+            if english { "Save" } else { "保存" }.into(),
+            if english { "Discard Changes" } else { "放弃修改" }.into(),
+            if english { "Cancel" } else { "取消" }.into(),
+        ))
         .blocking_show_with_result();
     Ok(match result {
         MessageDialogResult::Yes => "save",
         MessageDialogResult::No => "discard",
         MessageDialogResult::Custom(ref label) if label == "保存" => "save",
+        MessageDialogResult::Custom(ref label) if label == "Save" => "save",
         MessageDialogResult::Custom(ref label) if label == "放弃修改" => "discard",
+        MessageDialogResult::Custom(ref label) if label == "Discard Changes" => "discard",
         _ => "cancel",
     })
 }
