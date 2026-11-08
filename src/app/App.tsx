@@ -168,8 +168,6 @@ export function App() {
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(busy)
   const [status, setStatus] = useState('编辑器正在启动')
-  const [diskChange, setDiskChange] = useState<DiskStatus | null>(null)
-  const [diskPreview, setDiskPreview] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<DraftSummary[]>([])
   const [draftPreview, setDraftPreview] = useState<DraftContent | null>(null)
   const [draftsOpen, setDraftsOpen] = useState(false)
@@ -180,7 +178,6 @@ export function App() {
   const [linkHref, setLinkHref] = useState('')
   const [imageAltOpen, setImageAltOpen] = useState(false)
   const [imageAltText, setImageAltText] = useState('')
-  const [imageError, setImageError] = useState<string | null>(null)
   const [workspace, setWorkspace] = useState<WorkspaceRoot | null>(uiPreview ? { token: 'preview-root', name: 'MinoMarkdown' } : null)
   const [settings, setSettings] = useState<Settings>(() => uiPreview ? { ...defaultSettings, theme: new URLSearchParams(window.location.search).get('ui-theme') === 'light' ? 'light' : 'dark' } : defaultSettings)
   const sidebarOpen = settings.showSidebar
@@ -377,7 +374,6 @@ export function App() {
     forceSourceView.current = false
     setTablePicker(null)
     setImageAltOpen(false)
-    setImageError(null)
     if (document.mode === 'source-protected') {
       setStatus(`源码模式：${document.prepared.analysis.issues.map((issue) => issue.code === 'VISUAL_SIZE_LIMIT' ? '超过 5 MiB 可视化上限' : issue.code).join('、') || '手动切换'}；可保存原文，HTML/PDF 暂不可导出`)
       return
@@ -385,7 +381,7 @@ export function App() {
     if (!editorRoot.current) return
     const instance = new EditorAdapter(editorRoot.current, document.markdown, () => {
       if (sessionRef.current.generation === document.id) updateSession(editSession(sessionRef.current))
-    }, document.imageUrls, document.recoveredAssets, document.pendingFiles, setToolbar, setImageError, setTablePicker)
+    }, document.imageUrls, document.recoveredAssets, document.pendingFiles, setToolbar, (message) => { if (message) setStatus(message) }, setTablePicker)
     adapter.current = instance
     let disposed = false
     const creation = instance.create()
@@ -402,11 +398,6 @@ export function App() {
       if (adapter.current === instance) adapter.current = null
       void creation.finally(() => instance.destroy(false)).catch(() => undefined)
     }
-  }, [document.id])
-
-  useEffect(() => {
-    setDiskChange(null)
-    setDiskPreview(null)
   }, [document.id])
 
   useEffect(() => {
@@ -494,7 +485,7 @@ export function App() {
     await invoke('remember_recent_workspace', { token })
   }
 
-  function persistTabDraft(tab: TabItem, instance: EditorAdapter | null): Promise<void> {
+  function persistTabDraft(tab: TabItem, instance: EditorAdapter | null, requireSuccess = false): Promise<void> {
     const { document: savedDocument, session: savedSession } = tab
     const visual = savedDocument.mode === 'visual'
     const markdown = visual ? composeVisualMarkdown(savedDocument.prepared.analysis, savedDocument.markdown) : savedDocument.sourceText
@@ -507,14 +498,30 @@ export function App() {
       if (visual && savedDocument.token) {
         for (const [url, relative] of savedDocument.imageUrls) {
           if (!referenced.has(url)) continue
-          const bytes = await invoke<number[]>('read_asset', { token: savedDocument.token, relative: localAssetPath(relative) })
+          // Use the already displayed blob: an external edit may have replaced
+          // or removed the original image before this draft is written.
+          const bytes = Array.from(new Uint8Array(await (await fetch(url)).arrayBuffer()))
           assets.push({ url, bytes, mime: imageMime(relative) })
         }
       }
       await invoke('write_draft', { draftId: savedDocument.draftId, name: savedDocument.name, token: savedDocument.token || null, baseDiskRevision: savedSession.diskRevision, markdown, assets })
       setDrafts(await invoke<DraftSummary[]>('list_drafts'))
-    }).catch((error: unknown) => setStatus(`草稿保存失败：${errorText(error)}`))
+    }).catch((error: unknown) => {
+      setStatus(`草稿保存失败：${errorText(error)}`)
+      if (requireSuccess) throw error
+    })
     return draftWriteChain.current
+  }
+
+  function currentTabSnapshot(): TabItem {
+    const current = documentRef.current
+    let markdown = current.markdown
+    if (current.mode === 'visual' && adapter.current?.isReady()) markdown = adapter.current.getMarkdown()
+    return {
+      key: activeTabKeyRef.current,
+      document: { ...current, markdown, pendingFiles: adapter.current?.pendingFiles() ?? current.pendingFiles },
+      session: sessionRef.current,
+    }
   }
 
   useEffect(() => {
@@ -592,32 +599,70 @@ export function App() {
     if (!desktop || !document.token) return
     let active = true
     let inFlight = false
-    let lastChange = ''
+    let deleted = false
     const poll = async () => {
-      if (inFlight || sessionRef.current.generation !== document.id || sessionRef.current.persistence === 'saving') return
+      if (inFlight || busyRef.current || toolbar.composing || sessionRef.current.generation !== document.id || sessionRef.current.persistence === 'saving') return
       inFlight = true
+      let reloading = false
+      let lockedEditor: HTMLDivElement | null = null
+      let lockedSource: HTMLTextAreaElement | null = null
       const expectedAtStart = sessionRef.current.diskRevision
       try {
         const result = await invoke<DiskStatus>('check_document_revision', { token: document.token })
         if (!active || sessionRef.current.generation !== document.id || sessionRef.current.diskRevision !== expectedAtStart) return
         if (result.kind === 'same' || result.revision === sessionRef.current.diskRevision) {
-          if (lastChange) {
-            lastChange = ''
-            setDiskChange(null)
+          if (deleted) {
+            deleted = false
             updateSession(clearExternalConflict(sessionRef.current))
           }
-        } else {
-          const signature = `${result.kind}:${result.revision ?? ''}`
-          if (signature !== lastChange) {
-            lastChange = signature
-            setDiskChange(result)
+        } else if (result.kind === 'deleted') {
+          if (!deleted) {
+            deleted = true
             updateSession(externalConflict(sessionRef.current))
-            setStatus(result.kind === 'deleted' ? '磁盘文件已被删除；本地内容仍保留，可另存副本' : '磁盘文件已被外部修改；本地内容仍保留')
+            setStatus('磁盘文件已删除；当前编辑内容保留在窗口中')
           }
+        } else {
+          if (busyRef.current) return
+          // Keep local edits recoverable, then replace the view with the disk version.
+          // A new draft ID separates those edits from the newly loaded document.
+          const wasDirty = isDirty(sessionRef.current)
+          reloading = true
+          busyRef.current = true
+          setBusy(true)
+          lockedEditor = editorRoot.current
+          lockedEditor?.setAttribute('inert', '')
+          lockedSource = window.document.querySelector<HTMLTextAreaElement>('.source-editor')
+          if (lockedSource) lockedSource.readOnly = true
+          if (wasDirty) await persistTabDraft(currentTabSnapshot(), adapter.current, true)
+          if (!active || sessionRef.current.generation !== document.id) return
+          const opened = await invoke<OpenResult>('reload_document', { token: document.token })
+          const next = await hydrateImages(opened)
+          if (!active || sessionRef.current.generation !== document.id) {
+            for (const url of next.imageUrls.keys()) URL.revokeObjectURL(url)
+            return
+          }
+          const previous = documentRef.current
+          updateSession(createSession(next.id, next.revision))
+          documentRef.current = next
+          setDocument(next)
+          updateTabs(tabsRef.current.map((tab) => tab.key === activeTabKeyRef.current ? { ...tab, document: next, session: sessionRef.current } : tab))
+          for (const url of previous.imageUrls.keys()) URL.revokeObjectURL(url)
+          for (const url of previous.recoveredAssets.keys()) URL.revokeObjectURL(url)
+          for (const url of previous.pendingFiles.keys()) URL.revokeObjectURL(url)
+          setStatus(wasDirty ? '已加载磁盘最新版本；未保存修改已留在恢复草稿中' : '已加载磁盘最新版本')
         }
       } catch (error) {
-        if (active) setStatus(errorText(error))
+        if (active) {
+          updateSession(externalConflict(sessionRef.current))
+          setStatus(`自动重新加载失败：${errorText(error)}`)
+        }
       } finally {
+        if (reloading) {
+          lockedEditor?.removeAttribute('inert')
+          if (lockedSource) lockedSource.readOnly = false
+          busyRef.current = false
+          setBusy(false)
+        }
         inFlight = false
       }
     }
@@ -625,7 +670,7 @@ export function App() {
     const timer = window.setInterval(() => void poll(), 3000)
     window.addEventListener('focus', poll)
     return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', poll) }
-  }, [desktop, document.id, document.token])
+  }, [desktop, document.id, document.token, toolbar.composing])
 
   async function canProceed(finalizeDiscard = false): Promise<boolean> {
     if (busy) { setStatus('当前操作尚未完成，请稍后再试'); return false }
@@ -1001,52 +1046,6 @@ export function App() {
     }
   }
 
-  async function previewDiskVersion() {
-    if (!document.token || busy) return
-    try {
-      const text = await invoke<string>('read_disk_version', { token: document.token })
-      setDiskPreview(text)
-    } catch (error) {
-      setStatus(errorText(error))
-    }
-  }
-
-  async function reloadDiskVersion() {
-    if (!document.token || busy || diskChange?.kind === 'deleted') return
-    if (isDirty(sessionRef.current) && !window.confirm(translateStatus('重新加载将放弃当前未保存内容。确定继续吗？', settings.language))) return
-    setBusy(true)
-    try {
-      const opened = await invoke<OpenResult>('reload_document', { token: document.token })
-      setDocument(await hydrateImages(opened))
-      setDiskChange(null)
-      setDiskPreview(null)
-    } catch (error) {
-      setStatus(errorText(error))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function saveConflictCopy() {
-    if (!document.token || busy) return
-    const instance = adapter.current
-    if (document.mode === 'visual' && !instance) return
-    setBusy(true)
-    try {
-      const visual = document.mode === 'visual'
-      const markdown = visual
-        ? composeVisualMarkdown(document.prepared.analysis, instance!.getPersistableMarkdown())
-        : document.sourceText
-      const assets = visual ? await instance!.pendingAssets(markdown) : []
-      const name = await invoke<string | null>('save_conflict_copy', { token: document.token, markdown, assets })
-      setStatus(name ? `已保存本地副本 ${name}；原文件冲突仍待处理` : '已取消副本保存，本地内容仍保留')
-    } catch (error) {
-      setStatus(errorText(error))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   function runFileAction(action: string) {
     const now = performance.now()
     if (lastFileAction.current.action === action && now - lastFileAction.current.at < 400) return
@@ -1300,18 +1299,6 @@ export function App() {
           <button type="button" onClick={() => void exportSnapshotMD(true)} disabled={!desktop || busy}><Download aria-hidden="true" />{t('仅正文 MD')}</button>
         </div></details>
       </div>}
-      {imageError && <div className="conflict-panel" role="alert"><strong>{t('图片处理失败')}</strong><span>{imageError}</span><button type="button" onClick={() => void adapter.current?.retryFailedImages()}>{t('重试')}</button><span>{t('也可删除该图片后重新插入。')}</span></div>}
-      {diskChange && <div className="conflict-panel" role="alert">
-        <strong>{t(diskChange.kind === 'deleted' ? '磁盘文件已删除' : '磁盘文件已改变')}</strong>
-        <span>{t('当前编辑内容仍在本窗口中。请选择下一步。')}</span>
-        {diskChange.kind !== 'deleted' && <button type="button" onClick={() => void previewDiskVersion()}>{t('查看磁盘版本')}</button>}
-        <button type="button" onClick={() => void saveConflictCopy()}>{t('保留本地副本')}</button>
-        {diskChange.kind !== 'deleted' && <button type="button" onClick={() => void reloadDiskVersion()}>{t('重新加载磁盘版本')}</button>}
-      </div>}
-      {diskPreview !== null && <section className="disk-preview" aria-label={t('磁盘版本预览')}>
-        <div><strong>{t('磁盘版本预览')}</strong><button type="button" onClick={() => setDiskPreview(null)}>{t('关闭预览')}</button></div>
-        <pre>{diskPreview.slice(0, 100_000)}{diskPreview.length > 100_000 ? '\n…预览仅显示前 100000 字符' : ''}</pre>
-      </section>}
       <div className="workspace-layout">
         {sidebarOpen && <aside id="document-sidebar" ref={sidebarRoot} className="document-sidebar" aria-label={t('文件浏览器')} style={{ width: settings.sidebarWidth }}>
           <div className="sidebar-heading"><h2>{t('文件')}</h2><button type="button" className="icon-button" title={t('打开文件夹')} aria-label={t('打开文件夹')} onClick={() => void chooseWorkspace()} disabled={!desktop}><FolderOpen aria-hidden="true" /></button></div>

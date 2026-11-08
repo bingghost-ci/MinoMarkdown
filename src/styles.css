@@ -228,16 +228,9 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .editor-popover { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--line); color: var(--secondary); background: var(--chrome); font-size: 12px; }
 .editor-popover input { min-width: 220px; height: 32px; border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; color: var(--text); background: var(--surface); }
 .editor-popover button { height: 28px; border: 1px solid var(--line); border-radius: 5px; padding: 0 8px; color: var(--text); background: var(--surface); }
-.conflict-panel, .disk-preview { flex: none; padding: 10px 20px; border-bottom: 1px solid var(--line); background: var(--chrome); color: var(--text); font-size: 12px; }
-.recovery-item, .conflict-panel, .disk-preview > div { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.recovery-item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .recovery-item span { flex: 1; min-width: 180px; }
-.recovery-item button, .conflict-panel button, .disk-preview button { height: 28px; border: 1px solid var(--line); border-radius: 5px; padding: 0 8px; color: var(--text); background: var(--surface); font-size: 11px; }
-.conflict-panel { background: #fff8ed; }
-:root[data-theme="dark"] .conflict-panel, :root[data-theme="graphite"] .conflict-panel { background: #3c3328; }
-:root[data-theme="paper"] .conflict-panel { background: #f6e9d5; }
-:root[data-theme="eink"] .conflict-panel { background: var(--raised); }
-.disk-preview > div { justify-content: space-between; }
-.disk-preview pre { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.recovery-item button { height: 28px; border: 1px solid var(--line); border-radius: 5px; padding: 0 8px; color: var(--text); background: var(--surface); font-size: 11px; }
 .app-status { display: flex; align-items: center; gap: 16px; flex: none; height: 28px; padding: 0 12px; border-top: 1px solid var(--line); background: var(--chrome); color: var(--secondary); font-size: 11px; }
 .status-message { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-mode { color: var(--muted); white-space: nowrap; }
