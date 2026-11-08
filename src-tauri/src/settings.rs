@@ -22,7 +22,7 @@ impl Default for Settings {
     fn default() -> Self { Self { schema_version: 1, theme: "system".into(), sidebar_width: 230, window_width: 1100, window_height: 760, show_file_toolbar: false, editor_width: default_editor_width(), language: default_language(), editor_font: default_editor_font(), editor_font_size: default_editor_font_size(), editor_line_height: default_editor_line_height(), show_sidebar: default_show_sidebar() } }
 }
 fn valid(settings: &Settings) -> bool {
-    settings.schema_version == 1 && matches!(settings.theme.as_str(), "system" | "light" | "dark" | "paper" | "graphite") && matches!(settings.editor_width.as_str(), "centered" | "wide") && matches!(settings.language.as_str(), "zh-CN" | "en-US") && matches!(settings.editor_font.as_str(), "system" | "serif" | "mono") && matches!(settings.editor_line_height.as_str(), "compact" | "comfortable" | "relaxed") && (13..=22).contains(&settings.editor_font_size) && (170..=420).contains(&settings.sidebar_width) && (720..=3000).contains(&settings.window_width) && (520..=2000).contains(&settings.window_height)
+    settings.schema_version == 1 && matches!(settings.theme.as_str(), "system" | "light" | "dark" | "paper" | "graphite" | "blueprint" | "mint" | "butter" | "eink") && matches!(settings.editor_width.as_str(), "centered" | "wide") && matches!(settings.language.as_str(), "zh-CN" | "en-US") && matches!(settings.editor_font.as_str(), "system" | "serif" | "mono" | "pingfang" | "songti" | "kaiti" | "yahei" | "georgia" | "avenir") && matches!(settings.editor_line_height.as_str(), "compact" | "comfortable" | "relaxed") && (13..=22).contains(&settings.editor_font_size) && (170..=420).contains(&settings.sidebar_width) && (720..=3000).contains(&settings.window_width) && (520..=2000).contains(&settings.window_height)
 }
 fn path(app: &AppHandle) -> Result<PathBuf, String> { Ok(ensure_dir(&app.path().app_data_dir().map_err(|_| "IO_ERROR")?)?.join("settings.json")) }
 pub fn initial_language(app: &AppHandle) -> String { path(app).map(|file| read_at(&file).language).unwrap_or_else(|_| default_language()) }
@@ -32,7 +32,7 @@ fn read_at(path: &Path) -> Settings {
     let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else { return Settings::default() };
     if value.get("schemaVersion").and_then(|v| v.as_u64()) == Some(0) {
         let mut settings = Settings::default();
-        if let Some(theme) = value.get("theme").and_then(|v| v.as_str()) { if matches!(theme,"system"|"light"|"dark"|"paper"|"graphite") { settings.theme = theme.into(); } }
+        if let Some(theme) = value.get("theme").and_then(|v| v.as_str()) { if matches!(theme,"system"|"light"|"dark"|"paper"|"graphite"|"blueprint"|"mint"|"butter"|"eink") { settings.theme = theme.into(); } }
         if let Some(width) = value.get("sidebarWidth").and_then(|v| v.as_u64()) { if (170..=420).contains(&width) { settings.sidebar_width = width as u32; } }
         return settings;
     }
@@ -80,6 +80,11 @@ mod tests {
         assert!(read_at(&file).show_sidebar);
         write_at(&file,&read_at(&file)).unwrap();
         assert_eq!(read_at(&file).schema_version,1);
+        let mut expanded = read_at(&file);
+        expanded.theme = "eink".into();
+        expanded.editor_font = "georgia".into();
+        write_at(&file, &expanded).unwrap();
+        assert_eq!(read_at(&file), expanded);
         assert_eq!(fs::read(draft).unwrap(),b"draft kept");
         fs::remove_dir_all(dir).unwrap();
     }
@@ -94,6 +99,10 @@ mod tests {
         settings = Settings::default(); settings.language = "fr-FR".into();
         assert!(!valid(&settings));
         settings = Settings::default(); settings.editor_font_size = 40;
+        assert!(!valid(&settings));
+        settings = Settings::default(); settings.theme = "eink".into(); settings.editor_font = "kaiti".into();
+        assert!(valid(&settings));
+        settings.editor_font = "downloaded-from-web".into();
         assert!(!valid(&settings));
     }
     #[cfg(unix)]

@@ -34,11 +34,10 @@ export function imageUrlsIn(markdown: string): string[] {
 
 export function localAssetPath(url: string): string | null {
   const raw = url.startsWith('./') ? url.slice(2) : url
-  if (!raw.startsWith('assets/')) return null
   let decoded: string
   try { decoded = decodeURIComponent(raw) } catch { return null }
   const parts = decoded.split('/')
-  if (parts.length !== 2 || parts[0] !== 'assets' || !parts[1] || parts[1] === '.' || parts[1] === '..' || parts[1].includes('\\') || parts[1].includes('\0')) return null
+  if (parts.length < 1 || parts.length > 8 || parts.some((part) => !part || part === '.' || part === '..' || part.includes('\\') || part.includes('\0') || part.includes(':'))) return null
   return decoded
 }
 

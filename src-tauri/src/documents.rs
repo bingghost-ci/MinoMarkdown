@@ -4,7 +4,7 @@ use image::{ImageFormat, ImageReader};
 use std::{
     collections::HashMap,
     fs::{self, OpenOptions},
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     sync::{atomic::{AtomicU64, Ordering}, Mutex},
 };
 use tauri::{AppHandle, State, WebviewWindow};
@@ -446,19 +446,17 @@ pub fn read_asset(window: WebviewWindow, store: State<'_, DocumentStore>, token:
 }
 
 fn read_scoped_asset(grant: &Grant, relative: &str) -> Result<Vec<u8>, String> {
-    let relative = Path::new(relative);
-    let mut parts = relative.components();
-    if !matches!(parts.next(), Some(Component::Normal(v)) if v == "assets") { return Err("OUT_OF_SCOPE".into()); }
-    let Some(Component::Normal(name)) = parts.next() else { return Err("OUT_OF_SCOPE".into()); };
-    if parts.next().is_some() { return Err("OUT_OF_SCOPE".into()); }
+    let parts: Vec<_> = relative.split('/').collect();
+    if parts.is_empty() || parts.len() > 8 || parts.iter().any(|part| {
+        part.is_empty() || *part == "." || *part == ".." || part.contains(['\\', '\0', ':'])
+    }) { return Err("OUT_OF_SCOPE".into()); }
     let parent = grant.path.parent().ok_or("INVALID_PATH")?;
     #[cfg(target_os = "macos")]
-    return read_asset_from_directory(parent, name);
+    return read_asset_from_directory(parent, &parts);
     #[cfg(not(target_os = "macos"))]
     {
-    let root = fs::canonicalize(parent.join("assets")).map_err(|_| "NOT_FOUND")?;
-    if !root.starts_with(parent) { return Err("OUT_OF_SCOPE".into()); }
-    let target = fs::canonicalize(parent.join(relative)).map_err(|_| "NOT_FOUND")?;
+    let root = fs::canonicalize(parent).map_err(|_| "NOT_FOUND")?;
+    let target = fs::canonicalize(root.join(relative)).map_err(|_| "NOT_FOUND")?;
     if !target.starts_with(&root) { return Err("OUT_OF_SCOPE".into()); }
     let meta = fs::metadata(&target).map_err(|_| "NOT_FOUND")?;
     if !meta.is_file() || meta.len() as usize > MAX_IMAGE { return Err("IMAGE_TOO_LARGE".into()); }
@@ -467,11 +465,13 @@ fn read_scoped_asset(grant: &Grant, relative: &str) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(target_os = "macos")]
-fn read_asset_from_directory(parent: &Path, name: &std::ffi::OsStr) -> Result<Vec<u8>, String> {
+fn read_asset_from_directory(parent: &Path, parts: &[&str]) -> Result<Vec<u8>, String> {
     use std::io::Read;
-    let directory = open_parent_directory(parent)?;
-    let assets = open_child(&directory, std::ffi::OsStr::new("assets"), libc::O_DIRECTORY)?;
-    let image = open_child(&assets, name, 0)?;
+    let mut directory = open_parent_directory(parent)?;
+    for part in &parts[..parts.len() - 1] {
+        directory = open_child(&directory, std::ffi::OsStr::new(part), libc::O_DIRECTORY)?;
+    }
+    let image = open_child(&directory, std::ffi::OsStr::new(parts[parts.len() - 1]), 0)?;
     let meta = image.metadata().map_err(|_| "NOT_FOUND")?;
     if !meta.is_file() || meta.len() > MAX_IMAGE as u64 { return Err("IMAGE_TOO_LARGE".into()); }
     let mut bytes = Vec::new();
@@ -682,7 +682,14 @@ mod tests {
         let grant = Grant { path: dir.join("note.md"), revision: String::new() };
         assert_eq!(read_scoped_asset(&grant,"assets/good.png").unwrap(),b"safe bytes");
         assert_eq!(read_scoped_asset(&grant,"assets/../outside.png").err().as_deref(),Some("OUT_OF_SCOPE"));
-        assert_eq!(read_scoped_asset(&grant,"assets/nested/good.png").err().as_deref(),Some("OUT_OF_SCOPE"));
+        assert_eq!(read_scoped_asset(&grant,"assets/nested/good.png").err().as_deref(),Some("NOT_FOUND"));
+        fs::create_dir(dir.join("配图")).unwrap();
+        fs::write(dir.join("配图/市场.png"), b"local image").unwrap();
+        assert_eq!(read_scoped_asset(&grant,"配图/市场.png").unwrap(),b"local image");
+        assert_eq!(read_scoped_asset(&grant,"./配图/市场.png").err().as_deref(),Some("OUT_OF_SCOPE"));
+        assert_eq!(read_scoped_asset(&grant,"配图//市场.png").err().as_deref(),Some("OUT_OF_SCOPE"));
+        std::os::unix::fs::symlink(dir.join("assets"), dir.join("linked-images")).unwrap();
+        assert_eq!(read_scoped_asset(&grant,"linked-images/good.png").err().as_deref(),Some("OUT_OF_SCOPE"));
         assert_eq!(read_scoped_asset(&grant,"assets/link.png").err().as_deref(),Some("OUT_OF_SCOPE"));
         let large = fs::File::create(dir.join("assets/large.png")).unwrap();
         large.set_len(MAX_IMAGE as u64 + 1).unwrap();

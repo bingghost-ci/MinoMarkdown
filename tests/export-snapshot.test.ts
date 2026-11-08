@@ -41,6 +41,15 @@ describe('image manifest', () => {
     expect(localAssetPath('assets/%2e%2e%2fsecret.png')).toBeNull()
   })
 
+  it('resolves relative images beside a Markdown document without allowing path escape', () => {
+    expect(localAssetPath('配图/v2_01_市场如何交换风险.png')).toBe('配图/v2_01_市场如何交换风险.png')
+    expect(localAssetPath('./配图/图%20一.png')).toBe('配图/图 一.png')
+    expect(localAssetPath('picture.png')).toBe('picture.png')
+    for (const path of ['../picture.png', '/tmp/picture.png', '配图/../picture.png', '配图/%2e%2e/picture.png', 'https://example.com/image.png', '配图\\picture.png']) {
+      expect(localAssetPath(path)).toBeNull()
+    }
+  })
+
   it('restores a draft image without replacing the same URL in prose or a link', () => {
     const source = '草稿 blob:recovered\n\n[链接](blob:recovered) ![图片](blob:recovered)'
     const restored = rewriteImageUrls(source, new Map([['blob:recovered', 'blob:new-session']]))
