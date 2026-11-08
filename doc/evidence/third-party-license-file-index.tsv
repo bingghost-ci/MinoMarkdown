@@ -186,6 +186,7 @@ npm	katex	0.19.1	MIT	LICENSE	766ccc1f306c885aa45542a9846bbd0a505b27a0374f1467781
 npm	lodash-es	4.18.1	MIT	LICENSE	f71e8ed126b46346494aad5486874cd8f0aafe95092ed67d2e3cb6110f939abc	present
 npm	longest-streak	3.1.0	MIT	license	9f084fac69d8cf1e6ce983ba5a3499c7695ed74a26ec625c38f0fd19fddd5e10	present
 npm	lru-cache	5.1.1	ISC	LICENSE	4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b	present
+npm	lucide-react	1.70.0	ISC	LICENSE	b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57	present
 npm	magic-string	0.30.21	MIT	LICENSE	1cbe51b907662f6cb1492b16c359384a595180bf0e4d101603ed525e75c4e484	present
 npm	markdown-table	3.1.0	MIT	license	dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb	present
 npm	mdast-util-definitions	6.0.0	MIT	license	c7bac77e21a64800a0dab2c72acac9764b8161ee257b20d74831dd7ee8c3151e	present

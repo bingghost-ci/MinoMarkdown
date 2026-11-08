@@ -170,7 +170,7 @@ fn list_at(store: &WorkspaceStore, token: &str, offset: usize) -> Result<Childre
 }
 
 #[tauri::command]
-pub fn choose_workspace(app: AppHandle, window: WebviewWindow, store: State<'_, WorkspaceStore>) -> Result<Option<WorkspaceRoot>, String> {
+pub async fn choose_workspace(app: AppHandle, window: WebviewWindow, store: State<'_, WorkspaceStore>) -> Result<Option<WorkspaceRoot>, String> {
     require_main(&window)?;
     let Some(selected) = app.dialog().file().blocking_pick_folder() else { return Ok(None); };
     let path = fs::canonicalize(selected.into_path().map_err(|_| "INVALID_PATH")?).map_err(|_| "NOT_FOUND")?;

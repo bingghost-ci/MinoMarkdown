@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{fs, path::{Path, PathBuf}, sync::Mutex, time::{SystemTime, UNIX_EPOCH}};
 use tauri::{AppHandle, Manager, State, WebviewWindow};
-use tauri_plugin_dialog::DialogExt;
 
 static RECENT_LOCK: Mutex<()> = Mutex::new(());
 #[derive(Clone, Serialize, Deserialize)]
@@ -27,8 +26,12 @@ fn remember_at(path: &Path, target: &Path, kind: &str) -> Result<(), String> {
     let Some(target) = target.to_str() else { return Ok(()); };
     let _lock = RECENT_LOCK.lock().map_err(|_| "IO_ERROR")?;
     let mut record = load(path);
-    record.entries.retain(|entry| entry.path != target || entry.kind != kind);
-    record.entries.insert(0, RecentEntry { path: target.into(), kind: kind.into(), last_opened: SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| "IO_ERROR")?.as_secs() });
+    let last_opened = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| "IO_ERROR")?.as_secs();
+    if let Some(entry) = record.entries.iter_mut().find(|entry| entry.path == target && entry.kind == kind) {
+        entry.last_opened = last_opened;
+    } else {
+        record.entries.insert(0, RecentEntry { path: target.into(), kind: kind.into(), last_opened });
+    }
     record.entries.truncate(20);
     let bytes = serde_json::to_vec(&record).map_err(|_| "IO_ERROR")?;
     let expected = read_canonical_parent(path, 64 * 1024).ok().map(|bytes| hash(&bytes));
@@ -68,27 +71,36 @@ pub fn remove_recent(app: AppHandle, window: WebviewWindow, id: String) -> Resul
     atomic_write::commit_canonical_parent(&path, &bytes, expected.as_deref()).map(|_| ())
 }
 #[tauri::command]
+pub fn reorder_recent(app: AppHandle, window: WebviewWindow, ids: Vec<String>) -> Result<(), String> {
+    require_main(&window)?;
+    let path = storage(&app)?;
+    let _lock = RECENT_LOCK.lock().map_err(|_| "IO_ERROR")?;
+    let mut record = load(&path);
+    if ids.len() != record.entries.len() || ids.len() > 20 { return Err("INVALID_ORDER".into()); }
+    let mut ordered = Vec::with_capacity(ids.len());
+    for id in ids {
+        let Some(index) = record.entries.iter().position(|entry| id_for(entry) == id) else { return Err("INVALID_ORDER".into()); };
+        ordered.push(record.entries.remove(index));
+    }
+    record.entries = ordered;
+    let bytes = serde_json::to_vec(&record).map_err(|_| "IO_ERROR")?;
+    let expected = read_canonical_parent(&path, 64 * 1024).ok().map(|bytes| hash(&bytes));
+    atomic_write::commit_canonical_parent(&path, &bytes, expected.as_deref()).map(|_| ())
+}
+#[tauri::command]
 pub fn choose_recent_file(app: AppHandle, window: WebviewWindow, documents: State<'_, DocumentStore>, id: String) -> Result<Option<OpenDocument>, String> {
     require_main(&window)?;
     let entry = find(&app, &id, "file")?;
-    let old = Path::new(&entry.path);
-    let mut dialog = app.dialog().file().add_filter("Markdown", &["md", "markdown"]);
-    if let Some(parent) = old.parent().filter(|p| p.is_dir()) { dialog = dialog.set_directory(parent); }
-    if let Some(name) = old.file_name().and_then(|n| n.to_str()) { dialog = dialog.set_file_name(name); }
-    let Some(selected) = dialog.blocking_pick_file() else { return Ok(None); };
-    let path = validate_selected_file(&selected.into_path().map_err(|_| "INVALID_PATH")?)?;
+    let path = validate_selected_file(Path::new(&entry.path))?;
     Ok(Some(open_granted_path(&documents, &path)?))
 }
 #[tauri::command]
 pub fn choose_recent_workspace(app: AppHandle, window: WebviewWindow, workspaces: State<'_, WorkspaceStore>, id: String) -> Result<Option<WorkspaceRoot>, String> {
     require_main(&window)?;
     let entry = find(&app, &id, "folder")?;
-    let old = Path::new(&entry.path);
-    let mut dialog = app.dialog().file();
-    if old.is_dir() { dialog = dialog.set_directory(old); }
-    else if let Some(parent) = old.parent().filter(|p| p.is_dir()) { dialog = dialog.set_directory(parent); }
-    let Some(selected) = dialog.blocking_pick_folder() else { return Ok(None); };
-    let path = selected.into_path().map_err(|_| "INVALID_PATH")?;
+    let path = PathBuf::from(entry.path);
+    let meta = fs::symlink_metadata(&path).map_err(|_| "NOT_FOUND")?;
+    if meta.file_type().is_symlink() || !meta.is_dir() { return Err("OUT_OF_SCOPE".into()); }
     Ok(Some(register_workspace(&workspaces, path)?))
 }
 
@@ -106,6 +118,21 @@ mod tests {
         let items = summaries(load(&file));
         assert_eq!(items.len(),1); assert!(items[0].available);
         assert!(!items[0].id.contains("note"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn opening_an_existing_recent_item_keeps_manual_order() {
+        let dir = std::env::temp_dir().join(format!("mino-recent-order-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap(); let file = dir.join("recent.json");
+        let first = dir.join("first.md"); let second = dir.join("second.md");
+        fs::write(&first, b"one").unwrap(); fs::write(&second, b"two").unwrap();
+        remember_at(&file, &first, "file").unwrap();
+        remember_at(&file, &second, "file").unwrap();
+        remember_at(&file, &first, "file").unwrap();
+        let entries = load(&file).entries;
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].path, second.to_str().unwrap());
+        assert_eq!(entries[1].path, first.to_str().unwrap());
         fs::remove_dir_all(dir).unwrap();
     }
     #[cfg(unix)]

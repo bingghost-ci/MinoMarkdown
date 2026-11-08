@@ -194,7 +194,7 @@ pub(crate) fn open_granted_path(store: &DocumentStore, path: &Path) -> Result<Op
 }
 
 #[tauri::command]
-pub fn choose_unsaved_action(app: AppHandle, window: WebviewWindow) -> Result<&'static str, String> {
+pub async fn choose_unsaved_action(app: AppHandle, window: WebviewWindow) -> Result<&'static str, String> {
     main_window(&window)?;
     let result = app.dialog().message("当前文档有未保存修改。")
         .title("关闭或切换文档")
@@ -210,7 +210,7 @@ pub fn choose_unsaved_action(app: AppHandle, window: WebviewWindow) -> Result<&'
 }
 
 #[tauri::command]
-pub fn open_document(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>) -> Result<Option<OpenDocument>, String> {
+pub async fn open_document(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>) -> Result<Option<OpenDocument>, String> {
     main_window(&window)?;
     let selected = app.dialog().file().add_filter("Markdown", &["md", "markdown"]).blocking_pick_file();
     let Some(selected) = selected else { return Ok(None); };
@@ -304,7 +304,7 @@ fn copy_assets_for_copy(source: &Path, target: &Path, markdown: &str) -> Result<
 }
 
 #[tauri::command]
-pub fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, token: String, markdown: String, assets: Vec<AssetUpload>) -> Result<Option<String>, String> {
+pub async fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, token: String, markdown: String, assets: Vec<AssetUpload>) -> Result<Option<String>, String> {
     main_window(&window)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let grant = store.grant(&token)?;
@@ -322,7 +322,7 @@ pub fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: State<'_
 }
 
 #[tauri::command]
-pub fn save_as_document(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, token: String, markdown: String, assets: Vec<AssetUpload>) -> Result<Option<SaveResult>, String> {
+pub async fn save_as_document(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, token: String, markdown: String, assets: Vec<AssetUpload>) -> Result<Option<SaveResult>, String> {
     main_window(&window)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let grant = store.grant(&token)?;
@@ -387,7 +387,7 @@ fn save_assets(parent: &Path, markdown: &str, assets: Vec<AssetUpload>) -> Resul
 }
 
 #[tauri::command]
-pub fn save_document(
+pub async fn save_document(
     app: AppHandle,
     window: WebviewWindow,
     store: State<'_, DocumentStore>,
@@ -474,7 +474,7 @@ fn read_asset_from_directory(parent: &Path, name: &std::ffi::OsStr) -> Result<Ve
 }
 
 #[tauri::command]
-pub fn export_html(app: AppHandle, window: WebviewWindow, html: String) -> Result<Option<String>, String> {
+pub async fn export_html(app: AppHandle, window: WebviewWindow, html: String) -> Result<Option<String>, String> {
     main_window(&window)?;
     if html.len() > 100 * 1024 * 1024 { return Err("EXPORT_TOO_LARGE".into()); }
     let selected = app.dialog().file().add_filter("HTML", &["html"]).blocking_save_file();
@@ -491,7 +491,7 @@ pub fn export_html(app: AppHandle, window: WebviewWindow, html: String) -> Resul
 }
 
 #[tauri::command]
-pub fn export_source_markdown(app: AppHandle, window: WebviewWindow, markdown: String) -> Result<Option<String>, String> {
+pub async fn export_source_markdown(app: AppHandle, window: WebviewWindow, markdown: String) -> Result<Option<String>, String> {
     main_window(&window)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let selected = app.dialog().file().add_filter("Markdown", &["md"]).blocking_save_file();

@@ -31,7 +31,7 @@ export class EditorAdapter {
   private readonly onToolbarChange?: (state: ToolbarState) => void
   private readonly onImageError?: (message: string | null) => void
 
-  constructor(root: HTMLElement, markdown: string, onChange?: () => void, imageUrls: Map<string, string> = new Map(), recoveredAssets: Map<string, { bytes: number[]; mime: string }> = new Map(), onToolbarChange?: (state: ToolbarState) => void, onImageError?: (message: string | null) => void) {
+  constructor(root: HTMLElement, markdown: string, onChange?: () => void, imageUrls: Map<string, string> = new Map(), recoveredAssets: Map<string, { bytes: number[]; mime: string }> = new Map(), pendingFiles: Map<string, File> = new Map(), onToolbarChange?: (state: ToolbarState) => void, onImageError?: (message: string | null) => void) {
     this.root = root
     this.persisted = imageUrls
     this.onToolbarChange = onToolbarChange
@@ -40,6 +40,7 @@ export class EditorAdapter {
       const file = new File([new Uint8Array(asset.bytes)], 'recovered-image', { type: asset.mime })
       this.pending.set(url, { file, validation: Promise.resolve(), error: null })
     }
+    for (const [url, file] of pendingFiles) this.pending.set(url, { file, validation: Promise.resolve(), error: null })
     this.crepe = new Crepe({
       root,
       defaultValue: markdown,
@@ -312,6 +313,8 @@ export class EditorAdapter {
     return result
   }
 
+  pendingFiles(): Map<string, File> { return new Map(Array.from(this.pending, ([url, item]) => [url, item.file])) }
+
   hasPendingAssets(): boolean {
     if (!this.created) return this.pending.size > 0
     const referenced = new Set(imageUrlsIn(this.getMarkdown()))
@@ -329,7 +332,7 @@ export class EditorAdapter {
     }
   }
 
-  async destroy(): Promise<void> {
+  async destroy(revokeUrls = true): Promise<void> {
     this.root.removeEventListener('paste', this.onPaste, true)
     this.root.removeEventListener('drop', this.onDrop, true)
     this.root.removeEventListener('dragover', this.onDragOver, true)
@@ -337,8 +340,10 @@ export class EditorAdapter {
     this.root.removeEventListener('compositionstart', this.onCompositionStart, true)
     this.root.removeEventListener('compositionend', this.onCompositionEnd, true)
     if (this.created) await this.crepe.destroy()
-    for (const url of this.pending.keys()) URL.revokeObjectURL(url)
-    for (const url of this.persisted.keys()) URL.revokeObjectURL(url)
+    if (revokeUrls) {
+      for (const url of this.pending.keys()) URL.revokeObjectURL(url)
+      for (const url of this.persisted.keys()) URL.revokeObjectURL(url)
+    }
     this.created = false
   }
 }

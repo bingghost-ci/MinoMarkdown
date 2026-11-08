@@ -11,9 +11,9 @@ use tauri::{AppHandle, Manager, WebviewWindow};
 static SETTINGS_LOCK: Mutex<()> = Mutex::new(());
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct Settings { schema_version: u32, theme: String, sidebar_width: u32, window_width: u32, window_height: u32 }
+pub struct Settings { schema_version: u32, theme: String, sidebar_width: u32, window_width: u32, window_height: u32, #[serde(default)] show_file_toolbar: bool }
 impl Default for Settings {
-    fn default() -> Self { Self { schema_version: 1, theme: "system".into(), sidebar_width: 230, window_width: 1100, window_height: 760 } }
+    fn default() -> Self { Self { schema_version: 1, theme: "system".into(), sidebar_width: 230, window_width: 1100, window_height: 760, show_file_toolbar: false } }
 }
 fn valid(settings: &Settings) -> bool {
     settings.schema_version == 1 && matches!(settings.theme.as_str(), "system" | "light" | "dark") && (170..=420).contains(&settings.sidebar_width) && (720..=3000).contains(&settings.window_width) && (520..=2000).contains(&settings.window_height)

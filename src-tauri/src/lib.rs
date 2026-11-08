@@ -22,28 +22,47 @@ pub fn run() {
         .menu(|app| {
             let menu = Menu::default(app)?;
             for item in menu.items()? {
-                if let MenuItemKind::Submenu(file) = item {
-                    if file.text()? == "File" {
-                        file.prepend_items(&[
+                if let MenuItemKind::Submenu(submenu) = item {
+                    let title = submenu.text()?;
+                    if title == "File" || title == "文件" {
+                        submenu.prepend_items(&[
                             &MenuItem::with_id(app, "new", "新建文档", true, Some("Cmd+N"))?,
                             &MenuItem::with_id(app, "open", "打开文件…", true, Some("Cmd+O"))?,
                             &MenuItem::with_id(app, "open-folder", "打开文件夹…", true, Some("Cmd+Shift+O"))?,
                             &PredefinedMenuItem::separator(app)?,
                             &MenuItem::with_id(app, "save", "保存", true, Some("Cmd+S"))?,
                             &MenuItem::with_id(app, "save-as", "另存为…", true, Some("Cmd+Shift+S"))?,
+                            &MenuItem::with_id(app, "close-tab", "关闭当前文档", true, Some("Cmd+W"))?,
+                            &PredefinedMenuItem::separator(app)?,
+                            &MenuItem::with_id(app, "export-md", "导出 Markdown 与图片…", true, None::<&str>)?,
+                            &MenuItem::with_id(app, "export-html", "导出 HTML…", true, None::<&str>)?,
+                            &MenuItem::with_id(app, "print", "打印 / 存储为 PDF…", true, Some("Cmd+P"))?,
                             &PredefinedMenuItem::separator(app)?,
                         ])?;
+                    } else if title == "View" || title == "视图" {
+                        submenu.prepend_items(&[
+                            &MenuItem::with_id(app, "view-toolbar", "显示或隐藏操作栏", true, None::<&str>)?,
+                            &MenuItem::with_id(app, "view-sidebar", "显示或隐藏文件栏", true, None::<&str>)?,
+                            &PredefinedMenuItem::separator(app)?,
+                        ])?;
+                    } else if title == app.package_info().name || title == "MinoMarkdown" {
+                        submenu.insert_items(&[
+                            &MenuItem::with_id(app, "preferences", "设置…", true, Some("Cmd+,"))?,
+                            &PredefinedMenuItem::separator(app)?,
+                        ], 2)?;
                     }
                 }
             }
             Ok(menu)
         })
         .on_menu_event(|app, event| { let _ = app.emit("menu-action", event.id().as_ref()); })
-        .on_webview_event(|webview, event| {
-            if webview.label() != "main" { return; }
-            if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
-                if open_intents::enqueue_dropped(&webview.app_handle().state::<open_intents::IntentStore>(), paths) {
-                    let _ = webview.emit("open-intents-available", ());
+        .on_window_event(|window, event| {
+            if window.label() != "main" { return; }
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                if paths.is_empty() {
+                    let _ = window.emit("open-intents-empty-drop", ());
+                } else if open_intents::enqueue_dropped(&window.app_handle().state::<open_intents::IntentStore>(), paths) {
+                    let _ = window.emit("open-intents-available", ());
                 }
             }
         })
@@ -84,6 +103,7 @@ pub fn run() {
             recent::remember_recent_document,
             recent::remember_recent_workspace,
             recent::remove_recent,
+            recent::reorder_recent,
             recent::choose_recent_file,
             recent::choose_recent_workspace,
             settings::get_settings,

@@ -3,5 +3,5 @@
   "identifier": "main",
   "description": "The initial main window has no filesystem or network plugin permissions.",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-set-size"]
+  "permissions": ["core:default", "core:window:allow-set-size", "core:app:allow-exit"]
 }

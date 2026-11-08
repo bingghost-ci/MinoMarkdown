@@ -109,7 +109,7 @@ pub fn read_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, sna
     Ok(SnapshotOut { markdown: item.markdown, title: item.title, assets: item.assets, generation: item.generation, revision: item.revision })
 }
 #[tauri::command]
-pub fn export_snapshot_md(app: AppHandle, window: WebviewWindow, store: State<'_, SnapshotStore>, snapshot_id: String, text_only: bool) -> Result<Option<ExportResult>, String> {
+pub async fn export_snapshot_md(app: AppHandle, window: WebviewWindow, store: State<'_, SnapshotStore>, snapshot_id: String, text_only: bool) -> Result<Option<ExportResult>, String> {
     main_window(&window)?;
     let frozen = snapshot(&store, &snapshot_id)?;
     let selected = app.dialog().file().add_filter("Markdown", &["md", "markdown"]).blocking_save_file();

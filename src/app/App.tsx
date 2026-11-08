@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
+import { exit } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import { listen } from '@tauri-apps/api/event'
+import { ArrowDown, ArrowUp, Bold, ChevronDown, ChevronRight, Code2, Download, FilePlus2, FileText, Folder, FolderOpen, FolderPlus, Image as ImageIcon, Italic, Link2, List, ListOrdered, Minus, MoreHorizontal, PanelLeft, Pencil, Plus, Printer, Quote, Redo2, RefreshCw, RemoveFormatting, Save, Strikethrough, Table2, Trash2, Undo2, X, type LucideIcon } from 'lucide-react'
 import { compareMarkdown } from '../core/markdown/compatibility'
 import { composeVisualMarkdown, prepareMarkdown, type PreparedMarkdown } from '../core/markdown/codec'
 import { EditorAdapter, type EditorCommand, type PendingAsset, type ToolbarState } from '../features/editor/EditorAdapter'
@@ -29,20 +31,25 @@ const samples = [
   { id: 'F04', label: 'F04 链接与图片', markdown: links },
   { id: 'F05', label: 'F05 表格', markdown: table },
 ] as const
-const toolbarItems: { command: EditorCommand; label: string; title: string }[] = [
-  { command: 'bold', label: 'B', title: '加粗' }, { command: 'italic', label: 'I', title: '斜体' },
-  { command: 'strike', label: 'S', title: '删除线' }, { command: 'inlineCode', label: '</>', title: '行内代码' },
-  { command: 'clearFormat', label: '清除格式', title: '清除格式' },
-  { command: 'bullet', label: '项目列表', title: '项目列表' }, { command: 'ordered', label: '编号列表', title: '编号列表' },
-  { command: 'quote', label: '引用', title: '引用' }, { command: 'rule', label: '分割线', title: '插入分割线' },
-  { command: 'codeBlock', label: '代码块', title: '插入代码块' },
-  { command: 'undo', label: '撤销', title: '撤销' }, { command: 'redo', label: '重做', title: '重做' },
+const toolbarItems: { command: EditorCommand; label: string; icon: LucideIcon; primary?: boolean }[] = [
+  { command: 'bold', label: '加粗', icon: Bold, primary: true },
+  { command: 'italic', label: '斜体', icon: Italic, primary: true },
+  { command: 'strike', label: '删除线', icon: Strikethrough },
+  { command: 'inlineCode', label: '行内代码', icon: Code2 },
+  { command: 'clearFormat', label: '清除格式', icon: RemoveFormatting },
+  { command: 'bullet', label: '项目列表', icon: List, primary: true },
+  { command: 'ordered', label: '编号列表', icon: ListOrdered },
+  { command: 'quote', label: '引用', icon: Quote, primary: true },
+  { command: 'rule', label: '分割线', icon: Minus },
+  { command: 'codeBlock', label: '代码块', icon: Code2, primary: true },
+  { command: 'undo', label: '撤销', icon: Undo2, primary: true },
+  { command: 'redo', label: '重做', icon: Redo2, primary: true },
 ]
 
 type OpenResult = { token: string; name: string; markdown: string; revision: string }
 type SaveResult = OpenResult & { assetPaths: Record<string, string>; assetRelocations: Record<string, string> }
 type DiskStatus = { kind: 'same' | 'changed' | 'deleted'; revision: string | null }
-type DocumentState = OpenResult & { id: number; draftId: string; imageUrls: Map<string, string>; recoveredAssets: Map<string, { bytes: number[]; mime: string }>; entryToken?: string; sampleId?: string; originalMarkdown: string; prepared: PreparedMarkdown; sourceText: string; mode: 'visual' | 'source-protected' }
+type DocumentState = OpenResult & { id: number; draftId: string; imageUrls: Map<string, string>; recoveredAssets: Map<string, { bytes: number[]; mime: string }>; pendingFiles: Map<string, File>; entryToken?: string; sampleId?: string; originalMarkdown: string; prepared: PreparedMarkdown; sourceText: string; mode: 'visual' | 'source-protected' }
 type DraftSummary = { draftId: string; name: string; targetPath: string | null; targetStatus: 'same' | 'changed' | 'deleted' | 'unknown' | 'untitled'; snapshots: number }
 type DraftContent = DraftSummary & { markdown: string; assets: { url: string; mime: string; bytes: number[] }[] }
 type WorkspaceRoot = { token: string; name: string }
@@ -52,14 +59,21 @@ type SnapshotOut = { markdown: string; title: string; assets: PendingAsset[]; ge
 type OpenIntent = { token: string; name: string; kind: 'markdown' | 'image' | 'folder' }
 type NativeImageIntent = { name: string; mime: string; bytes: number[] }
 type RecentItem = { id: string; name: string; kind: 'file' | 'folder'; available: boolean; lastOpened: number }
-type Settings = { schemaVersion: number; theme: 'system' | 'light' | 'dark'; sidebarWidth: number; windowWidth: number; windowHeight: number }
-const defaultSettings: Settings = { schemaVersion: 1, theme: 'system', sidebarWidth: 230, windowWidth: 1100, windowHeight: 760 }
+type Settings = { schemaVersion: number; theme: 'system' | 'light' | 'dark'; sidebarWidth: number; windowWidth: number; windowHeight: number; showFileToolbar: boolean }
+const defaultSettings: Settings = { schemaVersion: 1, theme: 'system', sidebarWidth: 230, windowWidth: 1100, windowHeight: 760, showFileToolbar: false }
+type TabItem = { key: string; document: DocumentState; session: DocumentSession }
 type TreeState = { entries: WorkspaceEntry[]; nextOffset: number | null; expanded: boolean; loading: boolean; error: string | null }
 let nextDocumentId = 1
+const uiPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('ui-preview') === 'editor'
+const previewTree: Record<string, TreeState> = {
+  'preview-root': { entries: [{ token: 'preview-docs', name: 'doc', directory: true }, { token: 'preview-readme', name: 'README.md', directory: false }], nextOffset: null, expanded: true, loading: false, error: null },
+  'preview-docs': { entries: [{ token: 'preview-plan', name: '设计方案', directory: true }, { token: 'preview-file', name: '产品笔记.md', directory: false }], nextOffset: null, expanded: true, loading: false, error: null },
+  'preview-plan': { entries: [{ token: 'preview-spec', name: '编辑器需求.md', directory: false }], nextOffset: null, expanded: true, loading: false, error: null },
+}
 
 function makeDocument(markdown: string, name = '未命名文档', sampleId?: string): DocumentState {
   const prepared = prepareMarkdown(markdown)
-  return { id: nextDocumentId++, draftId: crypto.randomUUID(), name, token: '', revision: '', markdown: prepared.editorMarkdown, originalMarkdown: markdown, imageUrls: new Map(), recoveredAssets: new Map(), sampleId, prepared, sourceText: markdown, mode: prepared.analysis.mode }
+  return { id: nextDocumentId++, draftId: crypto.randomUUID(), name, token: '', revision: '', markdown: prepared.editorMarkdown, originalMarkdown: markdown, imageUrls: new Map(), recoveredAssets: new Map(), pendingFiles: new Map(), sampleId, prepared, sourceText: markdown, mode: prepared.analysis.mode }
 }
 
 function errorText(error: unknown): string {
@@ -83,6 +97,7 @@ function errorText(error: unknown): string {
     EXPORT_TOO_LARGE: '导出文件超过当前 100 MB 限制。',
     EXPORT_RESOURCE_MISSING: '图片附件缺失或包含远程图片，无法生成完整资源包。可选择“仅正文 MD”。',
     SNAPSHOT_BUDGET: '同时进行的导出作业过多，请稍后重试。',
+    NOT_FOUND: '原文件或文件夹已经不在原位置，请从最近使用中移除该记录，或重新打开。',
   }
   return messages[code] ?? `操作失败：${code}`
 }
@@ -116,7 +131,7 @@ async function hydrateImages(opened: OpenResult): Promise<DocumentState> {
     imageUrls.clear()
     markdown = prepared.editorMarkdown
   }
-  return { ...opened, id: nextDocumentId++, draftId: crypto.randomUUID(), markdown, originalMarkdown: opened.markdown, imageUrls, recoveredAssets: new Map(), prepared, sourceText: opened.markdown, mode: hydrationFailed ? 'source-protected' : prepared.analysis.mode }
+  return { ...opened, id: nextDocumentId++, draftId: crypto.randomUUID(), markdown, originalMarkdown: opened.markdown, imageUrls, recoveredAssets: new Map(), pendingFiles: new Map(), prepared, sourceText: opened.markdown, mode: hydrationFailed ? 'source-protected' : prepared.analysis.mode }
 }
 
 export function App() {
@@ -126,10 +141,21 @@ export function App() {
   const imageInputAction = useRef<'insert' | 'replace'>('insert')
   const lastFileAction = useRef<{ action: string; at: number }>({ action: '', at: 0 })
   const adapter = useRef<EditorAdapter | null>(null)
-  const [document, setDocument] = useState<DocumentState>(() => makeDocument(''))
+  const [document, setDocument] = useState<DocumentState>(() => uiPreview ? { ...makeDocument('# 产品笔记\n\n把 Markdown 文档放在熟悉的文件夹里，打开、阅读、继续写作。\n\n## 当前计划\n\n- 浏览多级目录\n- 编辑并保存本地文件\n- 导出可分享的副本\n', '产品笔记.md'), entryToken: 'preview-file' } : makeDocument(''))
+  const documentRef = useRef(document)
+  documentRef.current = document
   const initialDocumentId = useRef(document.id)
   const [session, setSession] = useState<DocumentSession>(() => createSession(document.id))
   const sessionRef = useRef(session)
+  const initialTabKey = useRef(crypto.randomUUID())
+  const [tabs, setTabs] = useState<TabItem[]>(() => [{ key: initialTabKey.current, document, session }])
+  const tabsRef = useRef(tabs)
+  const [activeTabKey, setActiveTabKey] = useState<string>(initialTabKey.current)
+  const activeTabKeyRef = useRef<string>(activeTabKey)
+  const [tabMenu, setTabMenu] = useState<{ key: string; x: number; y: number } | null>(null)
+  const closingTabsRef = useRef(false)
+  const closingWindowRef = useRef(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const queuedSave = useRef(false)
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(busy)
@@ -145,12 +171,12 @@ export function App() {
   const [imageAltOpen, setImageAltOpen] = useState(false)
   const [imageAltText, setImageAltText] = useState('')
   const [imageError, setImageError] = useState<string | null>(null)
-  const [workspace, setWorkspace] = useState<WorkspaceRoot | null>(null)
+  const [workspace, setWorkspace] = useState<WorkspaceRoot | null>(uiPreview ? { token: 'preview-root', name: 'MinoMarkdown' } : null)
   const [recent, setRecent] = useState<RecentItem[]>([])
-  const [settings, setSettings] = useState<Settings>(defaultSettings)
+  const [settings, setSettings] = useState<Settings>(() => uiPreview ? { ...defaultSettings, theme: new URLSearchParams(window.location.search).get('ui-theme') === 'light' ? 'light' : 'dark' } : defaultSettings)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [systemDark, setSystemDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false)
-  const [tree, setTree] = useState<Record<string, TreeState>>({})
+  const [tree, setTree] = useState<Record<string, TreeState>>(uiPreview ? previewTree : {})
   const [selectedDirectory, setSelectedDirectory] = useState<string | null>(null)
   const [selectedEntry, setSelectedEntry] = useState<(WorkspaceEntry & { parentToken: string }) | null>(null)
   const [newEntryType, setNewEntryType] = useState<'file' | 'directory' | null>(null)
@@ -158,17 +184,109 @@ export function App() {
   const [renameName, setRenameName] = useState('')
   const [renaming, setRenaming] = useState(false)
   const draftWriteChain = useRef<Promise<void>>(Promise.resolve())
-  const activeTokenRef = useRef(document.token)
   const pendingDiscardDraftId = useRef<string | null>(null)
   const desktop = isTauri()
   busyRef.current = busy
   const dirty = isDirty(session)
-  const welcomeVisible = document.id === initialDocumentId.current && !document.token && !workspace && document.markdown === '' && !dirty
+  const welcomeVisible = tabs.length === 1 && document.id === initialDocumentId.current && !document.token && !workspace && document.markdown === '' && !dirty
   const canProceedRef = useRef<(finalizeDiscard?: boolean) => Promise<boolean>>(async () => true)
 
   function updateSession(next: DocumentSession) {
     sessionRef.current = next
     setSession(next)
+  }
+
+  function updateTabs(next: TabItem[]) {
+    tabsRef.current = next
+    setTabs(next)
+  }
+
+  function captureCurrentTab(): TabItem {
+    const current = tabsRef.current.find((tab) => tab.key === activeTabKeyRef.current)!
+    const activeDocument = documentRef.current
+    let markdown = activeDocument.markdown
+    if (activeDocument.mode === 'visual' && adapter.current?.isReady()) {
+      try { markdown = adapter.current.getMarkdown() } catch { /* Keep the last complete snapshot. */ }
+    }
+    const captured = { ...current, document: { ...activeDocument, markdown, pendingFiles: adapter.current?.pendingFiles() ?? activeDocument.pendingFiles }, session: sessionRef.current }
+    updateTabs(tabsRef.current.map((tab) => tab.key === captured.key ? captured : tab))
+    if (desktop && isDirty(captured.session)) void persistTabDraft(captured, adapter.current)
+    return captured
+  }
+
+  function activateTab(tab: TabItem) {
+    activeTabKeyRef.current = tab.key
+    setActiveTabKey(tab.key)
+    updateSession(tab.session)
+    documentRef.current = tab.document
+    setDocument(tab.document)
+    setTabMenu(null)
+  }
+
+  function switchTab(key: string) {
+    if (busyRef.current || key === activeTabKeyRef.current) return
+    captureCurrentTab()
+    const target = tabsRef.current.find((tab) => tab.key === key)
+    if (target) activateTab(target)
+  }
+
+  function openTab(nextDocument: DocumentState, nextSession = createSession(nextDocument.id)) {
+    const activeDocument = documentRef.current
+    const onlyWelcome = tabsRef.current.length === 1 && activeDocument.id === initialDocumentId.current && !activeDocument.token && activeDocument.markdown === '' && !isDirty(sessionRef.current)
+    if (!onlyWelcome) captureCurrentTab()
+    const tab = { key: crypto.randomUUID(), document: nextDocument, session: nextSession }
+    updateTabs(onlyWelcome ? [tab] : [...tabsRef.current, tab])
+    activateTab(tab)
+  }
+
+  async function closeTabs(keys: string[]): Promise<boolean> {
+    if (closingTabsRef.current) return false
+    closingTabsRef.current = true
+    try {
+    for (const key of keys) {
+      const index = tabsRef.current.findIndex((tab) => tab.key === key)
+      if (index < 0) continue
+      if (key !== activeTabKeyRef.current) {
+        switchTab(key)
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      }
+      if (!await canProceedRef.current(true)) return false
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      const closing = tabsRef.current.find((tab) => tab.key === key)
+      if (!closing) continue
+      const activePendingUrls = Array.from(adapter.current?.pendingFiles().keys() ?? [])
+      const token = documentRef.current.token || closing.document.token
+      const remaining = tabsRef.current.filter((tab) => tab.key !== key)
+      if (remaining.length === 0) {
+        const empty = makeDocument('')
+        initialDocumentId.current = empty.id
+        const replacement = { key: crypto.randomUUID(), document: empty, session: createSession(empty.id) }
+        updateTabs([replacement])
+        activateTab(replacement)
+      } else {
+        updateTabs(remaining)
+        activateTab(remaining[Math.min(index, remaining.length - 1)])
+      }
+      await draftWriteChain.current.catch(() => undefined)
+      if (token) await releaseCandidate(token)
+      for (const url of closing.document.imageUrls.keys()) URL.revokeObjectURL(url)
+      for (const url of closing.document.recoveredAssets.keys()) URL.revokeObjectURL(url)
+      for (const url of closing.document.pendingFiles.keys()) URL.revokeObjectURL(url)
+      for (const url of activePendingUrls) URL.revokeObjectURL(url)
+      setStatus(`已关闭 ${closing.document.name}`)
+    }
+    setTabMenu(null)
+    return true
+    } finally { closingTabsRef.current = false }
+  }
+
+  function reorderTabs(from: string, to: string) {
+    const next = [...tabsRef.current]
+    const fromIndex = next.findIndex((tab) => tab.key === from)
+    const toIndex = next.findIndex((tab) => tab.key === to)
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return
+    next.splice(toIndex, 0, next.splice(fromIndex, 1)[0])
+    updateTabs(next)
   }
 
   useEffect(() => {
@@ -185,7 +303,7 @@ export function App() {
     if (!editorRoot.current) return
     const instance = new EditorAdapter(editorRoot.current, document.markdown, () => {
       if (sessionRef.current.generation === document.id) updateSession(editSession(sessionRef.current))
-    }, document.imageUrls, document.recoveredAssets, setToolbar, setImageError)
+    }, document.imageUrls, document.recoveredAssets, document.pendingFiles, setToolbar, setImageError)
     adapter.current = instance
     let disposed = false
     const creation = instance.create()
@@ -197,7 +315,7 @@ export function App() {
     return () => {
       disposed = true
       if (adapter.current === instance) adapter.current = null
-      void creation.finally(() => instance.destroy()).catch(() => undefined)
+      void creation.finally(() => instance.destroy(false)).catch(() => undefined)
     }
   }, [document.id, welcomeVisible])
 
@@ -205,16 +323,6 @@ export function App() {
     setDiskChange(null)
     setDiskPreview(null)
   }, [document.id])
-
-  useEffect(() => {
-    const previous = activeTokenRef.current
-    activeTokenRef.current = document.token
-    if (!desktop || !previous || previous === document.token) return
-    const pendingWrites = draftWriteChain.current
-    void pendingWrites.catch(() => undefined).then(() => invoke('release_document', { token: previous })).catch((error: unknown) => {
-      setStatus(`旧文档访问清理失败：${errorText(error)}`)
-    })
-  }, [desktop, document.id, document.token])
 
   useEffect(() => {
     if (!desktop) return
@@ -276,6 +384,29 @@ export function App() {
     setRecent(await invoke<RecentItem[]>('list_recent'))
   }
 
+  function persistTabDraft(tab: TabItem, instance: EditorAdapter | null): Promise<void> {
+    const { document: savedDocument, session: savedSession } = tab
+    const visual = savedDocument.mode === 'visual'
+    const markdown = visual ? composeVisualMarkdown(savedDocument.prepared.analysis, savedDocument.markdown) : savedDocument.sourceText
+    const referenced = new Set(imageUrlsIn(markdown))
+    const pendingAssets = visual && instance?.isReady()
+      ? instance.pendingAssets(markdown, false)
+      : Promise.resolve(Array.from(savedDocument.recoveredAssets, ([url, asset]) => ({ url, ...asset })).filter((asset) => referenced.has(asset.url)))
+    draftWriteChain.current = draftWriteChain.current.catch(() => undefined).then(async () => {
+      const assets = await pendingAssets
+      if (visual && savedDocument.token) {
+        for (const [url, relative] of savedDocument.imageUrls) {
+          if (!referenced.has(url)) continue
+          const bytes = await invoke<number[]>('read_asset', { token: savedDocument.token, relative: localAssetPath(relative) })
+          assets.push({ url, bytes, mime: imageMime(relative) })
+        }
+      }
+      await invoke('write_draft', { draftId: savedDocument.draftId, name: savedDocument.name, token: savedDocument.token || null, baseDiskRevision: savedSession.diskRevision, markdown, assets })
+      setDrafts(await invoke<DraftSummary[]>('list_drafts'))
+    }).catch((error: unknown) => setStatus(`草稿保存失败：${errorText(error)}`))
+    return draftWriteChain.current
+  }
+
   useEffect(() => {
     if (!desktop || !isDirty(session) || session.generation !== document.id || toolbar.composing) return
     const timer = window.setTimeout(() => {
@@ -311,7 +442,7 @@ export function App() {
   }
 
   async function recoverDraft(draftId: string): Promise<void> {
-    if (busy || !await canProceed()) return
+    if (busy) return
     setBusy(true)
     try {
       const recovered = await invoke<DraftContent>('read_draft', { draftId })
@@ -334,9 +465,7 @@ export function App() {
         }
       }
       next.recoveredAssets = sourceAssets
-      await finishLeave(next.draftId)
-      updateSession(editSession(createSession(next.id)))
-      setDocument(next)
+      openTab(next, editSession(createSession(next.id)))
       setStatus(recovered.targetStatus === 'changed' ? '已恢复草稿；原文件已有新版本，保存时请选择新文件名' : '已恢复草稿；请检查内容后保存')
     } catch (error) { setStatus(errorText(error)) }
     finally { setBusy(false) }
@@ -425,13 +554,10 @@ export function App() {
     try {
       while (busyRef.current) await new Promise((resolve) => window.setTimeout(resolve, 100))
       if (intent.kind === 'markdown') {
-        if (!await canProceedRef.current()) { await invoke('discard_open_intent', { token: intent.token }); return }
         const opened = await invoke<OpenResult>('open_intent_document', { token: intent.token })
         candidateToken = opened.token
         const hydrated = await hydrateImages(opened)
-        await finishLeave(hydrated.draftId)
-        updateSession(createSession(hydrated.id, hydrated.revision))
-        setDocument(hydrated)
+        openTab(hydrated, createSession(hydrated.id, hydrated.revision))
         candidateToken = null
         void rememberDocument(hydrated.token).catch(() => undefined)
       } else if (intent.kind === 'folder') {
@@ -452,6 +578,7 @@ export function App() {
     if (!desktop) return
     let canceled = false
     let unlisten: (() => void) | undefined
+    let unlistenEmpty: (() => void) | undefined
     let draining = false
     let rerun = false
     async function drain() {
@@ -471,15 +598,14 @@ export function App() {
       finally { draining = false }
     }
     void listen('open-intents-available', () => void drain()).then((stop) => { if (canceled) stop(); else unlisten = stop }).catch((error: unknown) => setStatus(errorText(error)))
+    void listen('open-intents-empty-drop', () => setStatus('macOS 未提供拖入文件路径，请从 Finder 拖入本地 Markdown 文件')).then((stop) => { if (canceled) stop(); else unlistenEmpty = stop }).catch((error: unknown) => setStatus(errorText(error)))
     void drain()
-    return () => { canceled = true; unlisten?.() }
+    return () => { canceled = true; unlisten?.(); unlistenEmpty?.() }
   }, [desktop])
 
   async function newDocument() {
-    if (busy || !await canProceed()) return
-    try { await finishLeave() }
-    catch (error) { setStatus(errorText(error)); return }
-    setDocument(makeDocument(''))
+    if (busy) return
+    openTab(makeDocument(''))
   }
 
   async function openDocument() {
@@ -489,11 +615,9 @@ export function App() {
       const opened = await invoke<OpenResult | null>('open_document')
       if (opened) {
         candidateToken = opened.token
-        if (!await canProceed()) { await releaseCandidate(candidateToken); return }
         setBusy(true)
         const hydrated = await hydrateImages(opened)
-        await finishLeave(hydrated.draftId)
-        setDocument(hydrated)
+        openTab(hydrated, createSession(hydrated.id, hydrated.revision))
         candidateToken = null
         void rememberDocument(opened.token).catch(() => undefined)
       }
@@ -537,15 +661,14 @@ export function App() {
   }
 
   async function openWorkspaceEntry(token: string) {
-    if (busy || !await canProceed()) return
+    if (busy) return
     setBusy(true)
     let candidateToken: string | null = null
     try {
       const opened = await invoke<OpenResult>('open_workspace_document', { entryToken: token })
       candidateToken = opened.token
       const hydrated = await hydrateImages(opened)
-      await finishLeave(hydrated.draftId)
-      setDocument({ ...hydrated, entryToken: token })
+      openTab({ ...hydrated, entryToken: token }, createSession(hydrated.id, hydrated.revision))
       candidateToken = null
       void rememberDocument(opened.token).catch(() => undefined)
     } catch (error) { await releaseCandidate(candidateToken); setStatus(errorText(error)) }
@@ -566,10 +689,8 @@ export function App() {
         const opened = await invoke<OpenResult | null>('choose_recent_file', { id: item.id })
         if (!opened) return
         candidateToken = opened.token
-        if (!await canProceed()) { await releaseCandidate(candidateToken); return }
         const hydrated = await hydrateImages(opened)
-        await finishLeave(hydrated.draftId)
-        setDocument(hydrated)
+        openTab(hydrated, createSession(hydrated.id, hydrated.revision))
         candidateToken = null
         void rememberDocument(opened.token).catch(() => undefined)
       } else {
@@ -583,6 +704,17 @@ export function App() {
   async function removeRecent(id: string) {
     try { await invoke('remove_recent', { id }); setRecent(await invoke<RecentItem[]>('list_recent')) }
     catch (error) { setStatus(errorText(error)) }
+  }
+
+  async function moveRecent(id: string, delta: number) {
+    const from = recent.findIndex((item) => item.id === id)
+    const to = from + delta
+    if (from < 0 || to < 0 || to >= recent.length) return
+    const ordered = [...recent]
+    ordered.splice(to, 0, ordered.splice(from, 1)[0])
+    setRecent(ordered)
+    try { await invoke('reorder_recent', { ids: ordered.map((item) => item.id) }) }
+    catch (error) { setRecent(await invoke<RecentItem[]>('list_recent')); setStatus(errorText(error)) }
   }
 
   function toggleDirectory(token: string) {
@@ -609,8 +741,8 @@ export function App() {
     return <div role="group">
       {state.entries.map((entry) => <div key={entry.token}>
         <button type="button" role="treeitem" data-tree-item aria-level={depth + 1} aria-expanded={entry.directory ? (tree[entry.token]?.expanded ?? false) : undefined} aria-selected={document.entryToken === entry.token || selectedEntry?.token === entry.token} className="tree-entry" style={{ paddingLeft: `${12 + depth * 16}px` }} onClick={() => { setSelectedEntry({ ...entry, parentToken: token }); setSelectedDirectory(entry.directory ? entry.token : token); if (entry.directory) toggleDirectory(entry.token); else void openWorkspaceEntry(entry.token) }} onKeyDown={(event) => treeKeyDown(event, entry)}>
-          <span className="tree-chevron" aria-hidden="true">{entry.directory ? tree[entry.token]?.expanded ? '⌄' : '›' : ''}</span>
-          <svg className="tree-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">{entry.directory ? <path d="M2.5 5.5h5l1.5 2h8.5v8.5h-15z M2.5 7.5v-2a1 1 0 0 1 1-1h4" /> : <path d="M5 2.5h7l3 3V17H5z M12 2.5v3h3 M7.5 9h5 M7.5 12h5" />}</svg>
+          <span className="tree-chevron" aria-hidden="true">{entry.directory ? tree[entry.token]?.expanded ? <ChevronDown /> : <ChevronRight /> : null}</span>
+          {entry.directory ? <Folder className="tree-icon" aria-hidden="true" /> : <FileText className="tree-icon" aria-hidden="true" />}
           <span className="tree-name">{entry.name}</span>
         </button>
         {entry.directory && renderChildren(entry.token, depth + 1)}
@@ -636,6 +768,7 @@ export function App() {
     if (!selectedEntry || !renameName.trim()) return
     try {
       const renamed = await invoke<WorkspaceEntry>('rename_workspace_entry', { entryToken: selectedEntry.token, newName: renameName.trim() })
+      updateTabs(tabsRef.current.map((tab) => tab.document.entryToken === renamed.token ? { ...tab, document: { ...tab.document, name: renamed.name } } : tab))
       if (document.entryToken === renamed.token) setDocument((current) => ({ ...current, name: renamed.name }))
       setSelectedEntry({ ...selectedEntry, name: renamed.name })
       await loadChildren(selectedEntry.parentToken)
@@ -646,17 +779,12 @@ export function App() {
 
   async function trashEntry() {
     if (!selectedEntry || !window.confirm(`将“${selectedEntry.name}”移到废纸篓？`)) return
-    if (document.entryToken === selectedEntry.token && !await canProceed()) return
+    const affected = tabsRef.current.filter((tab) => tab.document.entryToken === selectedEntry.token).map((tab) => tab.key)
+    if (affected.length && !await closeTabs(affected)) return
     try {
       await invoke('trash_workspace_entry', { entryToken: selectedEntry.token })
-      let draftCleanupFailed = false
-      if (document.entryToken === selectedEntry.token) {
-        try { await finishLeave() }
-        catch { draftCleanupFailed = true }
-        setDocument(makeDocument(''))
-      }
       await loadChildren(selectedEntry.parentToken)
-      setStatus(draftCleanupFailed ? `已移到废纸篓：${selectedEntry.name}；恢复草稿清理失败，可在恢复区手动丢弃` : `已移到废纸篓：${selectedEntry.name}`)
+      setStatus(`已移到废纸篓：${selectedEntry.name}`)
       setSelectedEntry(null)
     } catch (error) { setStatus(errorText(error)) }
   }
@@ -715,6 +843,10 @@ export function App() {
         catch (draftError) { draftCleanupError = `；草稿清理失败：${errorText(draftError)}` }
       }
       setStatus(`已保存 ${saved.name}${isDirty(completed) ? '；保存期间的新修改仍未保存' : ''}${draftCleanupError}`)
+      if (document.token && saved.token !== document.token) {
+        const previousToken = document.token
+        void draftWriteChain.current.catch(() => undefined).then(() => releaseCandidate(previousToken))
+      }
       void rememberDocument(saved.token).catch(() => undefined)
       return !isDirty(completed)
     } catch (error) {
@@ -847,6 +979,13 @@ export function App() {
     if (action === 'open-folder') void chooseWorkspace()
     if (action === 'save') void saveDocument()
     if (action === 'save-as') void saveDocument(true)
+    if (action === 'export-md') void exportSnapshotMD(false)
+    if (action === 'export-html') void exportPage('html')
+    if (action === 'print') void exportPage('print')
+    if (action === 'view-toolbar') setSettings((current) => ({ ...current, showFileToolbar: !current.showFileToolbar }))
+    if (action === 'view-sidebar') setSidebarOpen((current) => !current)
+    if (action === 'preferences') setSettingsOpen(true)
+    if (action === 'close-tab') void closeTabs([activeTabKeyRef.current])
   }
 
   useEffect(() => {
@@ -862,6 +1001,18 @@ export function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'o') {
         event.preventDefault()
         runFileAction(event.shiftKey ? 'open-folder' : 'open')
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'w') {
+        event.preventDefault()
+        runFileAction('close-tab')
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+        event.preventDefault()
+        runFileAction('preferences')
+      }
+      if (event.key === 'Escape') {
+        setTabMenu(null)
+        setSettingsOpen(false)
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -889,8 +1040,23 @@ export function App() {
     if (!desktop) return
     let unlisten: (() => void) | undefined
     let canceled = false
-    getCurrentWindow().onCloseRequested(async (event) => {
-      if (!await canProceedRef.current(true)) event.preventDefault()
+    getCurrentWindow().onCloseRequested((event) => {
+      event.preventDefault()
+      if (closingWindowRef.current) return
+      closingWindowRef.current = true
+      void (async () => {
+        try {
+          for (const key of tabsRef.current.map((tab) => tab.key)) {
+            if (key !== activeTabKeyRef.current) {
+              switchTab(key)
+              await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+            }
+            if (!await canProceedRef.current(true)) return
+          }
+          await draftWriteChain.current.catch(() => undefined)
+          await exit(0)
+        } finally { closingWindowRef.current = false }
+      })().catch((error: unknown) => setStatus(errorText(error)))
     }).then((stop) => {
       if (canceled) stop()
       else unlisten = stop
@@ -969,33 +1135,36 @@ export function App() {
     }
   }
 
+  function renderToolbarButton(item: (typeof toolbarItems)[number], inMenu = false) {
+    const active = ({ bold: 'strong', italic: 'emphasis', strike: 'strike_through', inlineCode: 'inlineCode', bullet: 'bullet_list', ordered: 'ordered_list', quote: 'blockquote', codeBlock: 'code_block' } as Record<string, string>)[item.command]
+    const pressed = active ? (['bullet', 'ordered', 'quote', 'codeBlock'].includes(item.command) ? toolbar.block === active : toolbar.marks.includes(active)) : undefined
+    const Icon = item.icon
+    return <button key={item.command} type="button" className={inMenu ? 'menu-command' : 'icon-button'} title={item.label} aria-label={item.label} aria-pressed={pressed} disabled={!toolbar.ready || toolbar.composing || item.command === 'undo' && !toolbar.canUndo || item.command === 'redo' && !toolbar.canRedo} onClick={() => adapter.current?.runCommand(item.command)}><Icon aria-hidden="true" />{inMenu && <span>{item.label}</span>}</button>
+  }
+  const persistenceLabel = session.persistence === 'saving' ? '保存中' : session.persistence === 'failed' ? '保存失败' : session.persistence === 'conflict' ? '磁盘冲突' : dirty ? '未保存' : document.token ? '已保存' : '未保存到磁盘'
+
   return (
-    <main className="app-shell">
-      <header className="app-header">
-        <div>
-          <h1>MinoMarkdown</h1>
-        </div>
-        <span className="app-stage">{welcomeVisible ? '开始' : document.name}{dirty ? ' · 未保存' : ''}{session.persistence === 'saving' ? ' · 保存中' : ''}{session.persistence === 'failed' ? ' · 保存失败' : ''}{session.persistence === 'conflict' ? ' · 磁盘冲突' : ''}</span>
-      </header>
-      <div className="file-controls" aria-label="文档操作">
-        <button type="button" className="sidebar-toggle" onClick={() => setSidebarOpen((value) => !value)} aria-expanded={sidebarOpen} aria-controls="document-sidebar" aria-label={sidebarOpen ? '隐藏文件栏' : '显示文件栏'} title={sidebarOpen ? '隐藏文件栏' : '显示文件栏'}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="2.5" y="3" width="15" height="14" rx="2"/><path d="M7.5 3v14"/></svg></button>
-        <button type="button" className="primary-action" onClick={() => void chooseWorkspace()} disabled={!desktop || busy}>打开文件夹</button>
-        <button type="button" onClick={() => void openDocument()} disabled={!desktop || busy}>打开文件</button>
-        <button type="button" onClick={() => void newDocument()} disabled={busy}>新建文档</button>
-        {!welcomeVisible && <button type="button" onClick={() => void saveDocument()} disabled={!desktop || busy}>保存 <kbd>⌘S</kbd></button>}
-        {!welcomeVisible && <details className="more-actions"><summary>更多操作</summary><div className="more-actions-menu">
-        <button type="button" onClick={() => void saveDocument(true)} disabled={!desktop || busy || !document.token}>另存为</button>
-        {document.mode === 'visual'
-          ? <button type="button" onClick={switchToSource} disabled={busy}>源码模式</button>
-          : <button type="button" onClick={() => void switchToVisual()} disabled={busy}>尝试可视化</button>}
-        <button type="button" onClick={() => void exportPage('html')} disabled={!desktop || busy || document.mode === 'source-protected'}>导出 HTML</button>
-        <button type="button" onClick={() => void exportPage('print')} disabled={!desktop || busy || document.mode === 'source-protected'}>打印 / 存储为 PDF</button>
-        {document.mode === 'visual' && <button type="button" onClick={() => void exportSnapshotMD(false)} disabled={!desktop || busy}>导出 MD + 图片</button>}
-        <button type="button" onClick={() => void exportSnapshotMD(true)} disabled={!desktop || busy}>仅正文 MD（图片占位）</button>
+    <main className="app-shell" onClick={() => { if (tabMenu) setTabMenu(null) }}>
+      {settings.showFileToolbar && <div className="file-controls" aria-label="文档操作">
+        <button type="button" className="icon-button sidebar-toggle" onClick={() => setSidebarOpen((value) => !value)} aria-expanded={sidebarOpen} aria-controls="document-sidebar" aria-label={sidebarOpen ? '隐藏文件栏' : '显示文件栏'} title={sidebarOpen ? '隐藏文件栏' : '显示文件栏'}><PanelLeft aria-hidden="true" /></button>
+        <span className="control-divider" aria-hidden="true" />
+        <button type="button" className="control-button" onClick={() => void chooseWorkspace()} disabled={!desktop || busy}><FolderOpen aria-hidden="true" />打开文件夹</button>
+        <button type="button" className="control-button" onClick={() => void openDocument()} disabled={!desktop || busy}><FileText aria-hidden="true" />打开文件</button>
+        <button type="button" className="control-button" onClick={() => void newDocument()} disabled={busy}><Plus aria-hidden="true" />新建</button>
+        <span className="control-spacer" />
+        {!welcomeVisible && <button type="button" className="control-button save-button" onClick={() => void saveDocument()} disabled={!desktop || busy}><Save aria-hidden="true" />保存 <kbd>⌘S</kbd></button>}
+        {!welcomeVisible && <details className="more-actions"><summary aria-label="文档更多操作" title="文档更多操作"><MoreHorizontal aria-hidden="true" /></summary><div className="more-actions-menu">
+          <button type="button" onClick={() => void saveDocument(true)} disabled={!desktop || busy || !document.token}><Save aria-hidden="true" />另存为</button>
+          {document.mode === 'visual'
+            ? <button type="button" onClick={switchToSource} disabled={busy}><Code2 aria-hidden="true" />源码模式</button>
+            : <button type="button" onClick={() => void switchToVisual()} disabled={busy}><FileText aria-hidden="true" />可视化模式</button>}
+          <div className="menu-separator" />
+          <button type="button" onClick={() => void exportPage('html')} disabled={!desktop || busy || document.mode === 'source-protected'}><Download aria-hidden="true" />导出 HTML</button>
+          <button type="button" onClick={() => void exportPage('print')} disabled={!desktop || busy || document.mode === 'source-protected'}><Printer aria-hidden="true" />打印 / PDF</button>
+          {document.mode === 'visual' && <button type="button" onClick={() => void exportSnapshotMD(false)} disabled={!desktop || busy}><Download aria-hidden="true" />导出 MD + 图片</button>}
+          <button type="button" onClick={() => void exportSnapshotMD(true)} disabled={!desktop || busy}><Download aria-hidden="true" />仅正文 MD</button>
         </div></details>}
-        <label className="theme-control">外观 <select aria-label="外观主题" value={settings.theme} onChange={(event) => setSettings((current) => ({ ...current, theme: event.target.value as Settings['theme'] }))}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
-      </div>
-      <p className="app-status" role="status">{status}</p>
+      </div>}
       {imageError && <div className="conflict-panel" role="alert"><strong>图片处理失败</strong><span>{imageError}</span><button type="button" onClick={() => void adapter.current?.retryFailedImages()}>重试</button><span>也可删除该图片后重新插入。</span></div>}
       {drafts.length > 0 && <section className="recovery-panel" aria-label="恢复草稿">
         <strong>可恢复草稿</strong>
@@ -1024,60 +1193,58 @@ export function App() {
       </section>}
       <div className="workspace-layout">
         {sidebarOpen && <aside id="document-sidebar" ref={sidebarRoot} className="document-sidebar" aria-label="文件浏览器" style={{ width: settings.sidebarWidth }}>
-          <div className="sidebar-heading"><h2>文件资源管理器</h2><button type="button" title="打开文件夹" aria-label="打开文件夹" onClick={() => void chooseWorkspace()} disabled={!desktop}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M2.5 6h5l1.5 2h8.5v8h-15z"/><path d="M13 2.5v5M10.5 5h5"/></svg></button></div>
-          {!workspace && <div className="sidebar-empty"><p>尚未打开文件夹</p><span>可从 Finder 拖入文件夹</span></div>}
+          <div className="sidebar-heading"><h2>文件</h2><button type="button" className="icon-button" title="打开文件夹" aria-label="打开文件夹" onClick={() => void chooseWorkspace()} disabled={!desktop}><FolderOpen aria-hidden="true" /></button></div>
+          {document.token && !document.entryToken && <div className="standalone-file"><h3>单独打开</h3><div className="tree-entry" aria-current="page" title={document.name}><FileText className="tree-icon" aria-hidden="true" /><span className="tree-name">{document.name}</span></div></div>}
+          {!workspace && !document.token && <div className="sidebar-empty"><FileText className="sidebar-empty-icon" aria-hidden="true" /><p>还没有打开文档</p><span>拖入 Markdown 文件或文件夹，也可以使用上方按钮</span></div>}
           {workspace && <>
-            <div className="tree-header"><strong title={workspace.name}>{workspace.name}</strong><button type="button" onClick={() => void loadChildren(workspace.token)} title="刷新目录">刷新</button><button type="button" onClick={() => void closeWorkspace()} title="关闭目录">关闭</button></div>
+            <div className="tree-header"><ChevronDown aria-hidden="true" /><strong title={workspace.name}>{workspace.name}</strong><button type="button" className="icon-button" onClick={() => void loadChildren(workspace.token)} title="刷新目录" aria-label="刷新目录"><RefreshCw aria-hidden="true" /></button></div>
             <div role="tree" aria-label="文件夹目录" className="file-tree">{renderChildren(workspace.token)}</div>
-            <div className="tree-actions">
-              <button type="button" onClick={() => { setNewEntryType('file'); setNewEntryName('新文档.md') }}>新建 MD</button>
-              <button type="button" onClick={() => { setNewEntryType('directory'); setNewEntryName('新目录') }}>新建目录</button>
-              <button type="button" disabled={!selectedEntry} onClick={() => { setRenameName(selectedEntry?.name ?? ''); setRenaming(true) }}>重命名</button>
-              <button type="button" disabled={!selectedEntry} onClick={() => void trashEntry()}>移到废纸篓</button>
-            </div>
+            <div className="tree-actions"><button type="button" onClick={() => { setNewEntryType('file'); setNewEntryName('新文档.md') }}><FilePlus2 aria-hidden="true" />新建文档</button><details className="tree-action-menu"><summary aria-label="目录操作" title="目录操作"><MoreHorizontal aria-hidden="true" /></summary><div className="tree-action-popup">
+              <button type="button" onClick={() => { setNewEntryType('directory'); setNewEntryName('新目录') }}><FolderPlus aria-hidden="true" />新建目录</button>
+              <button type="button" disabled={!selectedEntry} onClick={() => { setRenameName(selectedEntry?.name ?? ''); setRenaming(true) }}><Pencil aria-hidden="true" />重命名</button>
+              <button type="button" disabled={!selectedEntry} onClick={() => void trashEntry()}><Trash2 aria-hidden="true" />移到废纸篓</button>
+              <div className="menu-separator" />
+              <button type="button" onClick={() => void closeWorkspace()}><X aria-hidden="true" />关闭文件夹</button>
+            </div></details></div>
             {newEntryType && <div className="tree-form"><label>{newEntryType === 'file' ? '文件名' : '目录名'}<input value={newEntryName} onChange={(event) => setNewEntryName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void createEntry(); if (event.key === 'Escape') setNewEntryType(null) }} /></label><button type="button" onClick={() => void createEntry()}>创建</button><button type="button" onClick={() => setNewEntryType(null)}>取消</button></div>}
             {renaming && <div className="tree-form"><label>新名称<input value={renameName} onChange={(event) => setRenameName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void renameEntry(); if (event.key === 'Escape') setRenaming(false) }} /></label><button type="button" onClick={() => void renameEntry()}>确定</button><button type="button" onClick={() => setRenaming(false)}>取消</button></div>}
           </>}
-          {recent.length > 0 && <div className="recent-list"><h2>最近使用</h2>{recent.map((item) => <div className="recent-item" key={item.id}><button type="button" onClick={() => void openRecent(item)}><span className="recent-kind">{item.kind === 'folder' ? '目录' : 'MD'}</span>{item.name}{!item.available ? ' · 失效' : ''}</button><button type="button" aria-label={`移除 ${item.name}`} onClick={() => void removeRecent(item.id)}>×</button></div>)}</div>}
+          {recent.length > 0 && <div className="recent-list"><h2>最近使用</h2>{recent.map((item, index) => <div className="recent-item" key={item.id}><button type="button" onClick={() => void openRecent(item)} title={item.name}>{item.kind === 'folder' ? <Folder aria-hidden="true" /> : <FileText aria-hidden="true" />}<span>{item.name}{!item.available ? ' · 失效' : ''}</span></button><button type="button" className="recent-move" aria-label={`上移 ${item.name}`} title="上移" disabled={index === 0} onClick={() => void moveRecent(item.id, -1)}><ArrowUp aria-hidden="true" /></button><button type="button" className="recent-move" aria-label={`下移 ${item.name}`} title="下移" disabled={index === recent.length - 1} onClick={() => void moveRecent(item.id, 1)}><ArrowDown aria-hidden="true" /></button><button type="button" className="recent-remove" aria-label={`移除 ${item.name}`} title="移除记录" onClick={() => void removeRecent(item.id)}><X aria-hidden="true" /></button></div>)}</div>}
         </aside>}
       {welcomeVisible ? <section className="welcome-panel" aria-label="开始使用 MinoMarkdown">
         <div className="welcome-content">
-        <svg className="welcome-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M5 13h14l5 6h19v21H5z"/><path d="M5 19v-7a3 3 0 0 1 3-3h11"/><path d="M16 28h17M16 33h11"/></svg>
-        <div className="welcome-kicker">本地 Markdown 工作区</div>
-        <h2>从文件夹开始</h2>
-        <p>浏览多级目录中的 Markdown 文档，在右侧直接编辑。也可以从 Finder 拖入文件夹。</p>
+        <FileText className="welcome-icon" aria-hidden="true" />
+        <h2>打开 Markdown 文档</h2>
+        <p>直接打开一篇文档，或打开文件夹浏览多级目录。都可以从 Finder 拖入窗口。</p>
         <div className="welcome-actions">
-          <button type="button" onClick={() => void chooseWorkspace()} disabled={!desktop}>打开文件夹</button>
-          <button type="button" onClick={() => void newDocument()}>新建文档</button>
+          <button type="button" className="welcome-primary" onClick={() => void openDocument()} disabled={!desktop}><FileText aria-hidden="true" />打开 Markdown 文件</button>
+          <button type="button" onClick={() => void chooseWorkspace()} disabled={!desktop}><FolderOpen aria-hidden="true" />打开文件夹</button>
         </div>
-        <div className="drop-hint">支持拖入文件夹和 Markdown 文件</div>
+        <div className="drop-hint">从 Finder 拖入 <strong>.md / .markdown 文件</strong>或文件夹到窗口任意位置</div>
         </div>
       </section> : <>
         <section className="editor-panel" aria-label="Markdown 编辑区域">
+          <div className="document-tabbar" role="tablist" aria-label="打开的文档"><div className="document-tabs">{tabs.map((tab) => <div key={tab.key} className="document-tab" role="tab" aria-selected={tab.key === activeTabKey} draggable onDragStart={(event) => event.dataTransfer.setData('text/x-mino-tab', tab.key)} onDragOver={(event) => { if (event.dataTransfer.types.includes('text/x-mino-tab')) event.preventDefault() }} onDrop={(event) => { const from = event.dataTransfer.getData('text/x-mino-tab'); if (from) { event.preventDefault(); reorderTabs(from, tab.key) } }} onContextMenu={(event) => { event.preventDefault(); setTabMenu({ key: tab.key, x: event.clientX, y: event.clientY }) }}><button type="button" className="tab-select" onClick={() => switchTab(tab.key)} title={tab.document.name}><FileText aria-hidden="true" /><span>{tab.key === activeTabKey ? document.name : tab.document.name}</span>{isDirty(tab.key === activeTabKey ? session : tab.session) && <i className="unsaved-dot" aria-label="未保存" />}</button><button type="button" className="tab-close" onClick={() => void closeTabs([tab.key])} title={`关闭 ${tab.document.name}`} aria-label={`关闭 ${tab.document.name}`}><X aria-hidden="true" /></button></div>)}</div><div className="document-context">{document.mode === 'source-protected' ? '源码保护' : '可视化编辑'} <span className="document-save-state">{persistenceLabel}</span></div></div>
           {document.mode === 'visual' && <div className="editor-toolbar" role="toolbar" aria-label="编辑工具栏" onMouseDown={(event) => { if ((event.target as HTMLElement).closest('button')) event.preventDefault() }}>
             <select aria-label="段落样式" value={toolbar.block.startsWith('heading') ? toolbar.block : 'paragraph'} disabled={!toolbar.ready || toolbar.composing} onChange={(event) => adapter.current?.runCommand(event.target.value as EditorCommand)}>
               <option value="paragraph">正文</option>
               {[1, 2, 3, 4, 5, 6].map((level) => <option key={level} value={`heading${level}`}>标题 {level}</option>)}
             </select>
-            {toolbarItems.map((item) => {
-              const active = ({ bold: 'strong', italic: 'emphasis', strike: 'strike_through', inlineCode: 'inlineCode', bullet: 'bullet_list', ordered: 'ordered_list', quote: 'blockquote', codeBlock: 'code_block' } as Record<string, string>)[item.command]
-              return <button key={item.command} type="button" title={item.title} aria-label={item.title} aria-pressed={active ? (item.command === 'bullet' || item.command === 'ordered' || item.command === 'quote' || item.command === 'codeBlock' ? toolbar.block === active : toolbar.marks.includes(active)) : undefined} disabled={!toolbar.ready || toolbar.composing || item.command === 'undo' && !toolbar.canUndo || item.command === 'redo' && !toolbar.canRedo} onClick={() => adapter.current?.runCommand(item.command)}>{item.label}</button>
-            })}
-            <button type="button" disabled={!toolbar.ready || toolbar.composing} onClick={() => adapter.current?.runTableCommand('insert')}>插入表格</button>
-            <button type="button" disabled={!toolbar.ready || toolbar.composing} onClick={() => { imageInputAction.current = 'insert'; imageInput.current?.click() }}>插入图片</button>
+            <span className="toolbar-divider" aria-hidden="true" />
+            <div className="toolbar-group">{toolbarItems.filter((item) => item.primary && item.command !== 'undo' && item.command !== 'redo').map((item) => renderToolbarButton(item))}</div>
+            <span className="toolbar-divider" aria-hidden="true" />
+            <button type="button" className="icon-button" title="插入链接" aria-label="插入链接" disabled={!toolbar.ready || toolbar.composing} onClick={() => { setLinkHref(adapter.current?.captureSelection() ?? ''); setLinkOpen(true) }}><Link2 aria-hidden="true" /></button>
+            <button type="button" className="icon-button" title="插入图片" aria-label="插入图片" disabled={!toolbar.ready || toolbar.composing} onClick={() => { imageInputAction.current = 'insert'; imageInput.current?.click() }}><ImageIcon aria-hidden="true" /></button>
             <input ref={imageInput} hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(event) => { const file = event.target.files?.[0]; if (file) { try { if (imageInputAction.current === 'replace') adapter.current?.replaceSelectedImage(file); else adapter.current?.insertFile(file) } catch (error) { setStatus(errorText(error)) } } event.target.value = '' }} />
-            {toolbar.inTable && <>
-              <button type="button" onClick={() => adapter.current?.runTableCommand('row')}>加行</button>
-              <button type="button" onClick={() => adapter.current?.runTableCommand('column')}>加列</button>
-              <button type="button" onClick={() => adapter.current?.runTableCommand('deleteRow')}>删行</button>
-              <button type="button" onClick={() => adapter.current?.runTableCommand('deleteColumn')}>删列</button>
-              <button type="button" onClick={() => adapter.current?.runTableCommand('alignLeft')}>左对齐</button>
-              <button type="button" onClick={() => adapter.current?.runTableCommand('alignCenter')}>居中</button>
-              <button type="button" onClick={() => adapter.current?.runTableCommand('alignRight')}>右对齐</button>
-            </>}
-            <button type="button" disabled={!toolbar.ready || toolbar.composing} onClick={() => { setLinkHref(adapter.current?.captureSelection() ?? ''); setLinkOpen(true) }}>链接</button>
-            {toolbar.imageAlt !== null && <button type="button" onClick={() => { adapter.current?.captureSelection(); setImageAltText(toolbar.imageAlt ?? ''); setImageAltOpen(true) }}>图片说明</button>}
-            {toolbar.imageAlt !== null && <button type="button" onClick={() => { adapter.current?.captureSelection(); imageInputAction.current = 'replace'; imageInput.current?.click() }}>替换图片</button>}
+            <details className="toolbar-more"><summary title="更多编辑工具" aria-label="更多编辑工具"><MoreHorizontal aria-hidden="true" /></summary><div className="toolbar-more-menu">
+              {toolbarItems.filter((item) => !item.primary).map((item) => renderToolbarButton(item, true))}
+              <div className="menu-separator" />
+              <button type="button" className="menu-command" disabled={!toolbar.ready || toolbar.composing} onClick={() => adapter.current?.runTableCommand('insert')}><Table2 aria-hidden="true" />插入表格</button>
+              {toolbar.inTable && <><div className="menu-separator" />{([['row', '加行'], ['column', '加列'], ['deleteRow', '删行'], ['deleteColumn', '删列'], ['alignLeft', '左对齐'], ['alignCenter', '居中'], ['alignRight', '右对齐']] as const).map(([command, label]) => <button key={command} type="button" className="menu-command" onClick={() => adapter.current?.runTableCommand(command)}><Table2 aria-hidden="true" />{label}</button>)}</>}
+              {toolbar.imageAlt !== null && <><div className="menu-separator" /><button type="button" className="menu-command" onClick={() => { adapter.current?.captureSelection(); setImageAltText(toolbar.imageAlt ?? ''); setImageAltOpen(true) }}><Pencil aria-hidden="true" />图片说明</button><button type="button" className="menu-command" onClick={() => { adapter.current?.captureSelection(); imageInputAction.current = 'replace'; imageInput.current?.click() }}><ImageIcon aria-hidden="true" />替换图片</button></>}
+            </div></details>
+            <span className="toolbar-spacer" />
+            <div className="toolbar-group">{toolbarItems.filter((item) => item.command === 'undo' || item.command === 'redo').map((item) => renderToolbarButton(item))}</div>
           </div>}
           {linkOpen && <div className="editor-popover" role="dialog" aria-label="编辑链接">
             <label>链接地址 <input autoFocus value={linkHref} onChange={(event) => setLinkHref(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') applyLink(); if (event.key === 'Escape') { setLinkOpen(false); adapter.current?.focus() } }} /></label>
@@ -1097,7 +1264,10 @@ export function App() {
         </section>
       </>}
       </div>
-      {import.meta.env.DEV && !welcomeVisible && <details className="verification-panel">
+      <footer className="app-status"><span className="status-message" role="status" title={status}>{status}</span><span className="status-mode">{welcomeVisible ? '准备就绪' : document.mode === 'source-protected' ? '源码保护' : 'Markdown'}</span><label className="theme-control">外观 <select aria-label="外观主题" value={settings.theme} onChange={(event) => setSettings((current) => ({ ...current, theme: event.target.value as Settings['theme'] }))}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></footer>
+      {tabMenu && <div className="tab-context-menu" role="menu" style={{ left: Math.min(tabMenu.x, window.innerWidth - 180), top: Math.min(tabMenu.y, window.innerHeight - 120) }} onClick={(event) => event.stopPropagation()}><button type="button" role="menuitem" onClick={() => void closeTabs([tabMenu.key])}>关闭当前</button><button type="button" role="menuitem" onClick={() => void closeTabs(tabs.slice(tabs.findIndex((tab) => tab.key === tabMenu.key) + 1).map((tab) => tab.key))} disabled={tabs.findIndex((tab) => tab.key === tabMenu.key) === tabs.length - 1}>关闭右边</button><button type="button" role="menuitem" onClick={() => void closeTabs(tabs.map((tab) => tab.key))}>关闭所有文档</button></div>}
+      {settingsOpen && <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}><section className="settings-dialog" role="dialog" aria-modal="true" aria-label="设置"><div className="settings-title"><h2>设置</h2><button type="button" aria-label="关闭设置" onClick={() => setSettingsOpen(false)}><X aria-hidden="true" /></button></div><label className="settings-row"><span>外观主题</span><select value={settings.theme} onChange={(event) => setSettings((current) => ({ ...current, theme: event.target.value as Settings['theme'] }))}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label><label className="settings-row"><span>显示文件操作栏<small>打开、新建、保存等按钮；也可从菜单栏使用这些功能</small></span><input type="checkbox" checked={settings.showFileToolbar} onChange={(event) => setSettings((current) => ({ ...current, showFileToolbar: event.target.checked }))} /></label></section></div>}
+      {import.meta.env.DEV && !uiPreview && !welcomeVisible && <details className="verification-panel">
         <summary>编辑器验证样本</summary>
         <div className="spike-controls">
           <label htmlFor="sample-select">样本</label>
