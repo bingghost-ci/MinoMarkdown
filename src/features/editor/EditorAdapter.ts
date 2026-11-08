@@ -66,6 +66,7 @@ export class EditorAdapter {
         },
         [CrepeFeature.ImageBlock]: {
           onUpload: async (file) => this.registerImage(file),
+          maxWidth: 880,
         },
       },
     })
