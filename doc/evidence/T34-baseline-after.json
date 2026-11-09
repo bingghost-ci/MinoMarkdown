@@ -1,0 +1,37 @@
+{
+  "runtime": "node v22.23.2",
+  "documents": {
+    "100KiB": {
+      "chars": 43890,
+      "prepareMarkdownMs": 493,
+      "imageUrlsInMs": 0
+    },
+    "1MiB": {
+      "chars": 449394,
+      "prepareMarkdownMs": 2481,
+      "imageUrlsInMs": 0
+    },
+    "3MiB": {
+      "chars": 1348182,
+      "prepareMarkdownMs": 11,
+      "imageUrlsInMs": 0
+    }
+  },
+  "images": {
+    "twentyImageDocument": {
+      "prepareMarkdownMs": 8,
+      "imageUrlsInMs": 1,
+      "found": 20
+    },
+    "twentyOneMiBAsNumberArrayJson": {
+      "ms": 995,
+      "jsonMiB": 71
+    }
+  },
+  "dist": {
+    "totalKiB": 3332,
+    "largest": "EditorAdapter-CouLzAGX.js",
+    "largestKiB": 1172,
+    "katexFiles": 0
+  }
+}

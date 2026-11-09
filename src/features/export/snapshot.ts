@@ -23,6 +23,8 @@ function parse(markdown: string): { images: ImageNode[]; imageReferences: ImageN
 }
 
 export function imageUrlsIn(markdown: string): string[] {
+  // Every Markdown image, inline or by reference, contains this marker.
+  if (!markdown.includes('![')) return []
   const { images, imageReferences, definitions } = parse(markdown)
   const urls = new Set(images.map((node) => node.url).filter((url): url is string => Boolean(url)))
   for (const reference of imageReferences) {

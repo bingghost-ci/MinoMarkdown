@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { renderMarkdownPreview } from '../src/features/preview/renderMarkdownPreview'
 
@@ -20,5 +21,26 @@ describe('source-protected Markdown preview', () => {
     expect(html).not.toContain('src="https:')
     expect(html).not.toContain('href="javascript:')
     expect(html).toContain('[图片: remote]')
+  })
+})
+
+describe('local images in preview', () => {
+  const key = 'a'.repeat(32)
+  it('shows granted local images but never remote ones', () => {
+    const html = renderMarkdownPreview('![a](assets/x.png)\n\n![b](https://example.com/y.png)\n', key)
+    expect(html).toContain(`src="mino-asset://localhost/${key}/assets/x.png"`)
+    expect(html).not.toContain('example.com')
+  })
+  it('keeps placeholders without a grant', () => {
+    expect(renderMarkdownPreview('![a](assets/x.png)\n')).not.toContain('<img')
+  })
+})
+
+describe('raw HTML now reachable from visual documents', () => {
+  it('never reaches an HTML export', async () => {
+    const { renderHtml } = await import('../src/features/export/renderHtml')
+    const hostile = readFileSync('tests/fixtures/markdown/F11-hostile.md', 'utf8').split('\n').filter((line) => !line.startsWith('![')).join('\n')
+    const html = await renderHtml(`${hostile}\n<iframe src="https://example.com"></iframe>\n`, 'x', async () => null)
+    expect(html).not.toMatch(/<script>alert|onerror=|javascript:|<iframe/i)
   })
 })

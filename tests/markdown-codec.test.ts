@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { composeVisualMarkdown, prepareMarkdown } from '../src/core/markdown/codec'
+import { describeIssues, exceedsVisualLimit, protectedFragments, VISUAL_SIZE_LIMIT_BYTES } from '../src/core/markdown/compatibility'
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 
@@ -13,8 +14,8 @@ describe('Markdown codec', () => {
     expect(saved).toBe('\uFEFF---\r\ntitle: 原始标题\r\n---\r\n# 新标题\r\n')
   })
 
-  it('routes unknown HTML to source protection without changing original text', () => {
-    const source = '<script>alert(1)</script>\n\n# 仍可编辑源码\n'
+  it('routes unknown extensions to source protection without changing original text', () => {
+    const source = ':::warn\n内容\n:::\n\n# 仍可编辑源码\n'
     const prepared = prepareMarkdown(source)
     expect(prepared.analysis.mode).toBe('source-protected')
     expect(prepared.editorMarkdown).toBe(source)
@@ -41,5 +42,33 @@ describe('Markdown codec', () => {
     expect(paragraph.type).toBe('paragraph')
     if (paragraph.type !== 'paragraph') return
     expect(paragraph.children[0].type).toBe('strong')
+  })
+})
+
+describe('visual size limit', () => {
+  it('counts UTF-8 bytes, not UTF-16 units', () => {
+    expect(exceedsVisualLimit('中'.repeat(1024 * 1024))).toBe(true)
+    expect(exceedsVisualLimit('a'.repeat(VISUAL_SIZE_LIMIT_BYTES))).toBe(false)
+    expect(exceedsVisualLimit('a'.repeat(VISUAL_SIZE_LIMIT_BYTES + 1))).toBe(true)
+  })
+})
+
+describe('partial degradation', () => {
+  it('keeps documents visual for raw HTML, comments, footnotes and plain dollars', () => {
+    for (const source of ['<script>alert(1)</script>\n\n# 标题\n', 'a<br>b\n', '<img src="a.png">\n\ntext\n', '<!-- note -->\n\ntext\n', 'a[^1]\n\n[^1]: b\n', '价格 $5 到 $10\n']) {
+      expect(prepareMarkdown(source).analysis.mode).toBe('visual')
+    }
+  })
+
+  it('still protects real math and directives and says where in readable text', () => {
+    expect(prepareMarkdown('公式 $x_1$ 结束\n').analysis.mode).toBe('source-protected')
+    expect(prepareMarkdown('$$\na\n$$\n').analysis.mode).toBe('source-protected')
+    const analysis = prepareMarkdown('第一行\n\n公式 $x_1$\n').analysis
+    expect(describeIssues(analysis)).toContain('第 3 行')
+    expect(describeIssues(analysis)).not.toContain('UNKNOWN_EXTENSION')
+  })
+
+  it('records fragments that must survive the visual editor', () => {
+    expect(protectedFragments('a<br>b\n\n<!-- c -->\n\nd[^1]\n\n[^1]: e\n')).toEqual(['<br>', '<!-- c -->', 'ref:1', 'def:1'])
   })
 })

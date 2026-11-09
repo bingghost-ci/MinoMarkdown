@@ -27,6 +27,28 @@ fn note_system_recent(app: &AppHandle, path: PathBuf) {
         controller.noteNewRecentDocumentURL(&url);
     });
 }
+pub struct RecentMenu(pub tauri::menu::Submenu<tauri::Wry>);
+
+/// Rebuilds File > Open Recent. Item ids carry the recent id, never a path.
+pub fn refresh_menu(app: &AppHandle) {
+    let Ok(file) = storage(app) else { return };
+    let items = summaries(load(&file));
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        use tauri::menu::{IsMenuItem, MenuItem};
+        let menu = handle.state::<RecentMenu>();
+        if let Ok(existing) = menu.0.items() { for item in existing { let _ = menu.0.remove(&item); } }
+        let english = crate::settings::initial_language(&handle) == "en-US";
+        if items.is_empty() {
+            if let Ok(item) = MenuItem::with_id(&handle, "no-recent", crate::native_menu::label("no-recent", english), false, None::<&str>) { let _ = menu.0.append(&item as &dyn IsMenuItem<tauri::Wry>); }
+            return;
+        }
+        for entry in items {
+            if let Ok(item) = MenuItem::with_id(&handle, format!("recent:{}:{}", entry.kind, entry.id), &entry.name, entry.available, None::<&str>) { let _ = menu.0.append(&item as &dyn IsMenuItem<tauri::Wry>); }
+        }
+    });
+}
+
 fn hash(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
 fn id_for(entry: &RecentEntry) -> String { hash(format!("{}:{}", entry.kind, entry.path).as_bytes())[..24].into() }
 fn load(path: &Path) -> RecentFile {
@@ -57,23 +79,26 @@ fn summaries(record: RecentFile) -> Vec<RecentSummary> {
 fn find(app: &AppHandle, id: &str, kind: &str) -> Result<RecentEntry, String> {
     load(&storage(app)?).entries.into_iter().find(|entry| entry.kind == kind && id_for(entry) == id).ok_or("NOT_FOUND".into())
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_recent(app: AppHandle, window: WebviewWindow) -> Result<Vec<RecentSummary>, String> { require_main(&window)?; Ok(summaries(load(&storage(&app)?))) }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn remember_recent_document(app: AppHandle, window: WebviewWindow, documents: State<'_, DocumentStore>, token: String) -> Result<(), String> {
     require_main(&window)?;
     let path = PathBuf::from(draft_target(&documents, &token)?);
     remember_at(&storage(&app)?, &path, "file")?;
+    refresh_menu(&app);
     #[cfg(target_os = "macos")]
     note_system_recent(&app, path);
     Ok(())
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn remember_recent_workspace(app: AppHandle, window: WebviewWindow, workspaces: State<'_, WorkspaceStore>, token: String) -> Result<(), String> {
     require_main(&window)?;
-    remember_at(&storage(&app)?, &workspace_path(&workspaces, &token)?, "folder")
+    remember_at(&storage(&app)?, &workspace_path(&workspaces, &token)?, "folder")?;
+    refresh_menu(&app);
+    Ok(())
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn remove_recent(app: AppHandle, window: WebviewWindow, id: String) -> Result<(), String> {
     require_main(&window)?;
     let path = storage(&app)?;
@@ -82,9 +107,11 @@ pub fn remove_recent(app: AppHandle, window: WebviewWindow, id: String) -> Resul
     record.entries.retain(|entry| id_for(entry) != id);
     let bytes = serde_json::to_vec(&record).map_err(|_| "IO_ERROR")?;
     let expected = read_canonical_parent(&path, 64 * 1024).ok().map(|bytes| hash(&bytes));
-    atomic_write::commit_canonical_parent(&path, &bytes, expected.as_deref()).map(|_| ())
+    atomic_write::commit_canonical_parent(&path, &bytes, expected.as_deref())?;
+    refresh_menu(&app);
+    Ok(())
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reorder_recent(app: AppHandle, window: WebviewWindow, ids: Vec<String>) -> Result<(), String> {
     require_main(&window)?;
     let path = storage(&app)?;
@@ -99,16 +126,18 @@ pub fn reorder_recent(app: AppHandle, window: WebviewWindow, ids: Vec<String>) -
     record.entries = ordered;
     let bytes = serde_json::to_vec(&record).map_err(|_| "IO_ERROR")?;
     let expected = read_canonical_parent(&path, 64 * 1024).ok().map(|bytes| hash(&bytes));
-    atomic_write::commit_canonical_parent(&path, &bytes, expected.as_deref()).map(|_| ())
+    atomic_write::commit_canonical_parent(&path, &bytes, expected.as_deref())?;
+    refresh_menu(&app);
+    Ok(())
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn choose_recent_file(app: AppHandle, window: WebviewWindow, documents: State<'_, DocumentStore>, id: String) -> Result<Option<OpenDocument>, String> {
     require_main(&window)?;
     let entry = find(&app, &id, "file")?;
     let path = validate_selected_file(Path::new(&entry.path))?;
     Ok(Some(open_granted_path(&documents, &path)?))
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn choose_recent_workspace(app: AppHandle, window: WebviewWindow, workspaces: State<'_, WorkspaceStore>, id: String) -> Result<Option<WorkspaceRoot>, String> {
     require_main(&window)?;
     let entry = find(&app, &id, "folder")?;

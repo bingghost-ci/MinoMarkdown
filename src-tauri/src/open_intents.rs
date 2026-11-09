@@ -16,7 +16,7 @@ pub struct IntentStore { pending: Mutex<HashMap<String, Intent>>, queue: Mutex<H
 pub struct IntentSummary { token: String, name: String, kind: &'static str }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ImageIntent { name: String, mime: &'static str, bytes: Vec<u8> }
+pub struct ImageIntent { name: String, mime: &'static str, staged: String }
 
 fn kind_for(path: &Path) -> Option<Kind> {
     match path.extension().and_then(|e| e.to_str())?.to_ascii_lowercase().as_str() {
@@ -76,7 +76,7 @@ pub fn take_open_intents(window: WebviewWindow, store: State<'_, IntentStore>) -
     let map = store.pending.lock().map_err(|_| "IO_ERROR")?;
     Ok(tokens.into_iter().filter_map(|token| map.get(&token).map(|intent| IntentSummary { name: intent.path.file_name().unwrap_or_default().to_string_lossy().into_owned(), kind: match intent.kind { Kind::Markdown => "markdown", Kind::Image => "image", Kind::Folder => "folder" }, token })).collect())
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_intent_workspace(window: WebviewWindow, intents: State<'_, IntentStore>, workspaces: State<'_, WorkspaceStore>, token: String) -> Result<WorkspaceRoot, String> {
     if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
     let intent = take_intent(&intents, &token, window.label())?;
@@ -85,22 +85,22 @@ pub fn open_intent_workspace(window: WebviewWindow, intents: State<'_, IntentSto
     if metadata.file_type().is_symlink() || !metadata.is_dir() { return Err("OUT_OF_SCOPE".into()); }
     register_workspace(&workspaces, intent.path)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_intent_document(window: WebviewWindow, intents: State<'_, IntentStore>, documents: State<'_, DocumentStore>, token: String) -> Result<OpenDocument, String> {
     if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
     let intent = take_intent(&intents, &token, window.label())?;
     if intent.kind != Kind::Markdown { return Err("OUT_OF_SCOPE".into()); }
     open_granted_path(&documents, &intent.path)
 }
-#[tauri::command]
-pub fn read_intent_image(window: WebviewWindow, intents: State<'_, IntentStore>, token: String) -> Result<ImageIntent, String> {
+#[tauri::command(async)]
+pub fn read_intent_image(window: WebviewWindow, intents: State<'_, IntentStore>, staging: State<'_, crate::staging::StagingStore>, token: String) -> Result<ImageIntent, String> {
     if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
     let intent = take_intent(&intents, &token, window.label())?;
     if intent.kind != Kind::Image { return Err("OUT_OF_SCOPE".into()); }
     let mime = mime_for(&intent.path).ok_or("INVALID_IMAGE")?;
     let bytes = read_selected_image_bytes(&intent.path)?;
     validate_image(&bytes, mime)?;
-    Ok(ImageIntent { name: intent.path.file_name().unwrap_or_default().to_string_lossy().into_owned(), mime, bytes })
+    Ok(ImageIntent { name: intent.path.file_name().unwrap_or_default().to_string_lossy().into_owned(), mime, staged: staging.put(bytes)? })
 }
 #[tauri::command]
 pub fn discard_open_intent(window: WebviewWindow, intents: State<'_, IntentStore>, token: String) -> Result<(), String> {

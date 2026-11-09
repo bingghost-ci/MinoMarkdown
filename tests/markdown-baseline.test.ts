@@ -65,11 +65,10 @@ describe('T02 Markdown compatibility baseline', () => {
     expect(table).toContain('A|B 与 ')
   })
 
-  it('reports unsupported HTML and extension syntax and retains the source', () => {
+  it('reports math and directive syntax and retains the source', () => {
     const raw = bytes('F08b')
     const analysis = analyzeMarkdown(raw)
     expect(analysis.mode).toBe('source-protected')
-    expect(analysis.issues.map((issue) => issue.code)).toContain('UNSUPPORTED_NODE')
     expect(analysis.issues.map((issue) => issue.code)).toContain('UNKNOWN_EXTENSION')
     expect(analysis.serialized).toBeUndefined()
     expect(Buffer.from(enc.encode(analysis.source))).toEqual(raw)

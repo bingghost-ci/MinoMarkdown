@@ -12,17 +12,44 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogResult};
 use crate::fs::atomic_write;
 use crate::fs::asset_directory::{AssetDirectory, PutResult};
 use crate::markdown_images;
+use crate::staging::{StagedAsset, StagingStore};
 
 const MAX_DOCUMENT: u64 = 20 * 1024 * 1024;
 const MAX_IMAGE: usize = 20 * 1024 * 1024;
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 static SAVE_LOCK: Mutex<()> = Mutex::new(());
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct FileStamp { modified: Option<std::time::SystemTime>, len: u64, inode: u64 }
+
+impl FileStamp {
+    fn of(meta: &fs::Metadata) -> Self {
+        #[cfg(unix)]
+        let inode = std::os::unix::fs::MetadataExt::ino(meta);
+        #[cfg(not(unix))]
+        let inode = 0;
+        Self { modified: meta.modified().ok(), len: meta.len(), inode }
+    }
+}
+
 #[derive(Clone)]
 struct Grant {
     path: PathBuf,
     revision: String,
+    /// Unguessable capability for `mino-asset:` URLs; document text can't derive it from a token.
+    asset_key: String,
+    /// Stat taken before the bytes behind `revision` were read; an unchanged stamp skips re-hashing.
+    stamp: Option<FileStamp>,
 }
+
+fn random_key() -> Result<String, String> {
+    use std::io::Read;
+    let mut bytes = [0u8; 16];
+    fs::File::open("/dev/urandom").and_then(|mut file| file.read_exact(&mut bytes)).map_err(|_| "IO_ERROR")?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn stamp_of(path: &Path) -> Option<FileStamp> { fs::symlink_metadata(path).ok().map(|meta| FileStamp::of(&meta)) }
 
 #[derive(Default)]
 pub struct DocumentStore(Mutex<HashMap<String, Grant>>);
@@ -60,6 +87,7 @@ pub struct OpenDocument {
     name: String,
     markdown: String,
     revision: String,
+    asset_key: String,
 }
 
 #[derive(Deserialize)]
@@ -79,6 +107,11 @@ pub struct SaveResult {
     markdown: String,
     asset_paths: HashMap<String, String>,
     asset_relocations: HashMap<String, String>,
+    asset_key: String,
+}
+
+fn staged_uploads(staging: &StagingStore, assets: Vec<StagedAsset>) -> Result<Vec<AssetUpload>, String> {
+    assets.into_iter().map(|asset| Ok(AssetUpload { bytes: staging.take(&asset.staged)?, url: asset.url, mime: asset.mime })).collect()
 }
 
 #[derive(Serialize)]
@@ -159,8 +192,13 @@ fn open_child(directory: &fs::File, name: &std::ffi::OsStr, flags: libc::c_int) 
 }
 
 fn read_markdown(path: &Path) -> Result<(String, String), String> {
+    read_markdown_stamped(path).map(|(markdown, revision, _)| (markdown, revision))
+}
+
+fn read_markdown_stamped(path: &Path) -> Result<(String, String, Option<FileStamp>), String> {
     if !markdown_path(path) { return Err("UNSUPPORTED_FILE_TYPE".into()); }
     let parent = path.parent().ok_or("INVALID_PATH")?;
+    let stamp;
     #[cfg(target_os = "macos")]
     let bytes = {
         use std::io::Read;
@@ -168,6 +206,7 @@ fn read_markdown(path: &Path) -> Result<(String, String), String> {
         let file = open_child(&directory, path.file_name().ok_or("INVALID_PATH")?, 0)?;
         let meta = file.metadata().map_err(|_| "NOT_FOUND")?;
         if !meta.is_file() || meta.len() > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
+        stamp = Some(FileStamp::of(&meta));
         let mut bytes = Vec::new();
         file.take(MAX_DOCUMENT + 1).read_to_end(&mut bytes).map_err(|_| "IO_ERROR")?;
         if bytes.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
@@ -179,18 +218,20 @@ fn read_markdown(path: &Path) -> Result<(String, String), String> {
     let meta = fs::symlink_metadata(path).map_err(|_| "NOT_FOUND")?;
     if meta.file_type().is_symlink() { return Err("OUT_OF_SCOPE".into()); }
     if !meta.is_file() || meta.len() > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
+    stamp = Some(FileStamp::of(&meta));
     fs::read(path).map_err(|_| "IO_ERROR")?
     };
     let revision = digest(&bytes);
     let markdown = String::from_utf8(bytes).map_err(|_| "INVALID_ENCODING")?;
-    Ok((markdown, revision))
+    Ok((markdown, revision, stamp))
 }
 
 pub(crate) fn open_granted_path(store: &DocumentStore, path: &Path) -> Result<OpenDocument, String> {
-    let (markdown, revision) = read_markdown(path)?;
+    let (markdown, revision, stamp) = read_markdown_stamped(path)?;
     let token = format!("doc-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
-    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { path: path.to_path_buf(), revision: revision.clone() });
-    Ok(OpenDocument { token, name: filename(path), markdown, revision })
+    let asset_key = random_key()?;
+    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { path: path.to_path_buf(), revision: revision.clone(), stamp, asset_key: asset_key.clone() });
+    Ok(OpenDocument { token, name: filename(path), markdown, revision, asset_key })
 }
 
 #[tauri::command]
@@ -231,44 +272,53 @@ pub fn release_document(window: WebviewWindow, store: State<'_, DocumentStore>, 
     store.release(&token)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn check_document_revision(window: WebviewWindow, store: State<'_, DocumentStore>, token: String) -> Result<DiskStatus, String> {
     main_window(&window)?;
     let grant = store.grant(&token)?;
-    disk_status(&grant)
+    let (status, stamp) = disk_status(&grant)?;
+    // A touched-but-identical file must not be re-hashed on every poll.
+    if status.kind == "same" && stamp != grant.stamp {
+        if let Some(current) = store.0.lock().map_err(|_| "IO_ERROR")?.get_mut(&token) {
+            if current.revision == grant.revision { current.stamp = stamp; }
+        }
+    }
+    Ok(status)
 }
 
-fn disk_status(grant: &Grant) -> Result<DiskStatus, String> {
+fn disk_status(grant: &Grant) -> Result<(DiskStatus, Option<FileStamp>), String> {
     if fs::canonicalize(grant.path.parent().ok_or("INVALID_PATH")?).map_err(|_| "OUT_OF_SCOPE")? != grant.path.parent().ok_or("INVALID_PATH")? { return Err("OUT_OF_SCOPE".into()); }
     let meta = match fs::symlink_metadata(&grant.path) {
         Ok(meta) => meta,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(DiskStatus { kind: "deleted", revision: None }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok((DiskStatus { kind: "deleted", revision: None }, None)),
         Err(_) => return Err("IO_ERROR".into()),
     };
-    if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > MAX_DOCUMENT { return Ok(DiskStatus { kind: "changed", revision: None }); }
+    let stamp = Some(FileStamp::of(&meta));
+    if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > MAX_DOCUMENT { return Ok((DiskStatus { kind: "changed", revision: None }, stamp)); }
+    if grant.stamp.is_some() && stamp == grant.stamp { return Ok((DiskStatus { kind: "same", revision: Some(grant.revision.clone()) }, stamp)); }
     let bytes = match fs::read(&grant.path) {
         Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(DiskStatus { kind: "deleted", revision: None }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok((DiskStatus { kind: "deleted", revision: None }, None)),
         Err(_) => return Err("IO_ERROR".into()),
     };
     let revision = digest(&bytes);
-    Ok(DiskStatus { kind: if revision == grant.revision { "same" } else { "changed" }, revision: Some(revision) })
+    Ok((DiskStatus { kind: if revision == grant.revision { "same" } else { "changed" }, revision: Some(revision) }, stamp))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_disk_version(window: WebviewWindow, store: State<'_, DocumentStore>, token: String) -> Result<String, String> {
     main_window(&window)?;
     let grant = store.grant(&token)?;
     read_markdown(&grant.path).map(|(markdown, _)| markdown)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reload_document(window: WebviewWindow, store: State<'_, DocumentStore>, token: String) -> Result<OpenDocument, String> {
     main_window(&window)?;
     let grant = store.grant(&token)?;
-    let (markdown, revision) = read_markdown(&grant.path)?;
-    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { path: grant.path.clone(), revision: revision.clone() });
-    Ok(OpenDocument { token, name: filename(&grant.path), markdown, revision })
+    let (markdown, revision, stamp) = read_markdown_stamped(&grant.path)?;
+    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { path: grant.path.clone(), revision: revision.clone(), stamp, asset_key: grant.asset_key.clone() });
+    Ok(OpenDocument { token, name: filename(&grant.path), markdown, revision, asset_key: grant.asset_key })
 }
 
 fn copy_assets_for_copy(source: &Path, target: &Path, markdown: &str) -> Result<(String, HashMap<String, String>), String> {
@@ -311,8 +361,9 @@ fn copy_assets_for_copy(source: &Path, target: &Path, markdown: &str) -> Result<
 }
 
 #[tauri::command]
-pub async fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, token: String, markdown: String, assets: Vec<AssetUpload>) -> Result<Option<String>, String> {
+pub async fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, token: String, markdown: String, assets: Vec<StagedAsset>) -> Result<Option<String>, String> {
     main_window(&window)?;
+    let assets = staged_uploads(&staging, assets)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let grant = store.grant(&token)?;
     let selected = app.dialog().file().add_filter("Markdown", &["md"]).blocking_save_file();
@@ -329,8 +380,9 @@ pub async fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: St
 }
 
 #[tauri::command]
-pub async fn save_as_document(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, token: String, markdown: String, assets: Vec<AssetUpload>) -> Result<Option<SaveResult>, String> {
+pub async fn save_as_document(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, token: String, markdown: String, assets: Vec<StagedAsset>) -> Result<Option<SaveResult>, String> {
     main_window(&window)?;
+    let assets = staged_uploads(&staging, assets)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let grant = store.grant(&token)?;
     let selected = app.dialog().file().add_filter("Markdown", &["md", "markdown"]).blocking_save_file();
@@ -345,8 +397,9 @@ pub async fn save_as_document(app: AppHandle, window: WebviewWindow, store: Stat
     let (persisted, asset_paths) = save_assets(&parent, &copied_markdown, assets)?;
     let revision = atomic_write::commit(&path, persisted.as_bytes(), None)?;
     let new_token = format!("doc-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
-    store.0.lock().map_err(|_| "IO_ERROR")?.insert(new_token.clone(), Grant { path: path.clone(), revision: revision.clone() });
-    Ok(Some(SaveResult { token: new_token, name: filename(&path), revision, markdown: persisted, asset_paths, asset_relocations }))
+    let asset_key = random_key()?;
+    store.0.lock().map_err(|_| "IO_ERROR")?.insert(new_token.clone(), Grant { stamp: stamp_of(&path), path: path.clone(), revision: revision.clone(), asset_key: asset_key.clone() });
+    Ok(Some(SaveResult { token: new_token, name: filename(&path), revision, markdown: persisted, asset_paths, asset_relocations, asset_key }))
 }
 
 fn image_extension(bytes: &[u8], mime: &str) -> Option<&'static str> {
@@ -398,12 +451,14 @@ pub async fn save_document(
     app: AppHandle,
     window: WebviewWindow,
     store: State<'_, DocumentStore>,
+    staging: State<'_, StagingStore>,
     token: Option<String>,
     expected_revision: Option<String>,
     markdown: String,
-    assets: Vec<AssetUpload>,
+    assets: Vec<StagedAsset>,
 ) -> Result<Option<SaveResult>, String> {
     main_window(&window)?;
+    let assets = staged_uploads(&staging, assets)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let grant = match token.as_ref() {
         Some(id) => Some(store.grant(id)?),
@@ -434,15 +489,46 @@ pub async fn save_document(
     let bytes = persisted.as_bytes();
     let revision = atomic_write::commit(&path, bytes, grant.as_ref().map(|item| item.revision.as_str()))?;
     let token = token.unwrap_or_else(|| format!("doc-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed)));
-    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { path: path.clone(), revision: revision.clone() });
-    Ok(Some(SaveResult { token, name: filename(&path), revision, markdown: persisted, asset_paths, asset_relocations: HashMap::new() }))
+    let asset_key = match &grant { Some(grant) => grant.asset_key.clone(), None => random_key()? };
+    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { stamp: stamp_of(&path), path: path.clone(), revision: revision.clone(), asset_key: asset_key.clone() });
+    Ok(Some(SaveResult { token, name: filename(&path), revision, markdown: persisted, asset_paths, asset_relocations: HashMap::new(), asset_key }))
 }
 
-#[tauri::command]
-pub fn read_asset(window: WebviewWindow, store: State<'_, DocumentStore>, token: String, relative: String) -> Result<Vec<u8>, String> {
-    main_window(&window)?;
-    let grant = store.grant(&token)?;
-    read_scoped_asset(&grant, &relative)
+pub(crate) fn asset_mime(relative: &str) -> Option<&'static str> {
+    match relative.rsplit('.').next()?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"), "jpg" | "jpeg" => Some("image/jpeg"), "gif" => Some("image/gif"), "webp" => Some("image/webp"), _ => None,
+    }
+}
+
+/// Reads an image next to a granted document, keeping the checks of `read_scoped_asset`.
+pub(crate) fn read_granted_asset(store: &DocumentStore, token: &str, relative: &str) -> Result<Vec<u8>, String> {
+    read_scoped_asset(&store.grant(token)?, relative)
+}
+
+fn parse_asset_path(path: &str) -> Option<(String, String)> {
+    let mut parts = path.strip_prefix('/')?.split('/');
+    let key = parts.next().filter(|key| key.len() == 32 && key.bytes().all(|byte| byte.is_ascii_hexdigit()))?.to_owned();
+    let relative = parts.map(|part| percent_encoding::percent_decode_str(part).decode_utf8().ok().map(|text| text.into_owned())).collect::<Option<Vec<_>>>()?;
+    if relative.is_empty() { return None; }
+    Some((key, relative.join("/")))
+}
+
+fn read_keyed_asset(store: &DocumentStore, path: &str) -> Result<(Vec<u8>, &'static str), String> {
+    let (key, relative) = parse_asset_path(path).ok_or("OUT_OF_SCOPE")?;
+    let mime = asset_mime(&relative).ok_or("OUT_OF_SCOPE")?;
+    let grant = store.0.lock().map_err(|_| "IO_ERROR")?.values().find(|grant| grant.asset_key == key).cloned().ok_or("OUT_OF_SCOPE")?;
+    Ok((read_scoped_asset(&grant, &relative)?, mime))
+}
+
+/// Serves `mino-asset:` image URLs. Only raster images inside a live grant's scope are returned.
+pub fn asset_response(app: &AppHandle, label: &str, path: &str) -> tauri::http::Response<Vec<u8>> {
+    use tauri::{http::Response, Manager};
+    let found = if crate::is_workspace_window(label) { read_keyed_asset(&app.state::<DocumentStore>(), path).ok() } else { None };
+    let builder = Response::builder().header("Cache-Control", "no-store").header("X-Content-Type-Options", "nosniff");
+    match found {
+        Some((bytes, mime)) => builder.status(200).header("Content-Type", mime).body(bytes),
+        None => builder.status(404).body(Vec::new()),
+    }.unwrap_or_else(|_| Response::new(Vec::new()))
 }
 
 fn read_scoped_asset(grant: &Grant, relative: &str) -> Result<Vec<u8>, String> {
@@ -555,16 +641,48 @@ mod tests {
     }
 
     #[test]
+    fn asset_urls_need_a_live_key_and_stay_inside_the_grant() {
+        let dir = sample_dir();
+        fs::create_dir(dir.join("assets")).unwrap();
+        fs::write(dir.join("assets/图 1.png"), b"pixels").unwrap();
+        fs::write(dir.join("assets/page.html"), b"<script>").unwrap();
+        fs::write(dir.join("outside.png"), b"outside").unwrap();
+        let store = DocumentStore::default();
+        let key = random_key().unwrap();
+        store.0.lock().unwrap().insert("doc-1".into(), Grant { path: dir.join("note.md"), revision: String::new(), stamp: None, asset_key: key.clone() });
+        let (bytes, mime) = read_keyed_asset(&store, &format!("/{key}/assets/%E5%9B%BE%201.png")).unwrap();
+        assert_eq!((bytes.as_slice(), mime), (b"pixels".as_slice(), "image/png"));
+        assert!(read_keyed_asset(&store, &format!("/{key}/assets/page.html")).is_err());
+        assert!(read_keyed_asset(&store, &format!("/{key}/assets/../outside.png")).is_err());
+        assert!(read_keyed_asset(&store, &format!("/{key}/assets%2F..%2Foutside.png")).is_err());
+        assert!(read_keyed_asset(&store, &format!("/{}/assets/%E5%9B%BE%201.png", "0".repeat(32))).is_err());
+        assert!(read_keyed_asset(&store, "/doc-1/assets/%E5%9B%BE%201.png").is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn unchanged_stat_skips_hashing_and_any_stat_change_rehashes() {
+        let dir = sample_dir();
+        let path = dir.join("entry.md");
+        fs::write(&path, b"first").unwrap();
+        // The revision deliberately does not match the bytes: "same" proves the file was not read.
+        let grant = Grant { path: path.clone(), revision: "recorded".into(), stamp: stamp_of(&path), asset_key: String::new() };
+        let (status, _) = disk_status(&grant).unwrap();
+        assert_eq!((status.kind, status.revision.as_deref()), ("same", Some("recorded")));
+        fs::write(&path, b"second, longer").unwrap();
+        assert_eq!(disk_status(&grant).unwrap().0.kind, "changed");
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
     fn external_change_and_delete_are_detected_from_content() {
         let dir = sample_dir();
         let path = dir.join("entry.md");
         fs::write(&path, b"first").unwrap();
-        let grant = Grant { path: path.clone(), revision: digest(b"first") };
-        assert_eq!(disk_status(&grant).unwrap().kind, "same");
+        let grant = Grant { path: path.clone(), revision: digest(b"first"), stamp: None, asset_key: String::new() };
+        assert_eq!(disk_status(&grant).unwrap().0.kind, "same");
         fs::write(&path, b"second").unwrap();
-        assert_eq!(disk_status(&grant).unwrap().kind, "changed");
+        assert_eq!(disk_status(&grant).unwrap().0.kind, "changed");
         fs::remove_file(&path).unwrap();
-        assert_eq!(disk_status(&grant).unwrap().kind, "deleted");
+        assert_eq!(disk_status(&grant).unwrap().0.kind, "deleted");
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -679,7 +797,7 @@ mod tests {
         fs::write(dir.join("assets/good.png"), b"safe bytes").unwrap();
         fs::write(dir.join("outside.png"), b"outside").unwrap();
         std::os::unix::fs::symlink(dir.join("outside.png"), dir.join("assets/link.png")).unwrap();
-        let grant = Grant { path: dir.join("note.md"), revision: String::new() };
+        let grant = Grant { path: dir.join("note.md"), revision: String::new(), stamp: None, asset_key: String::new() };
         assert_eq!(read_scoped_asset(&grant,"assets/good.png").unwrap(),b"safe bytes");
         assert_eq!(read_scoped_asset(&grant,"assets/../outside.png").err().as_deref(),Some("OUT_OF_SCOPE"));
         assert_eq!(read_scoped_asset(&grant,"assets/nested/good.png").err().as_deref(),Some("NOT_FOUND"));

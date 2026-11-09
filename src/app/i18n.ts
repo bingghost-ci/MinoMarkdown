@@ -1,6 +1,7 @@
 export type Language = 'zh-CN' | 'en-US'
 
 const english: Record<string, string> = {
+  '查找和替换': 'Find and Replace', '查找': 'Find', '替换为': 'Replace with', '替换': 'Replace', '全部替换': 'Replace All', '上一个': 'Previous', '下一个': 'Next', '关闭查找': 'Close Find', '查看差异': 'View Differences', '使用磁盘版本': 'Use Disk Version', '关闭提示': 'Dismiss', '查看草稿': 'View Drafts', '正在生成预览…': 'Generating preview…', '关闭': 'Close', '与磁盘版本的差异': 'Differences from Disk Version', '差异过大，无法在此显示。': 'Too many differences to show here.', '内容相同。': 'The contents match.', '“-”为磁盘版本，“+”为当前编辑内容。': '“-” is the disk version and “+” is your current text.', '磁盘上的文件已被其他程序修改，你的未保存内容仍保留在这里。': 'Another app changed this file on disk. Your unsaved text is still here.',
   '新建文档': 'New Document', '打开文件夹': 'Open Folder', '打开文件': 'Open File', '新建': 'New', '保存': 'Save', '另存为': 'Save As',
   '隐藏文件栏': 'Hide Sidebar', '显示文件栏': 'Show Sidebar', '文档操作': 'File Actions', '文档更多操作': 'More File Actions',
   '源码模式': 'Source Mode', '可视化模式': 'Visual Mode', '导出 HTML': 'Export HTML', '打印 / PDF': 'Print / PDF',
@@ -71,10 +72,16 @@ const english: Record<string, string> = {
 }
 
 const statusEnglish: [string, string][] = [
+  ['当前操作尚未完成，请稍后再试', 'Another action is still running. Try again shortly.'], ['正在保存，完成后会再保存一次', 'Saving. It will save once more when finished.'],
+  ['正在打开文档…', 'Opening document…'], ['正在打开 ', 'Opening '], ['草稿保存失败：', 'Draft could not be saved: '], ['保存失败：', 'Save failed: '], ['无法加载磁盘版本：', 'Could not load the disk version: '],
+  ['已加载磁盘最新版本；未保存修改已留在恢复草稿中', 'Loaded the disk version. Your unsaved changes are kept as a recovery draft.'], ['已加载磁盘最新版本', 'Loaded the disk version'],
+  ['已取消另存，当前内容仍在编辑器中', 'Save As canceled. Your text is still in the editor.'], ['已另存副本 ', 'Saved a copy as '], ['；可继续选择使用磁盘版本', '. You can still use the disk version.'],
+  ['份可恢复的草稿', ' recoverable drafts'], ['发现 ', 'Found '], ['第 ', 'Line '], [' 行', ': '],
+  ['包含数学公式或扩展指令', 'contains math or directive syntax'], ['包含暂不支持的语法', 'contains unsupported syntax'], ['可视化保存可能改变内容', 'visual saving could change the content'], ['可视化编辑无法原样保留部分内容', 'the visual editor cannot preserve part of the content'], ['文件不是有效的 UTF-8', 'the file is not valid UTF-8'], ['同时包含多种换行符', 'mixes newline styles'], ['文件头缺少结束标记', 'front matter is not closed'], ['无法解析', 'could not be parsed'],
   ['编辑器正在启动', 'Starting editor'],
   ['选择新建文档或打开本地文件', 'Create a document or open a local file'],
   ['已关闭 ', 'Closed '], ['已将 ', 'Moved '], [' 移到新窗口', ' to a new window'],
-  ['源码模式：', 'Source mode: '], ['超过 5 MiB 可视化上限', 'exceeds the 5 MiB visual limit'],
+  ['源码模式：', 'Source mode: '], ['超过 2 MiB 可视化上限', 'exceeds the 2 MiB visual limit'],
   ['手动切换', 'switched manually'], ['；可保存原文，HTML/PDF 暂不可导出', '; the source can be saved, but HTML/PDF export is unavailable'],
   ['已打开文件夹 ', 'Opened folder '], ['已打开 ', 'Opened '], ['编辑器已就绪 · 新文档尚未保存', 'Editor ready · new document not yet saved'],
   ['编辑器启动失败：', 'Editor failed to start: '], ['草稿保存失败：', 'Failed to save draft: '],

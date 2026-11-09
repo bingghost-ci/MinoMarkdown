@@ -7,11 +7,12 @@ mod snapshots;
 mod open_intents;
 mod recent;
 mod settings;
+mod staging;
 mod windows;
 mod native_menu;
 
 use tauri::{Emitter, Manager};
-use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
+use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
 
 pub(crate) fn is_workspace_window(label: &str) -> bool { label == "main" || label.starts_with("workspace-") }
 fn focused_workspace(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
@@ -25,7 +26,13 @@ fn focused_workspace(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .register_asynchronous_uri_scheme_protocol("mino-asset", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            let label = ctx.webview_label().to_owned();
+            tauri::async_runtime::spawn_blocking(move || responder.respond(documents::asset_response(&app, &label, request.uri().path())));
+        })
         .manage(documents::DocumentStore::default())
+        .manage(staging::StagingStore::default())
         .manage(workspace::WorkspaceStore::default())
         .manage(snapshots::SnapshotStore::default())
         .manage(open_intents::IntentStore::default())
@@ -34,6 +41,8 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle();
             native_menu::set_language(handle, &settings::initial_language(handle));
+            windows::show_if_webview_stalls(handle.clone(), "main".into());
+            recent::refresh_menu(handle);
             #[cfg(target_os = "macos")]
             native_menu::install_dock_menu(handle);
             Ok(())
@@ -41,6 +50,8 @@ pub fn run() {
         .menu(|app| {
             let menu = Menu::default(app)?;
             let english = settings::initial_language(app) == "en-US";
+            let recent_menu = Submenu::with_id(app, "open-recent", native_menu::label("open-recent", english), true)?;
+            app.manage(recent::RecentMenu(recent_menu.clone()));
             for item in menu.items()? {
                 if let MenuItemKind::Submenu(submenu) = item {
                     let title = submenu.text()?;
@@ -50,6 +61,7 @@ pub fn run() {
                             &MenuItem::with_id(app, "new-window", native_menu::label("new-window", english), true, Some("Cmd+Shift+N"))?,
                             &MenuItem::with_id(app, "open", native_menu::label("open", english), true, Some("Cmd+O"))?,
                             &MenuItem::with_id(app, "open-folder", native_menu::label("open-folder", english), true, Some("Cmd+Shift+O"))?,
+                            &recent_menu,
                             &PredefinedMenuItem::separator(app)?,
                             &MenuItem::with_id(app, "save", native_menu::label("save", english), true, Some("Cmd+S"))?,
                             &MenuItem::with_id(app, "save-as", native_menu::label("save-as", english), true, Some("Cmd+Shift+S"))?,
@@ -57,12 +69,19 @@ pub fn run() {
                             &MenuItem::with_id(app, "close-tab", native_menu::label("close-tab", english), true, Some("Cmd+W"))?,
                             &PredefinedMenuItem::separator(app)?,
                             &MenuItem::with_id(app, "export-md", native_menu::label("export-md", english), true, None::<&str>)?,
+                            &MenuItem::with_id(app, "export-text", native_menu::label("export-text", english), true, None::<&str>)?,
                             &MenuItem::with_id(app, "export-html", native_menu::label("export-html", english), true, None::<&str>)?,
                             &MenuItem::with_id(app, "print", native_menu::label("print", english), true, Some("Cmd+P"))?,
                             &PredefinedMenuItem::separator(app)?,
                         ])?;
+                    } else if title == "Edit" || title == "编辑" {
+                        submenu.append_items(&[
+                            &PredefinedMenuItem::separator(app)?,
+                            &MenuItem::with_id(app, "find", native_menu::label("find", english), true, Some("Cmd+F"))?,
+                        ])?;
                     } else if title == "View" || title == "视图" {
                         submenu.prepend_items(&[
+                            &MenuItem::with_id(app, "toggle-source", native_menu::label("toggle-source", english), true, None::<&str>)?,
                             &MenuItem::with_id(app, "view-toolbar", native_menu::label("view-toolbar", english), true, None::<&str>)?,
                             &MenuItem::with_id(app, "view-sidebar", native_menu::label("view-sidebar", english), true, None::<&str>)?,
                             &PredefinedMenuItem::separator(app)?,
@@ -120,7 +139,8 @@ pub fn run() {
             documents::save_conflict_copy,
             documents::save_as_document,
             documents::save_document,
-            documents::read_asset,
+            staging::stage_binary,
+            staging::read_staged,
             documents::export_html,
             documents::export_source_markdown,
             drafts::write_draft,
@@ -153,6 +173,8 @@ pub fn run() {
             settings::get_settings,
             settings::update_settings,
             windows::create_workspace_window,
+            windows::show_workspace_window,
+            windows::open_external,
             windows::take_window_transfer,
             windows::close_workspace_window,
         ])

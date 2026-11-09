@@ -1,19 +1,21 @@
 import { Crepe, CrepeFeature } from '@milkdown/crepe'
 import { insertImageCommand } from '@milkdown/kit/preset/commonmark'
 import { callCommand } from '@milkdown/kit/utils'
-import { commandsCtx, editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
+import { commandsCtx, editorViewCtx, prosePluginsCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import { undoDepth, redoDepth } from '@milkdown/kit/prose/history'
 import { toggleStrongCommand, toggleEmphasisCommand, toggleInlineCodeCommand, wrapInHeadingCommand, turnIntoTextCommand, wrapInBulletListCommand, wrapInOrderedListCommand, wrapInBlockquoteCommand, insertHrCommand, createCodeBlockCommand, clearTextInCurrentBlockCommand } from '@milkdown/kit/preset/commonmark'
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
 import { undoCommand, redoCommand } from '@milkdown/kit/plugin/history'
-import { TextSelection, NodeSelection } from '@milkdown/kit/prose/state'
+import { TextSelection, NodeSelection, type Transaction } from '@milkdown/kit/prose/state'
 import { deleteRow, deleteColumn } from '@milkdown/kit/prose/tables'
 import { insertTableCommand, addRowAfterCommand, addColAfterCommand, setAlignCommand } from '@milkdown/kit/preset/gfm'
 import { toggleLinkCommand, updateLinkCommand, updateImageCommand } from '@milkdown/kit/preset/commonmark'
-import { imageUrlsIn, rewriteImageUrls } from '../export/snapshot'
+import { rewriteImageUrls } from '../export/snapshot'
 import { safeTextHandler } from './markdownStringify'
+import { isAssetUrl, relativeFromAssetUrl } from './assetUrl'
+import { findKey, findPlugin, setFind } from './find'
 
-export type PendingAsset = { url: string; bytes: number[]; mime: string }
+export type PendingAsset = { url: string; bytes: Uint8Array<ArrayBuffer>; mime: string }
 type PendingImage = { file: File; validation: Promise<void>; error: string | null }
 export type EditorCommand = 'paragraph' | 'heading1' | 'heading2' | 'heading3' | 'heading4' | 'heading5' | 'heading6' | 'bold' | 'italic' | 'strike' | 'inlineCode' | 'clearFormat' | 'bullet' | 'ordered' | 'quote' | 'rule' | 'codeBlock' | 'undo' | 'redo'
 export type ToolbarState = { ready: boolean; composing: boolean; block: string; marks: string[]; canUndo: boolean; canRedo: boolean; inTable: boolean; linkHref: string | null; imageAlt: string | null }
@@ -25,19 +27,23 @@ export class EditorAdapter {
   private readonly pending = new Map<string, PendingImage>()
   private readonly persisted = new Map<string, string>()
   private created = false
+  private creation: Promise<void> | null = null
   private composing = false
   private savedSelection: { from: number; to: number; node: boolean } | null = null
   private savedLinkHref: string | null = null
+  private lastToolbarState = ''
   private readonly onToolbarChange?: (state: ToolbarState) => void
   private readonly onImageError?: (message: string | null) => void
+  private readonly onLinkOpen?: (href: string) => void
 
-  constructor(root: HTMLElement, markdown: string, onChange?: () => void, imageUrls: Map<string, string> = new Map(), recoveredAssets: Map<string, { bytes: number[]; mime: string }> = new Map(), pendingFiles: Map<string, File> = new Map(), onToolbarChange?: (state: ToolbarState) => void, onImageError?: (message: string | null) => void, onTableRequest?: (anchor: { x: number; y: number }) => void) {
+  constructor(root: HTMLElement, markdown: string, onChange?: () => void, imageUrls: Map<string, string> = new Map(), recoveredAssets: Map<string, { bytes: Uint8Array<ArrayBuffer>; mime: string }> = new Map(), pendingFiles: Map<string, File> = new Map(), onToolbarChange?: (state: ToolbarState) => void, onImageError?: (message: string | null) => void, onTableRequest?: (anchor: { x: number; y: number }) => void, onLinkOpen?: (href: string) => void) {
     this.root = root
+    this.onLinkOpen = onLinkOpen
     this.persisted = imageUrls
     this.onToolbarChange = onToolbarChange
     this.onImageError = onImageError
     for (const [url, asset] of recoveredAssets) {
-      const file = new File([new Uint8Array(asset.bytes)], 'recovered-image', { type: asset.mime })
+      const file = new File([asset.bytes], 'recovered-image', { type: asset.mime })
       this.pending.set(url, { file, validation: Promise.resolve(), error: null })
     }
     for (const [url, file] of pendingFiles) this.pending.set(url, { file, validation: Promise.resolve(), error: null })
@@ -71,19 +77,40 @@ export class EditorAdapter {
       },
     })
     this.crepe.editor.config((ctx) => {
+      ctx.update(prosePluginsCtx, (plugins) => plugins.concat(findPlugin))
       ctx.update(remarkStringifyOptionsCtx, (options) => ({
         ...options,
         handlers: { ...options.handlers, text: safeTextHandler },
       }))
     })
     this.crepe.on((listener) => {
-      listener.markdownUpdated(() => { onChange?.(); this.emitToolbarState() })
+      // `updated` avoids the full Markdown serialization `markdownUpdated` performs on every change.
+      listener.updated(() => { onChange?.(); this.emitToolbarState() })
       listener.selectionUpdated(() => this.emitToolbarState())
     })
   }
 
-  async create(): Promise<void> {
+  get rootElement(): HTMLElement { return this.root }
+
+  create(): Promise<void> {
+    this.creation ??= this.start()
+    return this.creation
+  }
+
+  /** Re-publishes state after this editor comes back from the pool. */
+  resume(): void {
+    this.lastToolbarState = ''
+    this.emitToolbarState()
+    this.focus()
+  }
+
+  dispose(): void {
+    void (this.creation ?? Promise.resolve()).catch(() => undefined).then(() => this.destroy(false)).catch(() => undefined)
+  }
+
+  private async start(): Promise<void> {
     await this.crepe.create()
+    this.root.addEventListener('error', this.onResourceError, true)
     this.root.addEventListener('paste', this.onPaste, true)
     this.root.addEventListener('drop', this.onDrop, true)
     this.root.addEventListener('dragover', this.onDragOver, true)
@@ -123,7 +150,11 @@ export class EditorAdapter {
       const link = (state.storedMarks ?? $from.marks()).find((mark) => mark.type.name === 'link')
       const selectedImage = state.selection instanceof NodeSelection && state.selection.node.type.name === 'image' ? state.selection.node : null
       const inTable = Array.from({ length: $from.depth + 1 }, (_, depth) => $from.node(depth).type.name).includes('table')
-      this.onToolbarChange?.({ ready: true, composing: this.composing, block, marks, canUndo: undoDepth(state) > 0, canRedo: redoDepth(state) > 0, inTable, linkHref: link?.attrs.href ?? null, imageAlt: selectedImage?.attrs.alt ?? null })
+      const next: ToolbarState = { ready: true, composing: this.composing, block, marks, canUndo: undoDepth(state) > 0, canRedo: redoDepth(state) > 0, inTable, linkHref: link?.attrs.href ?? null, imageAlt: selectedImage?.attrs.alt ?? null }
+      const serialized = JSON.stringify(next)
+      if (serialized === this.lastToolbarState) return
+      this.lastToolbarState = serialized
+      this.onToolbarChange?.(next)
     })
   }
 
@@ -286,6 +317,14 @@ export class EditorAdapter {
     }
   }
 
+  // Load errors do not bubble, so this listens during capture. Attachments load lazily after the text.
+  private onResourceError = (event: Event): void => {
+    const target = event.target
+    if (!(target instanceof HTMLImageElement) || !isAssetUrl(target.src)) return
+    target.dataset.missing = 'true'
+    this.onImageError?.(`图片无法读取：${relativeFromAssetUrl(target.src) ?? target.alt}`)
+  }
+
   private onPaste = (event: ClipboardEvent): void => {
     const file = Array.from(event.clipboardData?.files ?? []).find((item) => item.type.startsWith('image/'))
     if (!file || !this.created) return
@@ -301,9 +340,11 @@ export class EditorAdapter {
 
   private onClick = (event: MouseEvent): void => {
     const target = event.target
-    if (target instanceof Element && target.closest('a[href]')) {
+    const anchor = target instanceof Element ? target.closest<HTMLAnchorElement>('a[href]') : null
+    if (anchor) {
       event.preventDefault()
       event.stopPropagation()
+      if (event.metaKey) this.onLinkOpen?.(anchor.getAttribute('href') ?? '')
     }
   }
 
@@ -321,6 +362,60 @@ export class EditorAdapter {
     catch (error) { this.onImageError?.(String(error)) }
   }
 
+  /** Highlights matches of `query` and returns the match count. */
+  find(query: string): { current: number; total: number } {
+    return this.updateFind((tr) => setFind(tr, { query }))
+  }
+
+  findStep(direction: 1 | -1): { current: number; total: number } {
+    let total = 0
+    let index = 0
+    if (this.created) this.crepe.editor.action((ctx) => {
+      const find = findKey.getState(ctx.get(editorViewCtx).state)
+      total = find?.matches.length ?? 0
+      index = find?.index ?? 0
+    })
+    if (total === 0) return { current: 0, total: 0 }
+    return this.updateFind((tr) => setFind(tr, { index: (index + direction + total) % total }), true)
+  }
+
+  replaceCurrent(text: string): { current: number; total: number } {
+    if (this.composing) return this.findCounts()
+    return this.updateFind((tr, find) => {
+      const match = find?.matches[find.index]
+      return match ? (text ? tr.insertText(text, match.from, match.to) : tr.delete(match.from, match.to)) : tr
+    }, true)
+  }
+
+  replaceAll(text: string): { current: number; total: number } {
+    if (this.composing) return this.findCounts()
+    return this.updateFind((tr, find) => {
+      for (const match of [...(find?.matches ?? [])].reverse()) { if (text) tr.insertText(text, match.from, match.to); else tr.delete(match.from, match.to) }
+      return tr
+    })
+  }
+
+  private findCounts(): { current: number; total: number } {
+    let result = { current: 0, total: 0 }
+    if (this.created) this.crepe.editor.action((ctx) => {
+      const find = findKey.getState(ctx.get(editorViewCtx).state)
+      result = { current: find?.index ?? 0, total: find?.matches.length ?? 0 }
+    })
+    return result
+  }
+
+  private updateFind(change: (tr: Transaction, find: ReturnType<typeof findKey.getState>) => Transaction, reveal = false): { current: number; total: number } {
+    if (!this.created) return { current: 0, total: 0 }
+    this.crepe.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx)
+      view.dispatch(change(view.state.tr, findKey.getState(view.state)))
+      const find = findKey.getState(view.state)
+      const match = reveal ? find?.matches[find.index] : undefined
+      if (match) view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, match.from, match.to)).scrollIntoView())
+    })
+    return this.findCounts()
+  }
+
   getMarkdown(): string {
     if (!this.created) throw new Error('Editor is not ready')
     return this.crepe.getMarkdown()
@@ -330,13 +425,26 @@ export class EditorAdapter {
     return rewriteImageUrls(this.getMarkdown(), this.persisted)
   }
 
-  async pendingAssets(markdown: string, validate = true): Promise<PendingAsset[]> {
+  /** Image URLs in the live document, read from its nodes so no Markdown parsing is needed. */
+  referencedImageUrls(): Set<string> {
+    const urls = new Set<string>()
+    if (!this.created) return urls
+    this.crepe.editor.action((ctx) => {
+      ctx.get(editorViewCtx).state.doc.descendants((node) => {
+        if ((node.type.name === 'image' || node.type.name === 'image-block') && node.attrs.src) urls.add(node.attrs.src as string)
+      })
+    })
+    return urls
+  }
+
+  /** Bytes of referenced pending images, except URLs in `skip`, which are only loaded when needed. */
+  async pendingAssets(validate = true, skip: ReadonlySet<string> = new Set()): Promise<PendingAsset[]> {
     const result: PendingAsset[] = []
-    const referenced = new Set(imageUrlsIn(markdown))
+    const referenced = this.referencedImageUrls()
     for (const [url, pending] of this.pending) {
-      if (!referenced.has(url)) continue
+      if (!referenced.has(url) || skip.has(url)) continue
       if (validate) await pending.validation
-      result.push({ url, mime: pending.file.type, bytes: Array.from(new Uint8Array(await pending.file.arrayBuffer())) })
+      result.push({ url, mime: pending.file.type, bytes: new Uint8Array(await pending.file.arrayBuffer()) })
     }
     return result
   }
@@ -345,7 +453,7 @@ export class EditorAdapter {
 
   hasPendingAssets(): boolean {
     if (!this.created) return this.pending.size > 0
-    const referenced = new Set(imageUrlsIn(this.getMarkdown()))
+    const referenced = this.referencedImageUrls()
     return Array.from(this.pending.keys()).some((url) => referenced.has(url))
   }
 
@@ -361,6 +469,7 @@ export class EditorAdapter {
   }
 
   async destroy(revokeUrls = true): Promise<void> {
+    this.root.removeEventListener('error', this.onResourceError, true)
     this.root.removeEventListener('paste', this.onPaste, true)
     this.root.removeEventListener('drop', this.onDrop, true)
     this.root.removeEventListener('dragover', this.onDragOver, true)

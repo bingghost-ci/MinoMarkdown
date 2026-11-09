@@ -21,6 +21,11 @@ pub fn label(id: &str, english: bool) -> &'static str {
         ("view-toolbar", true) => "Toggle File Toolbar", ("view-toolbar", false) => "显示或隐藏操作栏",
         ("view-sidebar", true) => "Toggle Sidebar", ("view-sidebar", false) => "显示或隐藏文件栏",
         ("preferences", true) => "Settings…", ("preferences", false) => "设置…",
+        ("open-recent", true) => "Open Recent", ("open-recent", false) => "打开最近使用",
+        ("no-recent", true) => "No Recent Items", ("no-recent", false) => "没有最近使用的项目",
+        ("export-text", true) => "Export Text-only Markdown…", ("export-text", false) => "导出仅正文 Markdown…",
+        ("toggle-source", true) => "Switch Source / Visual Mode", ("toggle-source", false) => "切换源码 / 可视化模式",
+        ("find", true) => "Find and Replace…", ("find", false) => "查找和替换…",
         ("quit", true) => "Quit MinoMarkdown", ("quit", false) => "退出 MinoMarkdown",
         _ => "",
     }
@@ -35,7 +40,11 @@ pub fn set_language(app: &AppHandle, language: &str) {
                 if let MenuItemKind::Submenu(submenu) = item {
                     if let Ok(children) = submenu.items() {
                         for child in children {
-                            if let MenuItemKind::MenuItem(item) = child {
+                            if let MenuItemKind::MenuItem(item) = &child {
+                                let translated = label(item.id().as_ref(), english);
+                                if !translated.is_empty() { let _ = item.set_text(translated); }
+                            }
+                            if let MenuItemKind::Submenu(item) = &child {
                                 let translated = label(item.id().as_ref(), english);
                                 if !translated.is_empty() { let _ = item.set_text(translated); }
                             }

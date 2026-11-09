@@ -5,6 +5,8 @@ import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
+import { assetUrl } from '../editor/assetUrl'
+import { localAssetPath } from '../export/snapshot'
 
 // Only a standalone, empty anchor immediately before a heading is promoted to
 // a preview heading id. The source document is never changed by this renderer.
@@ -24,12 +26,14 @@ function headingAnchors() {
   }
 }
 
-function blockImages() {
+function blockImages(assetKey?: string) {
   return (tree: Root) => {
     function walk(node: { children?: unknown[] }) {
       if (!node.children) return
       node.children = node.children.map((child) => {
-        const item = child as { type: string; alt?: string; children?: unknown[] }
+        const item = child as { type: string; alt?: string; url?: string; children?: unknown[] }
+        const local = item.type === 'image' && assetKey && item.url ? localAssetPath(item.url) : null
+        if (local !== null && local !== undefined && assetKey) return { ...item, url: assetUrl(assetKey, local) }
         if (item.type === 'image' || item.type === 'imageReference') return { type: 'text', value: `[图片: ${item.alt || '未命名'}]` }
         walk(item)
         return item
@@ -39,14 +43,16 @@ function blockImages() {
   }
 }
 
-export function renderMarkdownPreview(markdown: string): string {
+const previewSchema = { ...defaultSchema, protocols: { ...defaultSchema.protocols, src: [...(defaultSchema.protocols?.src ?? []), 'mino-asset'] } }
+
+export function renderMarkdownPreview(markdown: string, assetKey?: string): string {
   return String(unified()
     .use(remarkParse)
     .use(remarkGfm)
     .use(headingAnchors)
-    .use(blockImages)
+    .use(blockImages, assetKey)
     .use(remarkRehype)
-    .use(rehypeSanitize, defaultSchema)
+    .use(rehypeSanitize, previewSchema)
     .use(rehypeStringify)
     .processSync(markdown))
 }

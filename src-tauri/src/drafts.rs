@@ -1,4 +1,5 @@
-use crate::documents::{DocumentStore, draft_target};
+use crate::documents::{DocumentStore, asset_mime, draft_target, read_granted_asset};
+use crate::staging::{StagedAsset, StagingStore};
 use crate::fs::bounded_file::read_no_follow;
 use crate::fs::app_data::ensure_dir;
 use serde::{Deserialize, Serialize};
@@ -9,6 +10,7 @@ use tauri::{AppHandle, Manager, State, WebviewWindow};
 const MAX_DOCUMENT: usize = 20 * 1024 * 1024;
 const MAX_IMAGE: usize = 20 * 1024 * 1024;
 const MAX_ASSETS: usize = 64;
+const KEEP_SNAPSHOTS: usize = 3;
 static NEXT_SNAPSHOT: AtomicU64 = AtomicU64::new(1);
 static DRAFT_LOCK: Mutex<()> = Mutex::new(());
 
@@ -26,7 +28,10 @@ struct Manifest { schema_version: u32, draft_id: String, name: String, target_pa
 pub struct DraftSummary { draft_id: String, name: String, target_path: Option<String>, target_status: &'static str, snapshots: usize }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DraftContent { draft_id: String, name: String, markdown: String, assets: Vec<DraftAssetOut>, target_path: Option<String>, target_status: &'static str }
+pub struct DraftContent { draft_id: String, name: String, markdown: String, assets: Vec<StagedAsset>, asset_count: usize, target_path: Option<String>, target_status: &'static str }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskAsset { url: String, relative: String }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftAssetOut { url: String, mime: String, bytes: Vec<u8> }
@@ -87,17 +92,32 @@ fn latest(folder: &Path) -> Result<(Manifest, String, Vec<DraftAssetOut>), Strin
     for snapshot in snapshots(folder) { if let Ok(record) = read_snapshot(&snapshot) { return Ok(record); } }
     Err("CORRUPT_DRAFT".into())
 }
+#[cfg(test)]
 fn write_at(root: &Path, draft_id: &str, name: &str, target_path: Option<String>, base_disk_revision: Option<String>, markdown: &str, assets: Vec<DraftAsset>) -> Result<(), String> {
-    if !valid_id(draft_id) || name.len() > 256 || markdown.len() > MAX_DOCUMENT || assets.len() > MAX_ASSETS { return Err("INVALID_DRAFT".into()); }
+    write_retaining(root, draft_id, name, target_path, base_disk_revision, markdown, assets, &[])
+}
+/// `retained` lists asset URLs whose bytes are already in the draft's latest snapshot and are reused without re-upload.
+#[allow(clippy::too_many_arguments)]
+fn write_retaining(root: &Path, draft_id: &str, name: &str, target_path: Option<String>, base_disk_revision: Option<String>, markdown: &str, assets: Vec<DraftAsset>, retained: &[String]) -> Result<(), String> {
+    if !valid_id(draft_id) || name.len() > 256 || markdown.len() > MAX_DOCUMENT || assets.len() + retained.len() > MAX_ASSETS { return Err("INVALID_DRAFT".into()); }
+    if retained.iter().any(|url| url.is_empty() || url.len() > 1024 || !markdown.contains(url.as_str())) { return Err("INVALID_ASSET".into()); }
     let _guard = DRAFT_LOCK.lock().map_err(|_| "IO_ERROR")?;
     #[cfg(target_os = "macos")]
-    return write_at_macos(root, draft_id, name, target_path, base_disk_revision, markdown, assets);
+    return write_at_macos(root, draft_id, name, target_path, base_disk_revision, markdown, assets, retained);
     #[cfg(not(target_os = "macos"))]
     {
     fs::create_dir_all(root).map_err(|_| "IO_ERROR")?;
     let folder = root.join(draft_id);
     if folder.exists() && fs::symlink_metadata(&folder).map_err(|_| "OUT_OF_SCOPE")?.file_type().is_symlink() { return Err("OUT_OF_SCOPE".into()); }
     fs::create_dir_all(&folder).map_err(|_| "IO_ERROR")?;
+    let mut assets = assets;
+    if !retained.is_empty() {
+        let (_, _, prior) = latest(&folder).map_err(|_| "DRAFT_ASSET_MISSING")?;
+        for url in retained {
+            let asset = prior.iter().find(|item| &item.url == url).ok_or("DRAFT_ASSET_MISSING")?;
+            assets.push(DraftAsset { url: asset.url.clone(), mime: asset.mime.clone(), bytes: asset.bytes.clone() });
+        }
+    }
     let snapshot_id = format!("{:020}-{:010}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_| "IO_ERROR")?.as_millis(), NEXT_SNAPSHOT.fetch_add(1, Ordering::Relaxed));
     let staging = folder.join(format!(".staging-{snapshot_id}"));
     fs::create_dir(&staging).map_err(|_| "IO_ERROR")?;
@@ -122,12 +142,14 @@ fn write_at(root: &Path, draft_id: &str, name: &str, target_path: Option<String>
         Ok(())
     })();
     if result.is_err() { let _ = fs::remove_dir_all(&staging); }
+    else { for old in snapshots(&folder).into_iter().skip(KEEP_SNAPSHOTS) { let _ = fs::remove_dir_all(old); } }
     result
     }
 }
 
 #[cfg(target_os = "macos")]
-fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<String>, base_disk_revision: Option<String>, markdown: &str, assets: Vec<DraftAsset>) -> Result<(), String> {
+#[allow(clippy::too_many_arguments)]
+fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<String>, base_disk_revision: Option<String>, markdown: &str, assets: Vec<DraftAsset>, retained: &[String]) -> Result<(), String> {
     use std::{ffi::{CString, OsStr}, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::{MetadataExt, OpenOptionsExt}}}};
     fn entry(name: &OsStr) -> Result<CString, String> { CString::new(name.as_bytes()).map_err(|_| "OUT_OF_SCOPE".into()) }
     fn make_dir(parent: &File, name: &CString) -> Result<File, String> {
@@ -150,14 +172,12 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
         if current.st_dev as u64 != held.dev() || current.st_ino as u64 != held.ino() { return Err("COMMIT_UNCERTAIN".into()); }
         Ok(())
     }
-    let mut records = Vec::with_capacity(assets.len());
+    let mut records = Vec::with_capacity(assets.len() + retained.len());
     for (index, asset) in assets.iter().enumerate() {
         if asset.url.len() > 1024 || asset.url.is_empty() || !markdown.contains(&asset.url) || asset.bytes.is_empty() || asset.bytes.len() > MAX_IMAGE || !matches!(asset.mime.as_str(), "image/png" | "image/jpeg" | "image/gif" | "image/webp") { return Err("INVALID_ASSET".into()); }
         let sha256 = hash(&asset.bytes);
         records.push(AssetRecord { url: asset.url.clone(), mime: asset.mime.clone(), filename: format!("asset-{index:03}-{}.bin", &sha256[..24]), sha256 });
     }
-    let manifest = Manifest { schema_version: 1, draft_id: draft_id.into(), name: name.into(), target_path, base_disk_revision, body_revision: hash(markdown.as_bytes()), assets: records };
-    let manifest_bytes = serde_json::to_vec(&manifest).map_err(|_| "IO_ERROR")?;
     let root_parent = root.parent().ok_or("INVALID_PATH")?;
     if fs::canonicalize(root_parent).map_err(|_| "OUT_OF_SCOPE")? != root_parent { return Err("OUT_OF_SCOPE".into()); }
     let app_data = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(root_parent).map_err(|_| "OUT_OF_SCOPE")?;
@@ -165,6 +185,22 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
     let root_dir = make_dir(&app_data, &root_name)?;
     let draft_name = entry(OsStr::new(draft_id))?;
     let folder = make_dir(&root_dir, &draft_name)?;
+    // Unchanged images are hard-linked from the latest snapshot instead of being resent and rewritten.
+    let mut links = Vec::with_capacity(retained.len());
+    let prior_assets = if retained.is_empty() { None } else {
+        let (snapshot_dir, prior) = macos_read::latest_manifest(&folder).map_err(|_| "DRAFT_ASSET_MISSING")?;
+        for url in retained {
+            let record = prior.assets.iter().find(|item| &item.url == url).ok_or("DRAFT_ASSET_MISSING")?;
+            if record.filename.contains('/') || !record.filename.starts_with("asset-") { return Err("DRAFT_ASSET_MISSING".into()); }
+            let index = records.len();
+            let filename = format!("asset-{index:03}-{}.bin", &record.sha256[..24.min(record.sha256.len())]);
+            links.push((entry(OsStr::new(&record.filename))?, entry(OsStr::new(&filename))?));
+            records.push(AssetRecord { url: url.clone(), mime: record.mime.clone(), filename, sha256: record.sha256.clone() });
+        }
+        Some(macos_read::assets_dir(&snapshot_dir).map_err(|_| "DRAFT_ASSET_MISSING")?)
+    };
+    let manifest = Manifest { schema_version: 1, draft_id: draft_id.into(), name: name.into(), target_path, base_disk_revision, body_revision: hash(markdown.as_bytes()), assets: records };
+    let manifest_bytes = serde_json::to_vec(&manifest).map_err(|_| "IO_ERROR")?;
     let snapshot_id = format!("{:020}-{:010}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_| "IO_ERROR")?.as_millis(), NEXT_SNAPSHOT.fetch_add(1, Ordering::Relaxed));
     let staging_name = entry(OsStr::new(&format!(".staging-{snapshot_id}")))?;
     let published_name = entry(OsStr::new(&format!("snapshot-{snapshot_id}")))?;
@@ -174,6 +210,11 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
     let staging = unsafe { File::from_raw_fd(staging_fd) };
     let asset_dir = make_dir(&staging, &entry(OsStr::new("assets"))?)?;
     for (asset, record) in assets.iter().zip(&manifest.assets) { write_file(&asset_dir, &entry(OsStr::new(&record.filename))?, &asset.bytes)?; }
+    if let Some(prior) = &prior_assets {
+        for (from, to) in &links {
+            if unsafe { libc::linkat(prior.as_raw_fd(), from.as_ptr(), asset_dir.as_raw_fd(), to.as_ptr(), 0) } < 0 { return Err("DRAFT_ASSET_MISSING".into()); }
+        }
+    }
     write_file(&staging, &entry(OsStr::new("document.md"))?, markdown.as_bytes())?;
     write_file(&staging, &entry(OsStr::new("manifest.json"))?, &manifest_bytes)?;
     asset_dir.sync_all().map_err(|_| "IO_ERROR")?;
@@ -190,16 +231,28 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
     let root_parent_meta = fs::symlink_metadata(root_parent).map_err(|_| "COMMIT_UNCERTAIN")?;
     let app_data_meta = app_data.metadata().map_err(|_| "COMMIT_UNCERTAIN")?;
     if !root_parent_meta.is_dir() || root_parent_meta.dev() != app_data_meta.dev() || root_parent_meta.ino() != app_data_meta.ino() { return Err("COMMIT_UNCERTAIN".into()); }
+    // The new snapshot is durable; failing to trim older ones must not fail the write.
+    let _ = macos_tree::prune(&folder, KEEP_SNAPSHOTS);
     Ok(())
 }
 
-#[tauri::command]
-pub fn write_draft(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, draft_id: String, name: String, token: Option<String>, base_disk_revision: Option<String>, markdown: String, assets: Vec<DraftAsset>) -> Result<(), String> {
+#[tauri::command(async)]
+pub fn write_draft(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, draft_id: String, name: String, token: Option<String>, base_disk_revision: Option<String>, markdown: String, assets: Vec<StagedAsset>, disk_assets: Vec<DiskAsset>, retained: Vec<String>) -> Result<Vec<String>, String> {
     require_main(&window)?;
+    let mut uploads = assets.into_iter().map(|asset| Ok(DraftAsset { bytes: staging.take(&asset.staged)?, url: asset.url, mime: asset.mime })).collect::<Result<Vec<_>, String>>()?;
+    if let Some(token) = &token {
+        for asset in disk_assets {
+            // A missing attachment must not stop the text from being protected.
+            let (Some(mime), Ok(bytes)) = (asset_mime(&asset.relative), read_granted_asset(&store, token, &asset.relative)) else { continue };
+            uploads.push(DraftAsset { url: asset.url, mime: mime.into(), bytes });
+        }
+    }
     let target = match token { Some(token) => Some(draft_target(&store, &token)?), None => None };
-    write_at(&root(&app)?, &draft_id, &name, target, base_disk_revision, &markdown, assets)
+    let stored = retained.iter().cloned().chain(uploads.iter().map(|asset| asset.url.clone())).collect();
+    write_retaining(&root(&app)?, &draft_id, &name, target, base_disk_revision, &markdown, uploads, &retained)?;
+    Ok(stored)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_drafts(app: AppHandle, window: WebviewWindow) -> Result<Vec<DraftSummary>, String> {
     require_main(&window)?;
     let root = root(&app)?;
@@ -213,7 +266,7 @@ pub fn list_drafts(app: AppHandle, window: WebviewWindow) -> Result<Vec<DraftSum
         let folder = entry.path();
         let id = entry.file_name().to_string_lossy().into_owned();
         if !valid_id(&id) || !fs::symlink_metadata(&folder).is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink()) { continue; }
-        if let Ok((manifest, _, _)) = latest(&folder) {
+        if let Some(manifest) = snapshots(&folder).iter().find_map(|path| read_no_follow(&path.join("manifest.json"), 64 * 1024).ok().and_then(|bytes| serde_json::from_slice::<Manifest>(&bytes).ok())) {
             if manifest.draft_id != id { continue; }
             output.push(DraftSummary { draft_id: id, name: manifest.name, target_status: target_status(manifest.target_path.as_deref(), manifest.base_disk_revision.as_deref()), target_path: manifest.target_path, snapshots: snapshots(&folder).len() });
         }
@@ -222,8 +275,8 @@ pub fn list_drafts(app: AppHandle, window: WebviewWindow) -> Result<Vec<DraftSum
     Ok(output)
     }
 }
-#[tauri::command]
-pub fn read_draft(app: AppHandle, window: WebviewWindow, draft_id: String) -> Result<DraftContent, String> {
+#[tauri::command(async)]
+pub fn read_draft(app: AppHandle, window: WebviewWindow, staging: State<'_, StagingStore>, draft_id: String, include_assets: bool) -> Result<DraftContent, String> {
     require_main(&window)?;
     if !valid_id(&draft_id) { return Err("INVALID_DRAFT".into()); }
     #[cfg(target_os = "macos")]
@@ -231,7 +284,9 @@ pub fn read_draft(app: AppHandle, window: WebviewWindow, draft_id: String) -> Re
     #[cfg(not(target_os = "macos"))]
     let (manifest, markdown, assets) = latest(&root(&app)?.join(&draft_id))?;
     if manifest.draft_id != draft_id { return Err("CORRUPT_DRAFT".into()); }
-    Ok(DraftContent { draft_id, name: manifest.name, target_status: target_status(manifest.target_path.as_deref(), manifest.base_disk_revision.as_deref()), target_path: manifest.target_path, markdown, assets })
+    let asset_count = assets.len();
+    let assets = if include_assets { assets.into_iter().map(|asset| Ok(StagedAsset { staged: staging.put(asset.bytes)?, url: asset.url, mime: asset.mime })).collect::<Result<Vec<_>, String>>()? } else { vec![] };
+    Ok(DraftContent { draft_id, name: manifest.name, target_status: target_status(manifest.target_path.as_deref(), manifest.base_disk_revision.as_deref()), target_path: manifest.target_path, markdown, assets, asset_count })
 }
 
 #[cfg(target_os = "macos")]
@@ -254,6 +309,8 @@ mod macos_read {
     fn entries(folder: &File) -> Result<Vec<OsString>, String> {
         let duplicate = unsafe { libc::dup(folder.as_raw_fd()) };
         if duplicate < 0 { return Err("CORRUPT_DRAFT".into()); }
+        // A dup shares the read offset, so a directory listed earlier through this handle must be rewound.
+        unsafe { libc::lseek(duplicate, 0, libc::SEEK_SET); }
         let stream = unsafe { libc::fdopendir(duplicate) };
         if stream.is_null() { unsafe { libc::close(duplicate); } return Err("CORRUPT_DRAFT".into()); }
         let mut names = Vec::new();
@@ -306,6 +363,25 @@ mod macos_read {
         for entry in names { if let Ok(dir) = open_dir(folder, &name(&entry)?) { if let Ok(record) = snapshot(&dir) { return Ok((record.0, record.1, record.2, count)); } } }
         Err("CORRUPT_DRAFT".into())
     }
+    fn manifest_of(snapshot: &File) -> Result<Manifest, String> {
+        let bytes = read_file(snapshot, &name(OsStr::new("manifest.json"))?, 64 * 1024)?;
+        let manifest: Manifest = serde_json::from_slice(&bytes).map_err(|_| "CORRUPT_DRAFT")?;
+        if manifest.schema_version != 1 || !valid_id(&manifest.draft_id) || manifest.assets.len() > MAX_ASSETS { return Err("CORRUPT_DRAFT".into()); }
+        Ok(manifest)
+    }
+    fn snapshot_names(folder: &File) -> Result<Vec<OsString>, String> {
+        let mut names: Vec<_> = entries(folder)?.into_iter().filter(|name| name.to_str().is_some_and(|s| s.starts_with("snapshot-"))).collect();
+        names.sort_by(|a,b| b.cmp(a));
+        Ok(names)
+    }
+    /// Newest snapshot whose manifest parses. Bodies and images stay unread; `read_draft` verifies them.
+    pub(super) fn latest_manifest(folder: &File) -> Result<(File, Manifest), String> {
+        for entry in snapshot_names(folder)? {
+            if let Ok(dir) = open_dir(folder, &name(&entry)?) { if let Ok(manifest) = manifest_of(&dir) { return Ok((dir, manifest)); } }
+        }
+        Err("CORRUPT_DRAFT".into())
+    }
+    pub(super) fn assets_dir(snapshot: &File) -> Result<File, String> { open_dir(snapshot, &name(OsStr::new("assets"))?) }
     pub(super) fn latest(root: &Path, id: &str) -> Result<(Manifest, String, Vec<DraftAssetOut>), String> {
         let root = root_dir(root)?;
         let folder = open_dir(&root, &name(OsStr::new(id))?)?;
@@ -319,7 +395,8 @@ mod macos_read {
             let Some(id) = id.to_str() else { continue };
             if !valid_id(id) { continue; }
             let Ok(folder) = open_dir(&root, &name(OsStr::new(id))?) else { continue };
-            if let Ok((manifest, _, _, count)) = latest_in(&folder) {
+            let count = snapshot_names(&folder).map(|names| names.len()).unwrap_or(0);
+            if let Ok((_, manifest)) = latest_manifest(&folder) {
                 if manifest.draft_id != id { continue; }
                 output.push(DraftSummary { draft_id: id.into(), name: manifest.name, target_status: target_status(manifest.target_path.as_deref(), manifest.base_disk_revision.as_deref()), target_path: manifest.target_path, snapshots: count });
             }
@@ -328,7 +405,7 @@ mod macos_read {
         Ok(output)
     }
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn discard_draft(app: AppHandle, window: WebviewWindow, draft_id: String) -> Result<(), String> {
     require_main(&window)?;
     if !valid_id(&draft_id) { return Err("INVALID_DRAFT".into()); }
@@ -336,21 +413,14 @@ pub fn discard_draft(app: AppHandle, window: WebviewWindow, draft_id: String) ->
     discard_at(&root(&app)?, &draft_id)
 }
 
-#[cfg(not(target_os = "macos"))]
-fn discard_at(root: &Path, draft_id: &str) -> Result<(), String> {
-    let folder = root.join(draft_id);
-    if !folder.exists() { return Ok(()); }
-    if !fs::symlink_metadata(&folder).map_err(|_| "IO_ERROR")?.is_dir() { return Err("OUT_OF_SCOPE".into()); }
-    fs::remove_dir_all(folder).map_err(|_| "IO_ERROR".into())
-}
-
 #[cfg(target_os = "macos")]
-fn discard_at(root: &Path, draft_id: &str) -> Result<(), String> {
-    use std::{ffi::{CStr, CString, OsStr, OsString}, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::{OsStrExt, OsStringExt}, fs::{MetadataExt, OpenOptionsExt}}}};
+mod macos_tree {
+    use super::*;
+    use std::{ffi::{CStr, CString, OsStr, OsString}, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::{OsStrExt, OsStringExt}, fs::MetadataExt}}};
     fn name(value: &OsStr) -> Result<CString, String> { CString::new(value.as_bytes()).map_err(|_| "OUT_OF_SCOPE".into()) }
     fn open_dir(parent: &File, entry: &CString) -> Result<File, String> {
         let fd = unsafe { libc::openat(parent.as_raw_fd(), entry.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
-        if fd < 0 { return Err(if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound { "NOT_FOUND" } else { "OUT_OF_SCOPE" }.into()); }
+        if fd < 0 { return Err("OUT_OF_SCOPE".into()); }
         Ok(unsafe { File::from_raw_fd(fd) })
     }
     fn same_entry(parent: &File, entry: &CString, opened: &File) -> Result<(), String> {
@@ -360,9 +430,11 @@ fn discard_at(root: &Path, draft_id: &str) -> Result<(), String> {
         if current.st_dev as u64 != held.dev() || current.st_ino as u64 != held.ino() { return Err("COMMIT_UNCERTAIN".into()); }
         Ok(())
     }
-    fn entries(folder: &File) -> Result<Vec<OsString>, String> {
+    pub(super) fn entries(folder: &File) -> Result<Vec<OsString>, String> {
         let duplicate = unsafe { libc::dup(folder.as_raw_fd()) };
         if duplicate < 0 { return Err("IO_ERROR".into()); }
+        // A dup shares the read offset, so a directory listed earlier through this handle must be rewound.
+        unsafe { libc::lseek(duplicate, 0, libc::SEEK_SET); }
         let stream = unsafe { libc::fdopendir(duplicate) };
         if stream.is_null() { unsafe { libc::close(duplicate); } return Err("IO_ERROR".into()); }
         let mut names = Vec::new();
@@ -378,7 +450,7 @@ fn discard_at(root: &Path, draft_id: &str) -> Result<(), String> {
             if bytes != b"." && bytes != b".." { names.push(OsString::from_vec(bytes.to_vec())); }
         }
     }
-    fn remove_tree(folder: &File) -> Result<(), String> {
+    pub(super) fn remove_tree(folder: &File) -> Result<(), String> {
         for item in entries(folder)? {
             let entry = name(&item)?;
             let mut status: libc::stat = unsafe { std::mem::zeroed() };
@@ -392,6 +464,47 @@ fn discard_at(root: &Path, draft_id: &str) -> Result<(), String> {
         }
         Ok(())
     }
+    /// Keeps the newest `keep` snapshots and clears staging folders orphaned by a crash. Caller holds DRAFT_LOCK.
+    pub(super) fn prune(folder: &File, keep: usize) -> Result<(), String> {
+        let all = entries(folder)?;
+        let mut snapshots: Vec<_> = all.iter().filter(|item| item.to_str().is_some_and(|text| text.starts_with("snapshot-"))).collect();
+        snapshots.sort_by(|a, b| b.cmp(a));
+        let stale = snapshots.into_iter().skip(keep).chain(all.iter().filter(|item| item.to_str().is_some_and(|text| text.starts_with(".staging-"))));
+        for item in stale {
+            let entry = name(item)?;
+            let child = open_dir(folder, &entry)?;
+            remove_tree(&child)?;
+            same_entry(folder, &entry, &child)?;
+            if unsafe { libc::unlinkat(folder.as_raw_fd(), entry.as_ptr(), libc::AT_REMOVEDIR) } < 0 { return Err("COMMIT_UNCERTAIN".into()); }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn discard_at(root: &Path, draft_id: &str) -> Result<(), String> {
+    let folder = root.join(draft_id);
+    if !folder.exists() { return Ok(()); }
+    if !fs::symlink_metadata(&folder).map_err(|_| "IO_ERROR")?.is_dir() { return Err("OUT_OF_SCOPE".into()); }
+    fs::remove_dir_all(folder).map_err(|_| "IO_ERROR".into())
+}
+
+#[cfg(target_os = "macos")]
+fn discard_at(root: &Path, draft_id: &str) -> Result<(), String> {
+    use std::{ffi::{CString, OsStr}, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::{MetadataExt, OpenOptionsExt}}}};
+    fn name(value: &OsStr) -> Result<CString, String> { CString::new(value.as_bytes()).map_err(|_| "OUT_OF_SCOPE".into()) }
+    fn open_dir(parent: &File, entry: &CString) -> Result<File, String> {
+        let fd = unsafe { libc::openat(parent.as_raw_fd(), entry.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
+        if fd < 0 { return Err(if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound { "NOT_FOUND" } else { "OUT_OF_SCOPE" }.into()); }
+        Ok(unsafe { File::from_raw_fd(fd) })
+    }
+    fn same_entry(parent: &File, entry: &CString, opened: &File) -> Result<(), String> {
+        let mut current: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe { libc::fstatat(parent.as_raw_fd(), entry.as_ptr(), &mut current, libc::AT_SYMLINK_NOFOLLOW) } < 0 { return Err("COMMIT_UNCERTAIN".into()); }
+        let held = opened.metadata().map_err(|_| "COMMIT_UNCERTAIN")?;
+        if current.st_dev as u64 != held.dev() || current.st_ino as u64 != held.ino() { return Err("COMMIT_UNCERTAIN".into()); }
+        Ok(())
+    }
     if !valid_id(draft_id) { return Err("INVALID_DRAFT".into()); }
     let parent = root.parent().ok_or("INVALID_PATH")?;
     if fs::canonicalize(parent).map_err(|_| "OUT_OF_SCOPE")? != parent { return Err("OUT_OF_SCOPE".into()); }
@@ -400,7 +513,7 @@ fn discard_at(root: &Path, draft_id: &str) -> Result<(), String> {
     let drafts = match open_dir(&app_data, &root_name) { Ok(dir) => dir, Err(code) if code == "NOT_FOUND" => return Ok(()), Err(code) => return Err(code) };
     let draft_name = name(OsStr::new(draft_id))?;
     let folder = match open_dir(&drafts, &draft_name) { Ok(dir) => dir, Err(code) if code == "NOT_FOUND" => return Ok(()), Err(code) => return Err(code) };
-    remove_tree(&folder)?;
+    macos_tree::remove_tree(&folder)?;
     same_entry(&drafts, &draft_name, &folder)?;
     same_entry(&app_data, &root_name, &drafts)?;
     let held = app_data.metadata().map_err(|_| "COMMIT_UNCERTAIN")?;
@@ -424,6 +537,48 @@ mod tests {
         fs::write(newest.join("manifest.json"), b"broken").unwrap();
         let (_, body, assets) = latest(&root.join(id)).unwrap();
         assert_eq!(body, "one ![](blob:sample)"); assert_eq!(assets[0].bytes, b"image bytes");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn only_newest_snapshots_are_kept_and_staging_is_cleared() {
+        let root = temp(); let id = "draft-12345678";
+        write_at(&root,id,"note",None,None,"first",vec![]).unwrap();
+        fs::create_dir(root.join(id).join(".staging-interrupted")).unwrap();
+        for index in 0..6 { write_at(&root,id,"note",None,None,&format!("body {index}"),vec![]).unwrap(); }
+        assert_eq!(snapshots(&root.join(id)).len(), KEEP_SNAPSHOTS);
+        assert!(!root.join(id).join(".staging-interrupted").exists());
+        assert_eq!(latest(&root.join(id)).unwrap().1,"body 5");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn retained_images_are_reused_without_upload_and_survive_pruning() {
+        let root = temp(); let id = "draft-12345678";
+        let asset = DraftAsset { url: "blob:keep".into(), mime: "image/png".into(), bytes: b"image bytes".to_vec() };
+        write_at(&root,id,"note",None,None,"v0 ![](blob:keep)",vec![asset]).unwrap();
+        for index in 1..6 { write_retaining(&root,id,"note",None,None,&format!("v{index} ![](blob:keep)"),vec![],&["blob:keep".to_owned()]).unwrap(); }
+        let (_, body, assets) = latest(&root.join(id)).unwrap();
+        assert_eq!(body,"v5 ![](blob:keep)");
+        assert_eq!((assets.len(), assets[0].bytes.as_slice(), assets[0].url.as_str()), (1, b"image bytes".as_slice(), "blob:keep"));
+        assert_eq!(snapshots(&root.join(id)).len(), KEEP_SNAPSHOTS);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn retaining_an_unknown_image_asks_for_a_full_upload() {
+        let root = temp(); let id = "draft-12345678";
+        write_at(&root,id,"note",None,None,"text ![](blob:new)",vec![]).unwrap();
+        let result = write_retaining(&root,id,"note",None,None,"text ![](blob:new)",vec![],&["blob:new".to_owned()]);
+        assert_eq!(result.err().as_deref(),Some("DRAFT_ASSET_MISSING"));
+        assert_eq!(snapshots(&root.join(id)).len(),1);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn listing_reads_manifests_without_touching_bodies_or_images() {
+        let root = temp(); let id = "draft-12345678";
+        write_at(&root,id,"note",None,None,"body",vec![]).unwrap();
+        fs::write(snapshots(&root.join(id))[0].join("document.md"), b"corrupted body").unwrap();
+        let listed = macos_read::list(&root).unwrap();
+        assert_eq!((listed.len(), listed[0].snapshots), (1, 1));
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

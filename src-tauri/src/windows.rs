@@ -19,10 +19,55 @@ pub fn create(app: &AppHandle, transfers: &TransferStore, transfer: Option<serde
         .title("MinoMarkdown")
         .inner_size(1100.0, 760.0)
         .min_inner_size(720.0, 520.0)
+        .visible(false)
         .build() {
-        Ok(window) => { let _ = window.set_focus(); Ok(label) }
+        Ok(_) => { show_if_webview_stalls(app.clone(), label.clone()); Ok(label) }
         Err(_) => { let _ = transfers.0.lock().map(|mut map| map.remove(&label)); Err("WINDOW_CREATE_FAILED".into()) }
     }
+}
+
+/// Windows start hidden until their webview has applied saved settings. If it never reports in, show it anyway.
+pub fn show_if_webview_stalls(app: AppHandle, label: String) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(4));
+        if let Some(window) = app.get_webview_window(&label) {
+            if !window.is_visible().unwrap_or(true) { let _ = window.show(); let _ = window.set_focus(); }
+        }
+    });
+}
+
+fn external_url(raw: &str) -> Option<String> {
+    let url = tauri::Url::parse(raw).ok()?;
+    matches!(url.scheme(), "http" | "https" | "mailto").then(|| url.to_string())
+}
+
+/// Hands a web or mail link to the system. Only these schemes ever leave the app.
+#[tauri::command(async)]
+pub fn open_external(window: WebviewWindow, url: String) -> Result<(), String> {
+    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    let url = external_url(&url).ok_or("OUT_OF_SCOPE")?;
+    std::process::Command::new("/usr/bin/open").arg(url).spawn().map(|_| ()).map_err(|_| "IO_ERROR".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::external_url;
+    #[test]
+    fn only_web_and_mail_links_open_externally() {
+        assert!(external_url("https://example.com/a").is_some());
+        assert!(external_url("mailto:a@example.com").is_some());
+        for bad in ["file:///etc/passwd", "javascript:alert(1)", "tel:1", "-a Calculator", "./note.md"] { assert!(external_url(bad).is_none(), "{bad}"); }
+    }
+}
+
+#[tauri::command]
+pub fn show_workspace_window(window: WebviewWindow) -> Result<(), String> {
+    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    if !window.is_visible().unwrap_or(false) {
+        window.show().map_err(|_| "WINDOW_SHOW_FAILED")?;
+        let _ = window.set_focus();
+    }
+    Ok(())
 }
 
 #[tauri::command]

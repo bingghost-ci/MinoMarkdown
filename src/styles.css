@@ -322,3 +322,23 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
   .source-editor { padding: 32px 36px; }
   .document-context { display: none; }
 }
+
+.editor-root img[data-missing] { min-width: 120px; min-height: 48px; outline: 1px dashed var(--line); outline-offset: 2px; }
+.editor-host { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.editor-host[hidden], .editor-root[hidden] { display: none; }
+.find-bar { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--chrome); }
+.find-bar input { width: 180px; min-width: 0; padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); }
+.find-bar button:not(.icon-button) { padding: 3px 8px; }
+.find-count { min-width: 56px; color: var(--muted); font-size: 12px; text-align: center; }
+.find-match { background: rgba(255, 200, 0, 0.35); border-radius: 2px; }
+.find-match-active { background: rgba(255, 150, 0, 0.7); }
+.notice-bar { display: flex; align-items: center; gap: 10px; padding: 7px 14px; border-bottom: 1px solid var(--line); background: var(--chrome); color: var(--text); font-size: 13px; }
+.notice-bar > span { flex: 1; min-width: 0; }
+.notice-conflict, .notice-error { box-shadow: inset 3px 0 0 #d97706; }
+.diff-dialog { width: min(760px, 90vw); }
+.diff-lines { max-height: 50vh; overflow: auto; margin: 0; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+.diff-added { background: rgba(46, 160, 67, 0.18); }
+.diff-removed { background: rgba(248, 81, 73, 0.18); }
+.diff-legend { color: var(--muted); font-size: 12px; }
+.document-tab[data-dragging="true"] { opacity: 0.55; }
+.document-tab[data-drop-target="true"] { box-shadow: inset 2px 0 0 var(--accent); }

@@ -9,6 +9,7 @@ use std::fs;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 static SETTINGS_LOCK: Mutex<()> = Mutex::new(());
+static MERGE_LOCK: Mutex<()> = Mutex::new(());
 fn default_editor_width() -> String { "centered".into() }
 fn default_language() -> String { "zh-CN".into() }
 fn default_editor_font() -> String { "system".into() }
@@ -45,18 +46,34 @@ fn write_at(path: &Path, settings: &Settings) -> Result<(), String> {
     let expected = read_canonical_parent(path, 64 * 1024).ok().map(|old| format!("{:x}", Sha256::digest(old)));
     atomic_write::commit_canonical_parent(path, &bytes, expected.as_deref()).map(|_| ())
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_settings(app: AppHandle, window: WebviewWindow) -> Result<Settings, String> {
     if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
     Ok(read_at(&path(&app)?))
 }
-#[tauri::command]
-pub fn update_settings(app: AppHandle, window: WebviewWindow, settings: Settings) -> Result<(), String> {
+fn merged(current: &Settings, patch: serde_json::Map<String, serde_json::Value>) -> Result<Settings, String> {
+    let serde_json::Value::Object(mut fields) = serde_json::to_value(current).map_err(|_| "IO_ERROR")? else { return Err("IO_ERROR".into()) };
+    for (key, value) in patch {
+        if key == "schemaVersion" || !fields.contains_key(&key) { return Err("INVALID_SETTINGS".into()); }
+        fields.insert(key, value);
+    }
+    let next: Settings = serde_json::from_value(serde_json::Value::Object(fields)).map_err(|_| "INVALID_SETTINGS")?;
+    if valid(&next) { Ok(next) } else { Err("INVALID_SETTINGS".into()) }
+}
+/// Applies only the fields a window changed, so one window cannot write back another window's stale values.
+#[tauri::command(async)]
+pub fn update_settings(app: AppHandle, window: WebviewWindow, patch: serde_json::Map<String, serde_json::Value>) -> Result<Settings, String> {
     if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
-    write_at(&path(&app)?, &settings)?;
-    crate::native_menu::set_language(&app, &settings.language);
-    let _ = app.emit("language-changed", &settings.language);
-    Ok(())
+    let file = path(&app)?;
+    let next = { let _merge = MERGE_LOCK.lock().map_err(|_| "IO_ERROR")?; let next = merged(&read_at(&file), patch)?; write_at(&file, &next)?; next };
+    let menu_app = app.clone();
+    let language = next.language.clone();
+    // Native menu items may only be changed from the main thread.
+    let _ = app.run_on_main_thread(move || crate::native_menu::set_language(&menu_app, &language));
+    crate::recent::refresh_menu(&app);
+    let _ = app.emit("language-changed", &next.language);
+    let _ = app.emit("settings-changed", &next);
+    Ok(next)
 }
 
 #[cfg(test)]
@@ -87,6 +104,17 @@ mod tests {
         assert_eq!(read_at(&file), expanded);
         assert_eq!(fs::read(draft).unwrap(),b"draft kept");
         fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn patches_only_touch_named_fields_and_reject_unknown_ones() {
+        let mut current = Settings::default();
+        current.theme = "dark".into();
+        let patch = |value: serde_json::Value| value.as_object().unwrap().clone();
+        let next = merged(&current, patch(serde_json::json!({"windowWidth": 1300}))).unwrap();
+        assert_eq!((next.window_width, next.theme.as_str()), (1300, "dark"));
+        assert!(merged(&current, patch(serde_json::json!({"theme": "neon"}))).is_err());
+        assert!(merged(&current, patch(serde_json::json!({"nope": 1}))).is_err());
+        assert!(merged(&current, patch(serde_json::json!({"schemaVersion": 0}))).is_err());
     }
     #[test]
     fn rejects_values_outside_whitelist() {

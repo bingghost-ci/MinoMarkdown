@@ -1,4 +1,4 @@
-use crate::{documents::validate_image, fs::{atomic_write, asset_directory::{AssetDirectory, PutResult}}, markdown_images};
+use crate::{documents::{DocumentStore, asset_mime, read_granted_asset, validate_image}, staging::{StagedAsset, StagingStore}, fs::{atomic_write, asset_directory::{AssetDirectory, PutResult}}, markdown_images};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::HashMap, fs, path::Path, sync::{atomic::{AtomicU64, Ordering}, Mutex}, time::{Duration, Instant}};
@@ -27,7 +27,10 @@ pub struct ExportedAsset { path: String, sha256: String }
 pub struct ExportResult { name: String, sha256: String, assets: Vec<ExportedAsset>, generation: u64, revision: u64 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SnapshotOut { markdown: String, title: String, assets: Vec<SnapshotAsset>, generation: u64, revision: u64 }
+pub struct SnapshotOut { markdown: String, title: String, assets: Vec<StagedAsset>, generation: u64, revision: u64 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskAsset { url: String, relative: String }
 
 fn main_window(window: &WebviewWindow) -> Result<(), String> { if crate::is_workspace_window(window.label()) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
 fn digest(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
@@ -91,9 +94,16 @@ fn export_at(snapshot: &Snapshot, target: &Path, text_only: bool) -> Result<Expo
     Ok(ExportResult { name: target.file_name().ok_or("INVALID_PATH")?.to_string_lossy().into_owned(), sha256, assets: assets_out, generation: snapshot.generation, revision: snapshot.revision })
 }
 
-#[tauri::command]
-pub fn create_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, markdown: String, title: String, assets: Vec<SnapshotAsset>, generation: u64, revision: u64) -> Result<String, String> {
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
+pub fn create_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, documents: State<'_, DocumentStore>, staging: State<'_, StagingStore>, markdown: String, title: String, assets: Vec<StagedAsset>, disk_assets: Vec<DiskAsset>, token: Option<String>, generation: u64, revision: u64) -> Result<String, String> {
     main_window(&window)?;
+    let mut assets = assets.into_iter().map(|asset| Ok(SnapshotAsset { bytes: staging.take(&asset.staged)?, url: asset.url, mime: asset.mime })).collect::<Result<Vec<_>, String>>()?;
+    for asset in disk_assets {
+        let token = token.as_deref().ok_or("EXPORT_RESOURCE_MISSING")?;
+        let mime = asset_mime(&asset.relative).ok_or("EXPORT_RESOURCE_MISSING")?;
+        assets.push(SnapshotAsset { bytes: read_granted_asset(&documents, token, &asset.relative).map_err(|_| "EXPORT_RESOURCE_MISSING")?, url: asset.url, mime: mime.into() });
+    }
     register(&store, markdown, title, assets, generation, revision)
 }
 #[tauri::command]
@@ -102,11 +112,12 @@ pub fn release_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, 
     store.0.lock().map_err(|_| "IO_ERROR")?.remove(&snapshot_id);
     Ok(())
 }
-#[tauri::command]
-pub fn read_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, snapshot_id: String) -> Result<SnapshotOut, String> {
+#[tauri::command(async)]
+pub fn read_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, staging: State<'_, StagingStore>, snapshot_id: String) -> Result<SnapshotOut, String> {
     main_window(&window)?;
     let item = snapshot(&store, &snapshot_id)?;
-    Ok(SnapshotOut { markdown: item.markdown, title: item.title, assets: item.assets, generation: item.generation, revision: item.revision })
+    let assets = item.assets.into_iter().map(|asset| Ok(StagedAsset { staged: staging.put(asset.bytes)?, url: asset.url, mime: asset.mime })).collect::<Result<Vec<_>, String>>()?;
+    Ok(SnapshotOut { markdown: item.markdown, title: item.title, assets, generation: item.generation, revision: item.revision })
 }
 #[tauri::command]
 pub async fn export_snapshot_md(app: AppHandle, window: WebviewWindow, store: State<'_, SnapshotStore>, snapshot_id: String, text_only: bool) -> Result<Option<ExportResult>, String> {

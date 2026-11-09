@@ -192,12 +192,12 @@ pub(crate) fn workspace_path(store: &WorkspaceStore, token: &str) -> Result<Path
     if grant.workspace != token { return Err("OUT_OF_SCOPE".into()); }
     checked_path(&grant)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_children(window: WebviewWindow, store: State<'_, WorkspaceStore>, directory_token: String, offset: usize) -> Result<ChildrenPage, String> {
     require_main(&window)?;
     list_at(&store, &directory_token, offset)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_workspace_document(window: WebviewWindow, workspace: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String) -> Result<OpenDocument, String> {
     require_main(&window)?;
     let grant = workspace.0.lock().map_err(|_| "IO_ERROR")?.get(&entry_token).cloned().ok_or("OUT_OF_SCOPE")?;
@@ -214,7 +214,7 @@ pub fn release_workspace(window: WebviewWindow, store: State<'_, WorkspaceStore>
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, parent_token: String, name: String, directory: bool) -> Result<WorkspaceEntry, String> {
     require_main(&window)?;
     if !valid_name(&name, directory) { return Err("INVALID_NAME".into()); }
@@ -228,7 +228,7 @@ pub fn create_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceS
     Ok(WorkspaceEntry { token, name, directory })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn rename_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String, new_name: String) -> Result<WorkspaceEntry, String> {
     require_main(&window)?;
     let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(&entry_token).cloned().ok_or("OUT_OF_SCOPE")?;
@@ -262,7 +262,7 @@ fn move_to_trash(path: &Path) -> Result<(), String> {
 #[cfg(not(target_os = "macos"))]
 fn move_to_trash(_path: &Path) -> Result<(), String> { Err("UNSUPPORTED_PLATFORM".into()) }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn trash_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String) -> Result<(), String> {
     require_main(&window)?;
     let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(&entry_token).cloned().ok_or("OUT_OF_SCOPE")?;

@@ -1,0 +1,37 @@
+{
+  "runtime": "node v22.23.2",
+  "documents": {
+    "100KiB": {
+      "chars": 43890,
+      "prepareMarkdownMs": 756,
+      "imageUrlsInMs": 183
+    },
+    "1MiB": {
+      "chars": 449394,
+      "prepareMarkdownMs": 6598,
+      "imageUrlsInMs": 1685
+    },
+    "3MiB": {
+      "chars": 1348182,
+      "prepareMarkdownMs": 16911,
+      "imageUrlsInMs": 4204
+    }
+  },
+  "images": {
+    "twentyImageDocument": {
+      "prepareMarkdownMs": 26,
+      "imageUrlsInMs": 5,
+      "found": 20
+    },
+    "twentyOneMiBAsNumberArrayJson": {
+      "ms": 1424,
+      "jsonMiB": 71
+    }
+  },
+  "dist": {
+    "totalKiB": 4216,
+    "largest": "index-CppxGRq8.js",
+    "largestKiB": 1838,
+    "katexFiles": 59
+  }
+}
