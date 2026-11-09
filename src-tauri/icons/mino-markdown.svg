@@ -1,21 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="MinoMarkdown leather notebook and pen">
-  <rect x="32" y="32" width="960" height="960" rx="220" fill="#f3eee5"/>
-
-  <!-- Page edges remain visible behind the leather cover at small sizes. -->
-  <rect x="263" y="217" width="563" height="635" rx="64" fill="#c6b8a1"/>
-  <rect x="249" y="206" width="563" height="635" rx="62" fill="#fffaf0"/>
-  <rect x="205" y="173" width="563" height="635" rx="67" fill="#a9683f"/>
-  <path d="M272 173h69v635h-69c-37 0-67-30-67-67V240c0-37 30-67 67-67z" fill="#78472f"/>
-  <path d="M331 173h35v635h-35z" fill="#8c5132"/>
-  <rect x="237" y="206" width="498" height="569" rx="42" fill="none" stroke="#dca479" stroke-width="7" stroke-dasharray="15 16"/>
-  <path d="M331 219v540" stroke="#c4875f" stroke-width="6" stroke-linecap="round"/>
-
-  <!-- The pen rests diagonally on the cover. -->
-  <path d="M625 282c16-24 37-31 58-18l31 19c21 13 23 37 9 58L486 701l-79 55 12-96z" fill="#754b31" opacity=".32"/>
-  <path d="M634 254c15-22 38-28 59-15l28 18c21 13 25 37 10 59l-242 371-56-36z" fill="#26323b"/>
-  <path d="M654 269l56 36-34 52-56-36z" fill="#c6a273"/>
-  <path d="M624 329l56 36-195 300-56-36z" fill="#344550"/>
-  <path d="M429 652l56 36-70 48-2-61z" fill="#e2c7a1"/>
-  <path d="M413 675l2 61-24 17z" fill="#27323a"/>
-  <path d="M578 411l32 21" stroke="#8fa0a6" stroke-width="6" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="MinoMarkdown: letter M and download arrow">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b88d8"/><stop offset="1" stop-color="#1b4c88"/></linearGradient>
+    <filter id="shadow" x="0" y="0" width="1024" height="1024" filterUnits="userSpaceOnUse"><feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity=".28"/></filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" filter="url(#shadow)"/>
+  <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="#fff" stroke-opacity=".14" stroke-width="6"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="88" transform="translate(512 512) scale(.92) translate(-532 -512)">
+    <path d="M236 672V352L386 530 536 352V672" stroke="#fff"/>
+    <path d="M738 352V652M648 562L738 662 828 562" stroke="#ffc65c"/>
+  </g>
 </svg>
