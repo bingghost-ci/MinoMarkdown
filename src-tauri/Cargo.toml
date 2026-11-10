@@ -27,3 +27,9 @@ objc2 = "=0.6.5"
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSDocumentController", "NSMenu", "NSMenuItem"] }
 libc = "=0.2.191"
 objc2-foundation = { version = "=0.3.2", features = ["NSFileManager", "NSURL", "NSError", "NSString"] }
+
+# Debug info goes to a separate dSYM beside the binary and stays out of the app bundle.
+[profile.release]
+debug = true
+split-debuginfo = "packed"
+strip = "debuginfo"

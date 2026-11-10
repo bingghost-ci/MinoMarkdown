@@ -11,7 +11,12 @@ cd /Users/bobby/Code/software/MinoMarkdown
 ./start.sh
 ```
 
-脚本检查 Apple Silicon 工具链，先清理上次生成的 `.app`、主程序、ZIP 与 manifest，再构建未签名 `.app`、同步生成本地 ZIP 和 manifest，并打开应用。依赖编译缓存会保留。仅构建和打包：`./start.sh --build-only`。应用产物在 `src-tauri/target/release/bundle/macos/MinoMarkdown.app`；包的架构、哈希与 ZIP 对应关系见 [包 manifest](dist-package/manifest.json)。再次启动前先退出已有窗口；脚本不会结束你的会话。
+`start.sh` 调用 `build.sh` 后打开应用，再次启动前先退出已有窗口。应用产物在 `src-tauri/target/release/bundle/macos/MinoMarkdown.app`，包的架构、哈希与 ZIP 对应关系见 [包 manifest](dist-package/manifest.json)。
+
+- `./build.sh`：清理上次的构建输出，按锁定版本补齐缺失的依赖，构建未签名 `.app`，生成并核验 ZIP 和 manifest。不改版本号，保留依赖和 Cargo 编译缓存。
+- `./install.sh`：补丁版本号加 1，调用 `build.sh`，核验产物后安装到 `/Applications` 并启动。旧版本在运行时会先请求正常退出，未保存的文档由应用提示，脚本不会强杀。安装后提交版本文件、打 `v版本号` 标签并推送当前分支和标签，把符号压缩到项目的 `Symbols/`，最后删除 `src-tauri/target/debug`、`src-tauri/target/release` 和本地 ZIP、manifest。安装完成前失败或按 Ctrl-C 会恢复版本号和原来的应用。
+
+`Symbols/` 不进 Git，只保留最新一次安装的 release 符号，每次整体覆盖：`release-symbols.zip` 内含 Rust dSYM 和前端 source map，`build-info.txt` 记录版本、提交、分支、工作区状态和工具链版本。旧版本需要调试时，从对应 tag 重新构建。`install.sh` 清理后，下一次构建要全量编译 Rust 依赖。
 
 ## 使用
 
@@ -38,7 +43,7 @@ npm run archcheck
 npm run typecheck
 npm run test
 cargo test --lib --manifest-path src-tauri/Cargo.toml
-./start.sh --build-only
+./build.sh
 ```
 
 [方案、技术设计、开发计划与 Goal](doc/README.md) · [界面重设计与截图](doc/07-界面重设计.md) · [当前进度和验收边界](doc/06-开发进度.md) · [验收步骤](doc/05-验收与发布.md)

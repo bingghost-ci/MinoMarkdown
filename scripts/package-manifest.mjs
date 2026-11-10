@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url'
 
 const project = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const app = 'src-tauri/target/release/bundle/macos/MinoMarkdown.app'
-const zip = 'dist-package/MinoMarkdown-0.1.0-macos-arm64-unsigned.zip'
+const { version: expectedVersion } = JSON.parse(await readFile(resolve(project, 'src-tauri/tauri.conf.json'), 'utf8'))
+const zip = `dist-package/MinoMarkdown-${expectedVersion}-macos-arm64-unsigned.zip`
 const manifest = 'dist-package/manifest.json'
 const appFile = (relative) => resolve(project, app, relative)
 const zipFile = resolve(project, zip)
@@ -49,7 +50,7 @@ async function inspect() {
   const archivedBinary = execFileSync('unzip', ['-p', zipFile, `MinoMarkdown.app/${executable}`], { maxBuffer: 32 * 1024 * 1024 })
   const archivedPlist = execFileSync('unzip', ['-p', zipFile, `MinoMarkdown.app/${plist}`], { maxBuffer: 32 * 1024 * 1024 })
   const archivedIcon = execFileSync('unzip', ['-p', zipFile, `MinoMarkdown.app/${icon}`], { maxBuffer: 32 * 1024 * 1024 })
-  if (architecture !== 'arm64' || minimumSystemVersion !== '12.0' || version !== '0.1.0' || iconName !== 'icon.icns') {
+  if (architecture !== 'arm64' || minimumSystemVersion !== '12.0' || version !== expectedVersion || iconName !== 'icon.icns') {
     throw new Error('Bundle identity, architecture or declared minimum macOS version differs from the release plan')
   }
   if (sha256(binaryBytes) !== sha256(archivedBinary) || sha256(plistBytes) !== sha256(archivedPlist) || sha256(iconBytes) !== sha256(archivedIcon)) {

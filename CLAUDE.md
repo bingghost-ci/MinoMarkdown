@@ -17,11 +17,12 @@ cargo test --lib --manifest-path src-tauri/Cargo.toml              # all Rust te
 cargo test --lib --manifest-path src-tauri/Cargo.toml atomic_write # Rust tests matching a filter
 cargo check --locked --offline --manifest-path src-tauri/Cargo.toml
 npm run tauri -- dev                              # desktop app with Vite on 127.0.0.1:1420
-./start.sh                                        # clean release build, package, and open the app
-./start.sh --build-only                           # same, without opening
+./build.sh                                        # clean release build and package; never changes the version
+./start.sh                                        # build.sh, then open the app (--build-only skips opening)
+./install.sh                                      # bump patch, build, install to /Applications, commit, tag, push, save symbols, remove build output
 ```
 
-There is no linter configured. `./start.sh` exits if `mino-markdown` is already running, and it deletes the previous `.app`, ZIP, and `dist-package/manifest.json` before building. Its output is an unsigned app at `src-tauri/target/release/bundle/macos/MinoMarkdown.app`.
+There is no linter configured. `./start.sh` exits if `mino-markdown` is already running. `./build.sh` deletes the previous bundle, `dist`, ZIP, and `dist-package/manifest.json` but keeps Cargo caches, and its output is an unsigned app at `src-tauri/target/release/bundle/macos/MinoMarkdown.app`. `./install.sh` deletes all of `src-tauri/target/debug` and `release` after saving release symbols to the git-ignored `Symbols/`, so don't run it during native acceptance unless you mean to replace the installed app and push a version tag. The version lives in `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`, and they must agree.
 
 `npm run dev` serves the UI alone in a browser, where `isTauri()` is false and no Rust commands exist.
 

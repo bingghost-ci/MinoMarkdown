@@ -2,6 +2,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import type { Plugin } from 'vite'
+// @ts-expect-error This helper uses Node APIs, and the project has no Node type definitions.
+import { moveSourceMapsOutOfDist, sourceMapDir } from './scripts/source-map-plugin.mjs'
 
 // WebKit reads KaTeX's WOFF2 files, so the WOFF and TTF copies would only make the app larger.
 function woff2OnlyKatex(): Plugin {
@@ -18,7 +20,8 @@ function woff2OnlyKatex(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), woff2OnlyKatex()],
+  plugins: [react(), woff2OnlyKatex(), ...(sourceMapDir ? [moveSourceMapsOutOfDist(sourceMapDir)] : [])],
+  build: { sourcemap: sourceMapDir ? 'hidden' : false },
   clearScreen: false,
   server: { host: '127.0.0.1', port: 1420, strictPort: true },
   envPrefix: ['VITE_', 'TAURI_ENV_*'],

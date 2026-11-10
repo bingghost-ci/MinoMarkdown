@@ -6,3 +6,5 @@ src-tauri/gen/schemas/
 .DS_Store
 *.log
 doc/evidence/third-party-license-texts.txt
+Symbols/
+.Symbols.*
