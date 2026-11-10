@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-MinoMarkdown is a local, offline Markdown editor for macOS on Apple Silicon, built with Tauri 2 (Rust), React 19, TypeScript, and Milkdown/Crepe. The toolchain must be arm64: Node ≥22 (`.nvmrc` pins 22.23.2), Rust, and the Xcode Command Line Tools.
+Mino is a local, offline Markdown editor for macOS on Apple Silicon, built with Tauri 2 (Rust), React 19, TypeScript, and Milkdown/Crepe. The toolchain must be arm64: Node ≥22 (`.nvmrc` pins 22.23.2), Rust, and the Xcode Command Line Tools.
 
 ## Commands
 
@@ -22,7 +22,7 @@ npm run tauri -- dev                              # desktop app with Vite on 127
 ./install.sh                                      # bump patch, build, install to /Applications, commit, tag, push, save symbols, remove build output
 ```
 
-There is no linter configured. `./start.sh` exits if `mino-markdown` is already running. `./build.sh` deletes the previous bundle, `dist`, ZIP, and `dist-package/manifest.json` but keeps Cargo caches, and its output is an unsigned app at `src-tauri/target/release/bundle/macos/MinoMarkdown.app`. `./install.sh` deletes all of `src-tauri/target/debug` and `release` after saving release symbols to the git-ignored `Symbols/`, so don't run it during native acceptance unless you mean to replace the installed app and push a version tag. The version lives in `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`, and they must agree.
+There is no linter configured. `./start.sh` exits if `mino-markdown` is already running. `./build.sh` deletes the previous bundle, `dist`, ZIP, and `dist-package/manifest.json` but keeps Cargo caches, and its output is an unsigned app at `src-tauri/target/release/bundle/macos/Mino.app`. `./install.sh` deletes all of `src-tauri/target/debug` and `release` after saving release symbols to the git-ignored `Symbols/`, so don't run it during native acceptance unless you mean to replace the installed app and push a version tag. The version lives in `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`, and they must agree.
 
 `npm run dev` serves the UI alone in a browser, where `isTauri()` is false and no Rust commands exist.
 

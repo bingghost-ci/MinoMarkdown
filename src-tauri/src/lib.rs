@@ -92,7 +92,7 @@ pub fn run() {
                             &MenuItem::with_id(app, "zoom-reset", native_menu::label("zoom-reset", english), true, Some("Cmd+0"))?,
                             &PredefinedMenuItem::separator(app)?,
                         ])?;
-                    } else if title == app.package_info().name || title == "MinoMarkdown" {
+                    } else if title == app.package_info().name || title == "Mino" {
                         submenu.insert_items(&[
                             &MenuItem::with_id(app, "preferences", native_menu::label("preferences", english), true, Some("Cmd+,"))?,
                             &PredefinedMenuItem::separator(app)?,
@@ -221,7 +221,7 @@ pub fn run() {
             windows::close_workspace_window,
         ])
         .build(tauri::generate_context!())
-        .expect("failed to build MinoMarkdown")
+        .expect("failed to build Mino")
         .run(|app, event| {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = event {

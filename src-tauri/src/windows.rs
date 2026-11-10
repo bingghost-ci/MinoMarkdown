@@ -16,7 +16,7 @@ pub fn create(app: &AppHandle, transfers: &TransferStore, transfer: Option<serde
     let label = format!("workspace-{}", NEXT_WINDOW.fetch_add(1, Ordering::Relaxed));
     if let Some(value) = transfer { transfers.0.lock().map_err(|_| "IO_ERROR")?.insert(label.clone(), value); }
     match WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
-        .title("MinoMarkdown")
+        .title("Mino")
         .inner_size(1100.0, 760.0)
         .min_inner_size(720.0, 520.0)
         .visible(false)

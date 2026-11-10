@@ -6,9 +6,9 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const project = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const app = 'src-tauri/target/release/bundle/macos/MinoMarkdown.app'
+const app = 'src-tauri/target/release/bundle/macos/Mino.app'
 const { version: expectedVersion } = JSON.parse(await readFile(resolve(project, 'src-tauri/tauri.conf.json'), 'utf8'))
-const zip = `dist-package/MinoMarkdown-${expectedVersion}-macos-arm64-unsigned.zip`
+const zip = `dist-package/Mino-${expectedVersion}-macos-arm64-unsigned.zip`
 const manifest = 'dist-package/manifest.json'
 const appFile = (relative) => resolve(project, app, relative)
 const zipFile = resolve(project, zip)
@@ -41,15 +41,15 @@ async function inspect() {
   command('unzip', ['-tq', zipFile])
   const payloadFiles = await appFiles(resolve(project, app))
   const archivedFiles = command('unzip', ['-Z1', zipFile]).split('\n')
-    .filter((entry) => entry.startsWith('MinoMarkdown.app/') && !entry.endsWith('/') && !entry.split('/').some((part) => part.startsWith('._')))
-    .map((entry) => entry.slice('MinoMarkdown.app/'.length)).sort()
+    .filter((entry) => entry.startsWith('Mino.app/') && !entry.endsWith('/') && !entry.split('/').some((part) => part.startsWith('._')))
+    .map((entry) => entry.slice('Mino.app/'.length)).sort()
   if (JSON.stringify(payloadFiles) !== JSON.stringify(archivedFiles) ||
       JSON.stringify(payloadFiles) !== JSON.stringify([executable, plist, icon].sort())) {
     throw new Error('Bundle regular-file list differs from the ZIP or expected payload')
   }
-  const archivedBinary = execFileSync('unzip', ['-p', zipFile, `MinoMarkdown.app/${executable}`], { maxBuffer: 32 * 1024 * 1024 })
-  const archivedPlist = execFileSync('unzip', ['-p', zipFile, `MinoMarkdown.app/${plist}`], { maxBuffer: 32 * 1024 * 1024 })
-  const archivedIcon = execFileSync('unzip', ['-p', zipFile, `MinoMarkdown.app/${icon}`], { maxBuffer: 32 * 1024 * 1024 })
+  const archivedBinary = execFileSync('unzip', ['-p', zipFile, `Mino.app/${executable}`], { maxBuffer: 32 * 1024 * 1024 })
+  const archivedPlist = execFileSync('unzip', ['-p', zipFile, `Mino.app/${plist}`], { maxBuffer: 32 * 1024 * 1024 })
+  const archivedIcon = execFileSync('unzip', ['-p', zipFile, `Mino.app/${icon}`], { maxBuffer: 32 * 1024 * 1024 })
   if (architecture !== 'arm64' || minimumSystemVersion !== '12.0' || version !== expectedVersion || iconName !== 'icon.icns') {
     throw new Error('Bundle identity, architecture or declared minimum macOS version differs from the release plan')
   }

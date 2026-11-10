@@ -17,9 +17,9 @@ case "${1:-}" in
 esac
 
 install_dir=/Applications
-target="$install_dir/MinoMarkdown.app"
-staged="$install_dir/.MinoMarkdown.app.installing.$$"
-previous="$install_dir/.MinoMarkdown.app.previous.$$"
+target="$install_dir/Mino.app"
+staged="$install_dir/.Mino.app.installing.$$"
+previous="$install_dir/.Mino.app.previous.$$"
 lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 bundle_id=app.mino.markdown
 quit_timeout_seconds=120
@@ -87,11 +87,11 @@ cleanup() {
 # Asks the app to quit normally so it can prompt for unsaved documents. It is never killed.
 quit_running_app() {
   pgrep -x mino-markdown >/dev/null 2>&1 || return 0
-  log_info 'MinoMarkdown is running; asking it to quit. Save or discard any open documents when prompted.'
+  log_info 'Mino is running; asking it to quit. Save or discard any open documents when prompted.'
   quit_old_app=true
   waited=0
   while pgrep -x mino-markdown >/dev/null 2>&1; do
-    [ "$waited" -lt "$quit_timeout_seconds" ] || die "MinoMarkdown did not quit within $quit_timeout_seconds seconds. The installed app was not changed."
+    [ "$waited" -lt "$quit_timeout_seconds" ] || die "Mino did not quit within $quit_timeout_seconds seconds. The installed app was not changed."
     if [ $((waited % 15)) -eq 0 ]; then osascript -e "tell application id \"$bundle_id\" to quit" >/dev/null 2>&1 || true; fi
     sleep 1
     waited=$((waited + 1))
@@ -116,13 +116,13 @@ commit_tag_and_push() {
   push_command="git push --atomic origin refs/heads/$branch refs/tags/$tag"
   # shellcheck disable=SC2086
   if ! git commit -q --only -m "Bump version to $new_version" -- $version_files; then
-    warn_later "Could not commit the version. Run: git commit --only -m 'Bump version to $new_version' -- $version_files && git tag -a $tag -m 'MinoMarkdown $new_version' && $push_command"
+    warn_later "Could not commit the version. Run: git commit --only -m 'Bump version to $new_version' -- $version_files && git tag -a $tag -m 'Mino $new_version' && $push_command"
     return
   fi
   version_committed=true
   log_ok "Committed version $new_version"
-  if ! git tag -a "$tag" -m "MinoMarkdown $new_version"; then
-    warn_later "Could not create $tag. Run: git tag -a $tag -m 'MinoMarkdown $new_version' && $push_command"
+  if ! git tag -a "$tag" -m "Mino $new_version"; then
+    warn_later "Could not create $tag. Run: git tag -a $tag -m 'Mino $new_version' && $push_command"
     return
   fi
   log_ok "Tagged $tag"
@@ -136,7 +136,7 @@ commit_tag_and_push() {
 package_version() { sed -n 's/^  "version": "\([^"]*\)",$/\1/p' "node_modules/$1/package.json" 2>/dev/null | head -n 1; }
 
 write_build_info() {
-  printf 'product=MinoMarkdown\n'
+  printf 'product=Mino\n'
   printf 'version=%s\n' "$new_version"
   printf 'tag=%s\n' "$tag"
   printf 'commit=%s\n' "$(git rev-parse HEAD)"
@@ -182,7 +182,7 @@ backup_symbols() {
 
 remove_build_output() {
   rm -rf "$project_dir/src-tauri/target/debug" "$project_dir/src-tauri/target/release" || return 1
-  rm -f "$manifest" "$package_dir"/MinoMarkdown-*-macos-arm64-unsigned.zip || return 1
+  rm -f "$manifest" "$package_dir"/Mino-*-macos-arm64-unsigned.zip || return 1
 }
 
 log_step 'Checking prerequisites'
@@ -242,7 +242,7 @@ log_ok "Installed: $target"
 rm -rf "$previous" || warn_later "Could not remove the old copy at $previous"
 touch "$target" || true
 "$lsregister" -f "$target" || warn_later 'Could not refresh Launch Services.'
-if open "$target"; then log_ok "Launched MinoMarkdown $new_version"; else warn_later "Could not launch $target"; fi
+if open "$target"; then log_ok "Launched Mino $new_version"; else warn_later "Could not launch $target"; fi
 
 log_step "3/5 Committing, tagging, and pushing $tag"
 commit_tag_and_push
@@ -258,5 +258,5 @@ else
   log_step '5/5 Skipped build output removal'
 fi
 
-log_step "MinoMarkdown $new_version is installed"
+log_step "Mino $new_version is installed"
 if [ "$warnings" -gt 0 ]; then log_warn "Finished with $warnings warning(s); see above. The install itself succeeded."; fi

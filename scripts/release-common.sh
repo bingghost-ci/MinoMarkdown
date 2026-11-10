@@ -2,7 +2,7 @@
 
 release_dir="$project_dir/src-tauri/target/release"
 bundle_dir="$release_dir/bundle"
-app="$bundle_dir/macos/MinoMarkdown.app"
+app="$bundle_dir/macos/Mino.app"
 binary="$app/Contents/MacOS/mino-markdown"
 plist="$app/Contents/Info.plist"
 release_binary="$release_dir/mino-markdown"
@@ -41,7 +41,7 @@ version_of() {
   esac
 }
 
-archive_for() { printf '%s/MinoMarkdown-%s-macos-arm64-unsigned.zip' "$package_dir" "$1"; }
+archive_for() { printf '%s/Mino-%s-macos-arm64-unsigned.zip' "$package_dir" "$1"; }
 
 macho_uuids() { dwarfdump --uuid "$1" 2>/dev/null | awk '{print $2}' | sort; }
 

@@ -18,10 +18,10 @@ esac
 
 require_commands open
 if pgrep -x mino-markdown >/dev/null 2>&1; then
-  die 'MinoMarkdown is already running. Quit it, then run ./start.sh again to test the new build.'
+  die 'Mino is already running. Quit it, then run ./start.sh again to test the new build.'
 fi
 
 "$project_dir/build.sh"
 
-log_step 'Opening MinoMarkdown for local testing'
+log_step 'Opening Mino for local testing'
 open "$app"

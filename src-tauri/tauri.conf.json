@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MinoMarkdown",
+  "productName": "Mino",
   "version": "0.1.0",
   "identifier": "app.mino.markdown",
   "build": {
@@ -10,7 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "label": "main", "visible": false, "title": "MinoMarkdown", "width": 1100, "height": 760, "minWidth": 720, "minHeight": 520 }],
+    "windows": [{ "label": "main", "visible": false, "title": "Mino", "width": 1100, "height": 760, "minWidth": 720, "minHeight": 520 }],
     "security": {
       "csp": "default-src 'self'; img-src 'self' data: blob: mino-asset:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'; connect-src ipc: http://ipc.localhost",
       "capabilities": ["main"]

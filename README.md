@@ -1,4 +1,4 @@
-# MinoMarkdown
+# Mino
 
 面向 macOS Apple Silicon 的本地 Markdown 编辑器。当前是功能开发阶段的本地测试版：代码和自动化检查已推进，Finder、中文输入、真实截图、系统 PDF、性能和用户验收将在集中实测时完成。重要文档请先保留原始副本。
 
@@ -11,7 +11,7 @@ cd /Users/bobby/Code/software/MinoMarkdown
 ./start.sh
 ```
 
-`start.sh` 调用 `build.sh` 后打开应用，再次启动前先退出已有窗口。应用产物在 `src-tauri/target/release/bundle/macos/MinoMarkdown.app`，包的架构、哈希与 ZIP 对应关系见 [包 manifest](dist-package/manifest.json)。
+`start.sh` 调用 `build.sh` 后打开应用，再次启动前先退出已有窗口。应用产物在 `src-tauri/target/release/bundle/macos/Mino.app`，包的架构、哈希与 ZIP 对应关系见 [包 manifest](dist-package/manifest.json)。
 
 - `./build.sh`：清理上次的构建输出，按锁定版本补齐缺失的依赖，构建未签名 `.app`，生成并核验 ZIP 和 manifest。不改版本号，保留依赖和 Cargo 编译缓存。
 - `./install.sh`：补丁版本号加 1，调用 `build.sh`，核验产物后安装到 `/Applications` 并启动。旧版本在运行时会先请求正常退出，未保存的文档由应用提示，脚本不会强杀。安装后提交版本文件、打 `v版本号` 标签并推送当前分支和标签，把符号压缩到项目的 `Symbols/`，最后删除 `src-tauri/target/debug`、`src-tauri/target/release` 和本地 ZIP、manifest。安装完成前失败或按 Ctrl-C 会恢复版本号和原来的应用。

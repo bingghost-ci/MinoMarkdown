@@ -19,7 +19,7 @@ const english: Record<string, string> = {
   '尚未打开文件夹': 'No Folder Open', '拖入文件夹或使用上方按钮；已打开的文档显示在右侧标签栏': 'Drop a folder here or use the button above. Open documents appear in tabs on the right.',
   '刷新目录': 'Refresh Folder', '文件夹目录': 'Folder Tree', '目录操作': 'Folder Actions', '新建目录': 'New Folder',
   '重命名': 'Rename', '移到废纸篓': 'Move to Trash', '关闭文件夹': 'Close Folder', '文件名': 'File Name', '目录名': 'Folder Name',
-  '新名称': 'New Name', '创建': 'Create', '取消': 'Cancel', '确定': 'OK', '开始使用 MinoMarkdown': 'Get Started with MinoMarkdown',
+  '新名称': 'New Name', '创建': 'Create', '取消': 'Cancel', '确定': 'OK', '开始使用 Mino': 'Get Started with Mino',
   '打开 Markdown 文档': 'Open a Markdown Document',
   '直接打开一篇文档，或打开文件夹浏览多级目录。都可以从 Finder 拖入窗口。': 'Open a document or browse a folder tree. You can also drag either from Finder.',
   '打开 Markdown 文件': 'Open Markdown File', '从 Finder 拖入': 'Drag from Finder:', '.md / .markdown 文件': '.md / .markdown files',

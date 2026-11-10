@@ -55,7 +55,7 @@ pub fn label(id: &str, english: bool) -> &'static str {
         ("export-text", true) => "Export Text-only Markdown…", ("export-text", false) => "导出仅正文 Markdown…",
         ("toggle-source", true) => "Switch Source / Visual Mode", ("toggle-source", false) => "切换源码 / 可视化模式",
         ("find", true) => "Find and Replace…", ("find", false) => "查找和替换…",
-        ("quit", true) => "Quit MinoMarkdown", ("quit", false) => "退出 MinoMarkdown",
+        ("quit", true) => "Quit Mino", ("quit", false) => "退出 Mino",
         _ => "",
     }
 }

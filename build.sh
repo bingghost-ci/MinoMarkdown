@@ -9,7 +9,7 @@ case "${1:-}" in
   '') ;;
   --help|-h)
     printf 'Usage: ./build.sh\n'
-    printf 'Remove previous build output, then build, archive, and verify MinoMarkdown.app.\n'
+    printf 'Remove previous build output, then build, archive, and verify Mino.app.\n'
     printf 'Does not change the version. Dependencies and Cargo caches are kept.\n'
     exit 0
     ;;
@@ -20,11 +20,11 @@ require_commands npm node rustc cargo lipo ditto unzip plutil dwarfdump
 version=$(version_of src-tauri/tauri.conf.json)
 [ -n "$version" ] || die 'Could not read the version from src-tauri/tauri.conf.json.'
 archive=$(archive_for "$version")
-log_info "Building MinoMarkdown $version"
+log_info "Building Mino $version"
 
 log_step 'Removing previous build output'
 rm -rf "$bundle_dir" "$dsym" "$sourcemap_dir" "$project_dir/dist"
-rm -f "$release_binary" "$manifest" "$package_dir"/MinoMarkdown-*-macos-arm64-unsigned.zip
+rm -f "$release_binary" "$manifest" "$package_dir"/Mino-*-macos-arm64-unsigned.zip
 log_ok 'Previous build output removed; dependencies and Cargo caches kept'
 
 log_step 'Checking dependencies'
@@ -62,4 +62,4 @@ node scripts/package-manifest.mjs write
 node scripts/package-manifest.mjs verify
 log_ok "Package: $archive"
 
-log_step "Build of MinoMarkdown $version finished"
+log_step "Build of Mino $version finished"

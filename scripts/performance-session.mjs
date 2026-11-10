@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const project = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const app = resolve(project, 'src-tauri/target/release/bundle/macos/MinoMarkdown.app/Contents/MacOS/mino-markdown')
+const app = resolve(project, 'src-tauri/target/release/bundle/macos/Mino.app/Contents/MacOS/mino-markdown')
 const fixture = resolve(project, 'dist-package/performance-fixtures/manifest.json')
 const metrics = {
   'startup-ms': { unit: 'ms', minimum: 20 },

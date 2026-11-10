@@ -41,7 +41,7 @@ import '@milkdown/crepe/theme/common/toolbar.css'
 import '@milkdown/crepe/theme/common/table.css'
 import '@milkdown/crepe/theme/classic.css'
 
-const spikeDocument = '# MinoMarkdown 编辑验证\n\n请在这里输入中文、英文和 Markdown。\n\n选中这段文字，再用顶部工具栏尝试加粗和撤销。\n'
+const spikeDocument = '# Mino 编辑验证\n\n请在这里输入中文、英文和 Markdown。\n\n选中这段文字，再用顶部工具栏尝试加粗和撤销。\n'
 const MAX_LIVE_EDITORS = 5
 const loadEditorAdapter = () => import('../features/editor/EditorAdapter')
 // Development-only verification samples; the production bundle does not include them.
@@ -203,7 +203,7 @@ export function useDocumentWorkspace() {
   const [linkHref, setLinkHref] = useState('')
   const [imageAltOpen, setImageAltOpen] = useState(false)
   const [imageAltText, setImageAltText] = useState('')
-  const [workspace, setWorkspace] = useState<WorkspaceRoot | null>(uiPreview ? { token: 'preview-root', name: 'MinoMarkdown' } : null)
+  const [workspace, setWorkspace] = useState<WorkspaceRoot | null>(uiPreview ? { token: 'preview-root', name: 'Mino' } : null)
   const [settings, setSettings] = useState<Settings>(() => uiPreview ? { ...defaultSettings, theme: new URLSearchParams(window.location.search).get('ui-theme') === 'light' ? 'light' : 'dark' } : defaultSettings)
   const sidebarOpen = settings.showSidebar
   const t = (value: string) => translate(value, settings.language)

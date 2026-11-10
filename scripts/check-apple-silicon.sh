@@ -39,9 +39,9 @@ printf 'Rust host: %s\n' "$rust_host"
 
 rust_app="$root_dir/src-tauri/target/debug/mino-markdown"
 if [ -f "$rust_app" ]; then
-  require_arm64 "$rust_app" 'MinoMarkdown Rust executable'
+  require_arm64 "$rust_app" 'Mino Rust executable'
 else
-  printf 'MinoMarkdown Rust executable: pending build\n'
+  printf 'Mino Rust executable: pending build\n'
 fi
 
 tauri_native="$root_dir/node_modules/@tauri-apps/cli-darwin-arm64/cli.darwin-arm64.node"

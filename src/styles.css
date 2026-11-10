@@ -217,6 +217,8 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
   --crepe-font-title: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --crepe-base-font-size: var(--editor-font-size);
 }
+/* Kaiti SC and other CJK fonts need synthesized bold and italic, or those marks look unchanged. */
+.editor-root .milkdown .ProseMirror, .markdown-preview-content { font-synthesis: weight style; }
 .editor-root .milkdown .ProseMirror { max-width: var(--editor-centered-width); min-height: 100%; margin: 0 auto; padding: 40px 64px 120px; background: var(--surface); font-family: var(--editor-font); font-size: var(--editor-font-size); line-height: var(--editor-line-height); }
 .editor-panel[data-editor-width="wide"] .editor-root .milkdown .ProseMirror { width: 100%; max-width: none; padding-inline: clamp(24px, 4vw, 72px); }
 .editor-root .milkdown .ProseMirror .milkdown-image-block { max-width: 100%; }
