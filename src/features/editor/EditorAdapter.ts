@@ -1,7 +1,7 @@
 import { Crepe, CrepeFeature } from '@milkdown/crepe'
 import { insertImageCommand } from '@milkdown/kit/preset/commonmark'
 import { callCommand } from '@milkdown/kit/utils'
-import { commandsCtx, editorViewCtx, prosePluginsCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
+import { commandsCtx, editorViewCtx, inputRulesCtx, prosePluginsCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import { undoDepth, redoDepth } from '@milkdown/kit/prose/history'
 import { toggleStrongCommand, toggleEmphasisCommand, toggleInlineCodeCommand, wrapInHeadingCommand, turnIntoTextCommand, wrapInBulletListCommand, wrapInOrderedListCommand, wrapInBlockquoteCommand, insertHrCommand, createCodeBlockCommand, clearTextInCurrentBlockCommand } from '@milkdown/kit/preset/commonmark'
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
@@ -12,8 +12,12 @@ import { insertTableCommand, addRowAfterCommand, addColAfterCommand, setAlignCom
 import { toggleLinkCommand, updateLinkCommand, updateImageCommand } from '@milkdown/kit/preset/commonmark'
 import { rewriteImageUrls } from '../export/snapshot'
 import { safeTextHandler } from './markdownStringify'
+import { renderMermaidPreview } from '../diagrams/mermaid'
+import { remarkDemoteCurrencyPlugin } from './mathEditor'
+import { CREPE_INLINE_MATH_RULE, STRICT_INLINE_MATH_RULE } from '../../core/markdown/math'
 import { isAssetUrl, relativeFromAssetUrl } from './assetUrl'
 import { findKey, findPlugin, setFind } from './find'
+import { outlineFromDoc, type OutlineItem } from '../outline/outline'
 
 export type PendingAsset = { url: string; bytes: Uint8Array<ArrayBuffer>; mime: string }
 type PendingImage = { file: File; validation: Promise<void>; error: string | null }
@@ -35,9 +39,11 @@ export class EditorAdapter {
   private readonly onToolbarChange?: (state: ToolbarState) => void
   private readonly onImageError?: (message: string | null) => void
   private readonly onLinkOpen?: (href: string) => void
+  private readonly onSelectionChange?: () => void
 
-  constructor(root: HTMLElement, markdown: string, onChange?: () => void, imageUrls: Map<string, string> = new Map(), recoveredAssets: Map<string, { bytes: Uint8Array<ArrayBuffer>; mime: string }> = new Map(), pendingFiles: Map<string, File> = new Map(), onToolbarChange?: (state: ToolbarState) => void, onImageError?: (message: string | null) => void, onTableRequest?: (anchor: { x: number; y: number }) => void, onLinkOpen?: (href: string) => void) {
+  constructor(root: HTMLElement, markdown: string, onChange?: () => void, imageUrls: Map<string, string> = new Map(), recoveredAssets: Map<string, { bytes: Uint8Array<ArrayBuffer>; mime: string }> = new Map(), pendingFiles: Map<string, File> = new Map(), onToolbarChange?: (state: ToolbarState) => void, onImageError?: (message: string | null) => void, onTableRequest?: (anchor: { x: number; y: number }) => void, onLinkOpen?: (href: string) => void, onSelectionChange?: () => void) {
     this.root = root
+    this.onSelectionChange = onSelectionChange
     this.onLinkOpen = onLinkOpen
     this.persisted = imageUrls
     this.onToolbarChange = onToolbarChange
@@ -52,10 +58,12 @@ export class EditorAdapter {
       defaultValue: markdown,
       features: {
         [CrepeFeature.AI]: false,
-        [CrepeFeature.Latex]: false,
+        [CrepeFeature.Latex]: true,
         [CrepeFeature.TopBar]: false,
       },
       featureConfigs: {
+        [CrepeFeature.CodeMirror]: { renderPreview: renderMermaidPreview },
+        [CrepeFeature.Latex]: { katexOptions: { trust: false, strict: 'ignore' } },
         [CrepeFeature.BlockEdit]: {
           buildMenu: (builder) => {
             const table = builder.getGroup('advanced').group.items.find((item) => item.key === 'table')
@@ -76,7 +84,7 @@ export class EditorAdapter {
         },
       },
     })
-    this.crepe.editor.config((ctx) => {
+    this.crepe.editor.use(remarkDemoteCurrencyPlugin).config((ctx) => {
       ctx.update(prosePluginsCtx, (plugins) => plugins.concat(findPlugin))
       ctx.update(remarkStringifyOptionsCtx, (options) => ({
         ...options,
@@ -86,7 +94,7 @@ export class EditorAdapter {
     this.crepe.on((listener) => {
       // `updated` avoids the full Markdown serialization `markdownUpdated` performs on every change.
       listener.updated(() => { onChange?.(); this.emitToolbarState() })
-      listener.selectionUpdated(() => this.emitToolbarState())
+      listener.selectionUpdated(() => { this.emitToolbarState(); this.onSelectionChange?.() })
     })
   }
 
@@ -110,6 +118,10 @@ export class EditorAdapter {
 
   private async start(): Promise<void> {
     await this.crepe.create()
+    // Crepe's rule turns typed prices such as "$5 and $" into a formula.
+    this.crepe.editor.action((ctx) => {
+      for (const rule of ctx.get(inputRulesCtx) as unknown as { match: RegExp }[]) if (rule.match.source === CREPE_INLINE_MATH_RULE) rule.match = STRICT_INLINE_MATH_RULE
+    })
     this.root.addEventListener('error', this.onResourceError, true)
     this.root.addEventListener('paste', this.onPaste, true)
     this.root.addEventListener('drop', this.onDrop, true)
@@ -414,6 +426,36 @@ export class EditorAdapter {
       if (match) view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, match.from, match.to)).scrollIntoView())
     })
     return this.findCounts()
+  }
+
+  /** The document's readable text and, when text is selected, that selection. No Markdown is involved. */
+  plainText(): { text: string; selected: string | null } {
+    let result: { text: string; selected: string | null } = { text: '', selected: null }
+    if (this.created) this.crepe.editor.action((ctx) => {
+      const { doc, selection } = ctx.get(editorViewCtx).state
+      result = { text: doc.textBetween(0, doc.content.size, '\n', ' '), selected: selection.empty ? null : doc.textBetween(selection.from, selection.to, '\n', ' ') }
+    })
+    return result
+  }
+
+  outline(): OutlineItem[] {
+    if (!this.created) return []
+    let items: OutlineItem[] = []
+    this.crepe.editor.action((ctx) => { items = outlineFromDoc(ctx.get(editorViewCtx).state.doc) })
+    return items
+  }
+
+  /** Moves the view and caret to a heading. A selection change adds nothing to the undo history. */
+  revealHeading(pos: number): void {
+    if (!this.created) return
+    this.crepe.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx)
+      if (pos > view.state.doc.content.size || view.state.doc.nodeAt(pos)?.type.name !== 'heading') return
+      if (!this.composing) view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, pos + 1)))
+      const element = view.nodeDOM(pos)
+      if (element instanceof HTMLElement) element.scrollIntoView({ block: 'start' })
+      if (!this.composing) view.focus()
+    })
   }
 
   getMarkdown(): string {

@@ -43,6 +43,23 @@ export function localAssetPath(url: string): string | null {
   return decoded
 }
 
+/**
+ * Splits the images a snapshot needs into in-memory assets and files next to the document.
+ * Source-protected documents have no editor, so `pending` holds only recovered assets for them.
+ */
+export function snapshotResources<T>(urls: readonly string[], pending: ReadonlyMap<string, T>, hasDocumentFile: boolean): { assets: T[]; diskAssets: { url: string; relative: string }[] } {
+  const assets: T[] = []
+  const diskAssets: { url: string; relative: string }[] = []
+  for (const url of urls) {
+    const staged = pending.get(url)
+    if (staged) { assets.push(staged); continue }
+    const relative = localAssetPath(url)
+    if (!hasDocumentFile || !relative) throw new Error('EXPORT_RESOURCE_MISSING')
+    diskAssets.push({ url, relative })
+  }
+  return { assets, diskAssets }
+}
+
 export function rewriteImageUrls(markdown: string, replacements: ReadonlyMap<string, string>): string {
   if (replacements.size === 0) return markdown
   const { images, imageReferences, linkReferences, definitions } = parse(markdown)

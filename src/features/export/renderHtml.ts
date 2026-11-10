@@ -2,9 +2,13 @@ import type { Root } from 'mdast'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import rehypeStringify from 'rehype-stringify'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
+import { remarkDemoteCurrency } from '../../core/markdown/math'
+import { rehypeRenderMath, withMathClasses } from '../../core/markdown/renderMath'
+import { rehypeEmbedDiagrams } from '../../core/markdown/diagrams'
 
 export type ResolvedImage = { bytes: Uint8Array; mime: string }
 export type ImageResolver = (url: string) => Promise<ResolvedImage | null>
@@ -18,6 +22,7 @@ const stylesheet = `
   pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f3f4f2; padding: 14px; border-radius: 6px; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   table { border-collapse: collapse; width: 100%; } th,td { border: 1px solid #bcc5bd; padding: 6px 9px; text-align: left; }
+  .mermaid-diagram { margin: 1.2em 0; text-align: center; break-inside: avoid; } .mermaid-diagram svg { max-width: 100%; height: auto; }
   blockquote { border-left: 3px solid #91a395; padding-left: 1em; margin-left: 0; color: #56625a; }
   @page { size: A4; margin: 18mm; }
   @media print { body { max-width: none; padding: 0; } thead { display: table-header-group; } img,blockquote,tr { break-inside: avoid; } pre { break-inside: auto; } }
@@ -78,14 +83,44 @@ function embedImages(resolveImage: ImageResolver) {
   }
 }
 
-export async function renderHtml(markdown: string, title: string, resolveImage: ImageResolver): Promise<string> {
+/** HTML and PDF carry the document body only; metadata stays in the Markdown file. */
+export function exportBody(markdown: string): string {
+  const text = markdown.startsWith('\uFEFF') ? markdown.slice(1) : markdown
+  return text.replace(/^---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)(?:\r?\n|$)/, '')
+}
+
+function countRawHtml(report: { omittedHtml: number }) {
+  return () => (tree: Root) => {
+    function walk(node: { type: string; value?: string; children?: unknown[] }) {
+      if (node.type === 'html' && !node.value?.trimStart().startsWith('<!--')) report.omittedHtml++
+      for (const child of node.children ?? []) walk(child as typeof node)
+    }
+    walk(tree)
+  }
+}
+
+export type RenderedExport = { html: string; omittedHtml: number; hasMath: boolean; failedDiagrams: number }
+
+/** Renders a page and reports how many raw HTML fragments sanitizing left out. */
+export async function renderExport(markdown: string, title: string, resolveImage: ImageResolver, diagrams: ReadonlyMap<string, string> = new Map()): Promise<RenderedExport> {
+  const report = { omittedHtml: 0, hasMath: false, failedDiagrams: 0 }
   const processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
+    .use(remarkMath)
+    .use(remarkDemoteCurrency)
+    .use(countRawHtml(report))
     .use(embedImages(resolveImage))
     .use(remarkRehype)
-    .use(rehypeSanitize, { ...defaultSchema, protocols: { ...defaultSchema.protocols, src: ['data'] } })
-    .use(rehypeStringify)
-  const body = String(await processor.process(markdown))
-  return `<!doctype html>\n<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'"><title>${escapeHtml(title)}</title><style>${stylesheet}</style></head><body><article>${body}</article></body></html>`
+    .use(rehypeSanitize, withMathClasses({ ...defaultSchema, protocols: { ...defaultSchema.protocols, src: ['data'] } }))
+    .use(rehypeRenderMath, report)
+    .use(rehypeEmbedDiagrams, { diagrams, report })
+    .use(rehypeStringify, { allowDangerousHtml: true })
+  const body = String(await processor.process(exportBody(markdown)))
+  const html = `<!doctype html>\n<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'"><title>${escapeHtml(title)}</title><style>${stylesheet}</style></head><body><article>${body}</article></body></html>`
+  return { html, omittedHtml: report.omittedHtml, hasMath: report.hasMath, failedDiagrams: report.failedDiagrams }
+}
+
+export async function renderHtml(markdown: string, title: string, resolveImage: ImageResolver): Promise<string> {
+  return (await renderExport(markdown, title, resolveImage)).html
 }

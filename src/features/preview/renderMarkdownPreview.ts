@@ -2,9 +2,12 @@ import type { Root } from 'mdast'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import rehypeStringify from 'rehype-stringify'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
+import { remarkDemoteCurrency } from '../../core/markdown/math'
+import { rehypeRenderMath, withMathClasses } from '../../core/markdown/renderMath'
 import { assetUrl } from '../editor/assetUrl'
 import { localAssetPath } from '../export/snapshot'
 
@@ -43,16 +46,19 @@ function blockImages(assetKey?: string) {
   }
 }
 
-const previewSchema = { ...defaultSchema, protocols: { ...defaultSchema.protocols, src: [...(defaultSchema.protocols?.src ?? []), 'mino-asset'] } }
+const previewSchema = withMathClasses({ ...defaultSchema, protocols: { ...defaultSchema.protocols, src: [...(defaultSchema.protocols?.src ?? []), 'mino-asset'] } })
 
 export function renderMarkdownPreview(markdown: string, assetKey?: string): string {
   return String(unified()
     .use(remarkParse)
     .use(remarkGfm)
+    .use(remarkMath)
+    .use(remarkDemoteCurrency)
     .use(headingAnchors)
     .use(blockImages, assetKey)
     .use(remarkRehype)
     .use(rehypeSanitize, previewSchema)
-    .use(rehypeStringify)
+    .use(rehypeRenderMath)
+    .use(rehypeStringify, { allowDangerousHtml: true })
     .processSync(markdown))
 }

@@ -4,7 +4,7 @@ import type { WorkspaceEntry } from '../useDocumentWorkspace'
 import { translateStatus } from '../i18n'
 
 export function FileSidebar({ workspace: w }: { workspace: DocumentWorkspace }) {
-  const { chooseWorkspace, closeWorkspace, createEntry, desktop, document, loadChildren, newEntryName, newEntryType, openWorkspaceEntry, renameEntry, renameName, renaming, selectedEntry, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, settings, sidebarOpen, sidebarRoot, t, toggleDirectory, trashEntry, tree, workspace } = w
+  const { openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, chooseWorkspace, closeWorkspace, createEntry, desktop, document, loadChildren, newEntryName, newEntryType, openWorkspaceEntry, renameEntry, renameName, renaming, selectedEntry, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, settings, sidebarOpen, sidebarRoot, t, toggleDirectory, trashEntry, tree, workspace } = w
   function treeKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, entry: WorkspaceEntry) {
     if (event.key === 'ArrowRight' && entry.directory) { event.preventDefault(); if (!tree[entry.token]?.expanded) toggleDirectory(entry.token) }
     if (event.key === 'ArrowLeft' && entry.directory) { event.preventDefault(); if (tree[entry.token]?.expanded) toggleDirectory(entry.token) }
@@ -40,7 +40,20 @@ export function FileSidebar({ workspace: w }: { workspace: DocumentWorkspace }) 
           {!workspace && <div className="sidebar-empty"><FolderOpen className="sidebar-empty-icon" aria-hidden="true" /><p>{t('尚未打开文件夹')}</p><span>{t('拖入文件夹或使用上方按钮；已打开的文档显示在右侧标签栏')}</span></div>}
           {workspace && <>
             <div className="tree-header"><ChevronDown aria-hidden="true" /><strong title={workspace.name}>{workspace.name}</strong><button type="button" className="icon-button" onClick={() => void loadChildren(workspace.token)} title={t('刷新目录')} aria-label={t('刷新目录')}><RefreshCw aria-hidden="true" /></button></div>
-            <div role="tree" aria-label={t('文件夹目录')} className="file-tree">{renderChildren(workspace.token)}</div>
+            <div className="workspace-search" role="search"><input type="search" aria-label={t('搜索文件夹')} placeholder={t('搜索文件夹')} value={searchQuery}
+              onChange={(event) => { setSearchQuery(event.target.value); if (!(event.nativeEvent as InputEvent).isComposing) runWorkspaceSearch(event.target.value) }}
+              onCompositionEnd={(event) => runWorkspaceSearch(event.currentTarget.value)}
+              onKeyDown={(event) => { if (event.key === 'Escape' && !event.nativeEvent.isComposing) { setSearchQuery(''); runWorkspaceSearch('') } }} /></div>
+            {searchQuery.trim()
+              ? <div className="search-results" aria-label={t('搜索结果')}>
+                {searchState.searching && <p className="tree-note" role="status">{t('正在搜索…')}</p>}
+                {searchState.error && <p className="tree-note" role="alert">{translateStatus(searchState.error, settings.language)}</p>}
+                {searchState.results && !searchState.searching && searchState.results.hits.length === 0 && <p className="tree-note">{t('没有找到匹配内容')}</p>}
+                {searchState.results?.hits.map((hit) => <button key={`${hit.token}-${hit.occurrence}`} type="button" className="search-hit" title={hit.path} onClick={() => void openSearchHit(hit)}><strong>{hit.name}<small>:{hit.line}</small></strong><span>{hit.snippet}</span></button>)}
+                {searchState.results?.truncated && <p className="tree-note">{t('结果过多，只显示前 500 条')}</p>}
+                {Boolean(searchState.results?.skipped) && <p className="tree-note">{t('部分文件因过大、编码或权限被跳过')}</p>}
+              </div>
+              : <div role="tree" aria-label={t('文件夹目录')} className="file-tree">{renderChildren(workspace.token)}</div>}
             <div className="tree-actions"><button type="button" onClick={() => { setNewEntryType('file'); setNewEntryName('新文档.md') }}><FilePlus2 aria-hidden="true" />{t('新建文档')}</button><details className="tree-action-menu"><summary aria-label={t('目录操作')} title={t('目录操作')}><MoreHorizontal aria-hidden="true" /></summary><div className="tree-action-popup">
               <button type="button" onClick={() => { setNewEntryType('directory'); setNewEntryName('新目录') }}><FolderPlus aria-hidden="true" />{t('新建目录')}</button>
               <button type="button" disabled={!selectedEntry} onClick={() => { setRenameName(selectedEntry?.name ?? ''); setRenaming(true) }}><Pencil aria-hidden="true" />{t('重命名')}</button>

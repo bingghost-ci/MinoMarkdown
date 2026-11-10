@@ -12,7 +12,7 @@
   "app": {
     "windows": [{ "label": "main", "visible": false, "title": "MinoMarkdown", "width": 1100, "height": 760, "minWidth": 720, "minHeight": 520 }],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob: mino-asset:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost",
+      "csp": "default-src 'self'; img-src 'self' data: blob: mino-asset:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'; connect-src ipc: http://ipc.localhost",
       "capabilities": ["main"]
     }
   },

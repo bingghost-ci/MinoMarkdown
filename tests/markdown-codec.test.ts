@@ -60,10 +60,10 @@ describe('partial degradation', () => {
     }
   })
 
-  it('still protects real math and directives and says where in readable text', () => {
-    expect(prepareMarkdown('公式 $x_1$ 结束\n').analysis.mode).toBe('source-protected')
-    expect(prepareMarkdown('$$\na\n$$\n').analysis.mode).toBe('source-protected')
-    const analysis = prepareMarkdown('第一行\n\n公式 $x_1$\n').analysis
+  it('still protects directives and says where in readable text', () => {
+    expect(prepareMarkdown('公式 $x_1$ 结束\n').analysis.mode).toBe('visual')
+    expect(prepareMarkdown('$$\na\n$$\n').analysis.mode).toBe('visual')
+    const analysis = prepareMarkdown('第一行\n\n:::note\n内容\n:::\n').analysis
     expect(describeIssues(analysis)).toContain('第 3 行')
     expect(describeIssues(analysis)).not.toContain('UNKNOWN_EXTENSION')
   })

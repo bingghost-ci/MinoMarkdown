@@ -20,6 +20,7 @@ pub fn label(id: &str, english: bool) -> &'static str {
         ("print", true) => "Print / Save as PDF…", ("print", false) => "打印 / 存储为 PDF…",
         ("view-toolbar", true) => "Toggle File Toolbar", ("view-toolbar", false) => "显示或隐藏操作栏",
         ("view-sidebar", true) => "Toggle Sidebar", ("view-sidebar", false) => "显示或隐藏文件栏",
+        ("view-outline", true) => "Toggle Outline", ("view-outline", false) => "显示或隐藏大纲",
         ("preferences", true) => "Settings…", ("preferences", false) => "设置…",
         ("open-recent", true) => "Open Recent", ("open-recent", false) => "打开最近使用",
         ("no-recent", true) => "No Recent Items", ("no-recent", false) => "没有最近使用的项目",

@@ -4,7 +4,8 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import { compareMarkdown, describeIssues, exceedsVisualLimit, protectedFragments } from '../core/markdown/compatibility'
-import { prepareMarkdownAsync, renderPreviewAsync } from '../core/markdown/analysisClient'
+import { countWordsAsync, imageUrlsInAsync, mermaidSourcesAsync, prepareMarkdownAsync, renderExportAsync, renderPreviewAsync } from '../core/markdown/analysisClient'
+import { mayContainMermaid } from '../core/markdown/diagrams'
 import { composeVisualMarkdown, prepareMarkdown, type PreparedMarkdown } from '../core/markdown/codec'
 import type { EditorAdapter as EditorInstance, PendingAsset, ToolbarState } from '../features/editor/EditorAdapter'
 import { EditorPool } from '../features/editor/editorPool'
@@ -13,20 +14,23 @@ import { assetUrl, isAssetUrl, relativeFromAssetUrl } from '../features/editor/a
 import { beginSave, clearExternalConflict, createSession, editSession, externalConflict, isDirty, saveCanceled, saveFailed, saveSucceeded, type DocumentSession } from '../features/document/session'
 import { mayLeaveDocument, type UnsavedAction } from '../features/document/lifecycle'
 import { createDraftScheduler, type DraftScheduler } from '../features/document/draftScheduler'
+import { autosaveDecision } from '../features/document/autosave'
 import { lineDiff, type DiffLine } from '../features/document/lineDiff'
 import { findInText, type FindMatch } from '../features/editor/find'
-import { imageUrlsIn, localAssetPath, rewriteImageUrls } from '../features/export/snapshot'
+import { outlineFromSource, type OutlineItem } from '../features/outline/outline'
+import { imageUrlsIn, localAssetPath, rewriteImageUrls, snapshotResources } from '../features/export/snapshot'
 import { translate, translateStatus, type Language } from './i18n'
 import { fontFamilies, type EditorFontId, type ThemeId } from './appearance'
 import { applyRemoteSettings, settingsPatch } from './settingsSync'
 import { blobUrl, readStaged, stageAssets, type StagedAsset } from './binary'
-// Listed individually so the disabled LaTeX feature does not bundle its fonts.
+// Listed individually so unused Crepe features add no styles.
 import '@milkdown/crepe/theme/common/prosemirror.css'
 import '@milkdown/crepe/theme/common/reset.css'
 import '@milkdown/crepe/theme/common/block-edit.css'
 import '@milkdown/crepe/theme/common/code-mirror.css'
 import '@milkdown/crepe/theme/common/cursor.css'
 import '@milkdown/crepe/theme/common/image-block.css'
+import '@milkdown/crepe/theme/common/latex.css'
 import '@milkdown/crepe/theme/common/link-tooltip.css'
 import '@milkdown/crepe/theme/common/list-item.css'
 import '@milkdown/crepe/theme/common/placeholder.css'
@@ -57,11 +61,14 @@ type DraftContent = DraftSummary & { markdown: string; assets: StagedAsset[]; as
 type WorkspaceRoot = { token: string; name: string }
 export type WorkspaceEntry = { token: string; name: string; directory: boolean }
 type ChildrenPage = { entries: WorkspaceEntry[]; nextOffset: number | null }
+export type SearchHit = { token: string; name: string; path: string; line: number; snippet: string; occurrence: number }
+type SearchResults = { hits: SearchHit[]; truncated: boolean; skipped: number }
 type SnapshotOut = { markdown: string; title: string; assets: StagedAsset[]; generation: number; revision: number }
+type RestoredSession = { documents: OpenResult[]; active: number | null; missing: number }
 type OpenIntent = { token: string; name: string; kind: 'markdown' | 'image' | 'folder' }
 type NativeImageIntent = { name: string; mime: string; staged: string }
-export type Settings = { schemaVersion: number; theme: ThemeId; sidebarWidth: number; windowWidth: number; windowHeight: number; showFileToolbar: boolean; showSidebar: boolean; editorWidth: 'centered' | 'wide'; editorFont: EditorFontId; editorFontSize: number; editorLineHeight: 'compact' | 'comfortable' | 'relaxed'; language: Language }
-const defaultSettings: Settings = { schemaVersion: 1, theme: 'system', sidebarWidth: 230, windowWidth: 1100, windowHeight: 760, showFileToolbar: false, showSidebar: true, editorWidth: 'centered', editorFont: 'system', editorFontSize: 15, editorLineHeight: 'comfortable', language: 'zh-CN' }
+export type Settings = { schemaVersion: number; theme: ThemeId; sidebarWidth: number; windowWidth: number; windowHeight: number; showFileToolbar: boolean; showSidebar: boolean; showOutline: boolean; autoSave: boolean; autoSaveSeconds: number; restoreSession: boolean; editorWidth: 'centered' | 'wide'; editorFont: EditorFontId; editorFontSize: number; editorLineHeight: 'compact' | 'comfortable' | 'relaxed'; language: Language }
+const defaultSettings: Settings = { schemaVersion: 1, theme: 'system', sidebarWidth: 230, windowWidth: 1100, windowHeight: 760, showFileToolbar: false, showSidebar: true, showOutline: false, autoSave: false, autoSaveSeconds: 30, restoreSession: false, editorWidth: 'centered', editorFont: 'system', editorFontSize: 15, editorLineHeight: 'comfortable', language: 'zh-CN' }
 type TabItem = { key: string; document: DocumentState; session: DocumentSession }
 type DetachedAsset = { url: string; staged: string; mime: string }
 type DetachedTransfer = { name: string; token: string; assetKey: string; retiredTokens: string[]; revision: string; markdown: string; originalMarkdown: string; sourceText: string; mode: DocumentState['mode']; draftId: string; session: DocumentSession; assets: DetachedAsset[]; imageUrls: [string, string][] }
@@ -175,12 +182,17 @@ export function useDocumentWorkspace() {
   const findRef = useRef({ open: findOpen, query: findQuery })
   findRef.current = { open: findOpen, query: findQuery }
   const runFindRef = useRef<(query: string) => void>(() => undefined)
+  const findStepRef = useRef<(direction: 1 | -1) => void>(() => undefined)
   const [drafts, setDrafts] = useState<DraftSummary[]>([])
   const [draftPreview, setDraftPreview] = useState<DraftContent | null>(null)
   const [draftsOpen, setDraftsOpen] = useState(false)
   const [toolbar, setToolbar] = useState<ToolbarState>({ ready: false, composing: false, block: 'paragraph', marks: [], canUndo: false, canRedo: false, inTable: false, linkHref: null, imageAlt: null })
   const [linkOpen, setLinkOpen] = useState(false)
   const [sourceView, setSourceView] = useState(false)
+  const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([])
+  const [wordCounts, setWordCounts] = useState<{ total: number; selected: number | null }>({ total: 0, selected: null })
+  const wordCountSequence = useRef(0)
+  const derivedTimer = useRef<number | undefined>(undefined)
   const [tablePicker, setTablePicker] = useState<{ x: number; y: number } | null>(null)
   const [linkHref, setLinkHref] = useState('')
   const [imageAltOpen, setImageAltOpen] = useState(false)
@@ -193,6 +205,10 @@ export function useDocumentWorkspace() {
   const [systemDark, setSystemDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false)
   const [tree, setTree] = useState<Record<string, TreeState>>(uiPreview ? previewTree : {})
   const [selectedDirectory, setSelectedDirectory] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchState, setSearchState] = useState<{ results: SearchResults | null; searching: boolean; error: string | null }>({ results: null, searching: false, error: null })
+  const searchSequence = useRef(0)
+  const searchTimer = useRef<number | undefined>(undefined)
   const [selectedEntry, setSelectedEntry] = useState<(WorkspaceEntry & { parentToken: string }) | null>(null)
   const [newEntryType, setNewEntryType] = useState<'file' | 'directory' | null>(null)
   const [newEntryName, setNewEntryName] = useState('')
@@ -220,8 +236,46 @@ export function useDocumentWorkspace() {
     renderPreviewAsync(source, document.assetKey || undefined).then((html) => html, () => null).then((html) => { if (current) setPreview({ source, html }) })
     return () => { current = false }
   }, [wantsPreview, document.sourceText, document.assetKey])
+  const refreshDerivedRef = useRef<() => void>(() => undefined)
+  refreshDerivedRef.current = () => {
+    if (settingsRef.current.showOutline) setOutlineItems(currentOutline())
+    void refreshWordCounts()
+  }
+  useEffect(() => { refreshDerivedRef.current() }, [document.id, document.mode, toolbar.ready, sourceView, previewHtml, settings.showOutline])
+
+  async function refreshWordCounts(): Promise<void> {
+    const sequence = ++wordCountSequence.current
+    const current = documentRef.current
+    const element = sourceEditor.current
+    const visual = current.mode === 'visual' ? adapter.current?.plainText() : null
+    const text = visual?.text ?? element?.value ?? current.sourceText
+    const selected = visual ? visual.selected : element && element.selectionStart !== element.selectionEnd ? element.value.slice(element.selectionStart, element.selectionEnd) : null
+    const [total, selectedTotal] = await Promise.all([countWordsAsync(text), selected === null ? null : countWordsAsync(selected)])
+    if (sequence !== wordCountSequence.current) return
+    setWordCounts((old) => old.total === total && old.selected === selectedTotal ? old : { total, selected: selectedTotal })
+  }
+  useEffect(() => () => window.clearTimeout(derivedTimer.current), [])
+
+  function currentOutline(): OutlineItem[] {
+    const current = documentRef.current
+    if (current.mode === 'visual') return adapter.current?.outline() ?? []
+    if (previewRoot.current) return Array.from(previewRoot.current.querySelectorAll('h1, h2, h3, h4, h5, h6'), (heading, target) => ({ level: Number(heading.tagName[1]), text: heading.textContent?.trim() ?? '', target })).filter((item) => item.text)
+    return outlineFromSource(sourceEditor.current?.value ?? current.sourceText)
+  }
+
+  function goToOutlineItem(item: OutlineItem) {
+    if (documentRef.current.mode === 'visual') { adapter.current?.revealHeading(item.target); return }
+    if (previewRoot.current) { previewRoot.current.querySelectorAll('h1, h2, h3, h4, h5, h6')[item.target]?.scrollIntoView({ block: 'start' }); return }
+    const element = sourceEditor.current
+    if (!element) return
+    element.focus()
+    element.setSelectionRange(item.target, item.target)
+    const lines = element.value.slice(0, item.target).split('\n').length
+    element.scrollTop = Math.max(0, (lines - 2) * (parseFloat(getComputedStyle(element).lineHeight) || 22))
+  }
+
   const canProceedRef = useRef<(finalizeDiscard?: boolean) => Promise<boolean>>(async () => true)
-  const saveDocumentRef = useRef<() => Promise<boolean>>(async () => false)
+  const saveDocumentRef = useRef<(background?: boolean) => Promise<boolean>>(async () => false)
   const closeWindowRef = useRef<() => Promise<void>>(async () => undefined)
 
   /** Keystrokes only advance the ref; React re-renders when something visible about the session changes. */
@@ -229,7 +283,18 @@ export function useDocumentWorkspace() {
     const previous = sessionRef.current
     sessionRef.current = next
     if (next.revision !== previous.revision && isDirty(next)) draftScheduler.current?.schedule()
+    if (next.revision !== previous.revision) scheduleDerivedRefresh()
+    if (next.revision !== previous.revision && isDirty(next)) autosaveScheduler.current?.schedule()
     if (isDirty(next) !== isDirty(previous) || next.generation !== previous.generation || next.persistence !== previous.persistence || next.diskRevision !== previous.diskRevision || next.errorCode !== previous.errorCode) setSession(next)
+  }
+
+  /** Derived views follow edits on a delay, so typing never waits for them. */
+  function scheduleDerivedRefresh() {
+    window.clearTimeout(derivedTimer.current)
+    derivedTimer.current = window.setTimeout(() => {
+      if (composingRef.current) { scheduleDerivedRefresh(); return }
+      refreshDerivedRef.current()
+    }, 300)
   }
 
   function updateTabs(next: TabItem[]) {
@@ -438,7 +503,7 @@ export function useDocumentWorkspace() {
     setTablePicker(null)
     setImageAltOpen(false)
     if (document.mode === 'source-protected') {
-      setStatus(`源码模式：${describeIssues(document.prepared.analysis) || '手动切换'}；可保存原文，HTML/PDF 暂不可导出`)
+      setStatus(`源码模式：${describeIssues(document.prepared.analysis) || '手动切换'}；可保存原文`)
       if (findRef.current.open) window.setTimeout(() => runFindRef.current(findRef.current.query), 0)
       return
     }
@@ -449,7 +514,7 @@ export function useDocumentWorkspace() {
       editorPool.current ??= new EditorPool<EditorInstance>(host, MAX_LIVE_EDITORS, (editor) => editor.dispose(), () => { const root = window.document.createElement('div'); root.className = 'editor-root'; return root })
       const { editor: instance, created } = editorPool.current.activate(document.id, (root) => new EditorAdapter(root, document.markdown, () => {
         if (sessionRef.current.generation === document.id) updateSession(editSession(sessionRef.current))
-      }, document.imageUrls, document.recoveredAssets, document.pendingFiles, setToolbar, (message) => { if (message) setStatus(message) }, setTablePicker, (href) => linkOpenRef.current(href)))
+      }, document.imageUrls, document.recoveredAssets, document.pendingFiles, setToolbar, (message) => { if (message) setStatus(message) }, setTablePicker, (href) => linkOpenRef.current(href), scheduleDerivedRefresh))
       adapter.current = instance
       adapterDocumentId.current = document.id
       editorPool.current.retain(new Set([documentRef.current.id, ...tabsRef.current.map((tab) => tab.document.id)]))
@@ -670,6 +735,39 @@ export function useDocumentWorkspace() {
   }, [desktop, document.id, dirty, toolbar.composing])
 
   useEffect(() => () => draftScheduler.current?.cancel(), [document.id])
+
+  const autosaveScheduler = useRef<DraftScheduler | null>(null)
+  const autosaveStopped = useRef(new Set<number>())
+  const autosaveTimerRef = useRef<() => void>(() => undefined)
+  autosaveTimerRef.current = () => {
+    const current = documentRef.current
+    const decision = autosaveDecision({
+      enabled: settingsRef.current.autoSave, hasFile: Boolean(current.token), dirty: isDirty(sessionRef.current), persistence: sessionRef.current.persistence,
+      stopped: autosaveStopped.current.has(current.id), conflict: diskConflictRef.current?.documentId === current.id,
+      busy: busyRef.current, composing: composingRef.current, ready: current.mode !== 'visual' || Boolean(adapter.current?.isReady()),
+    })
+    if (decision === 'wait') autosaveScheduler.current?.schedule()
+    if (decision !== 'save') return
+    void saveDocumentRef.current(true).then((saved) => {
+      if (documentRef.current.id !== current.id) return
+      if (['failed', 'conflict'].includes(sessionRef.current.persistence)) {
+        // The save reported why; repeating it every interval would only hide the first error.
+        autosaveStopped.current.add(current.id)
+        setStatus('自动保存已暂停；请处理上面的问题后手动保存一次')
+      } else if (!saved && isDirty(sessionRef.current)) autosaveScheduler.current?.schedule()
+    })
+  }
+
+  useEffect(() => {
+    autosaveScheduler.current?.cancel()
+    autosaveScheduler.current = settings.autoSave ? createDraftScheduler(() => autosaveTimerRef.current(), settings.autoSaveSeconds * 1000, settings.autoSaveSeconds * 1000) : null
+    if (isDirty(sessionRef.current)) autosaveScheduler.current?.schedule()
+    return () => autosaveScheduler.current?.cancel()
+  }, [settings.autoSave, settings.autoSaveSeconds])
+
+  useEffect(() => {
+    if (isDirty(sessionRef.current) && sessionRef.current.generation === document.id) autosaveScheduler.current?.schedule()
+  }, [document.id, document.token])
 
   async function discardDraft(draftId: string): Promise<void> {
     await draftWriteChain.current
@@ -934,6 +1032,66 @@ export function useDocumentWorkspace() {
     return () => { canceled = true; unlisten?.(); unlistenEmpty?.() }
   }, [desktop])
 
+  const sessionStarted = useRef(false)
+  const [sessionReady, setSessionReady] = useState(false)
+  const lastSessionRecord = useRef('')
+
+  async function restoreLastSession(): Promise<void> {
+    // A Finder open already in progress must finish first, so its file counts as open below.
+    while (busyRef.current) await new Promise((resolve) => window.setTimeout(resolve, 100))
+    busyRef.current = true
+    setBusy(true)
+    try {
+      const restored = await invoke<RestoredSession>('restore_session', { openTokens: tabsRef.current.map((tab) => tab.document.token).filter(Boolean) })
+      const items: TabItem[] = []
+      let activeItem: TabItem | null = null
+      let missing = restored.missing
+      for (const [index, opened] of restored.documents.entries()) {
+        try {
+          const hydrated = await hydrateImages(opened)
+          const item = { key: crypto.randomUUID(), document: hydrated, session: createSession(hydrated.id, hydrated.revision) }
+          items.push(item)
+          if (index === restored.active) activeItem = item
+        } catch { missing++; await releaseCandidate(opened.token) }
+      }
+      if (items.length > 0) {
+        const activeDocument = documentRef.current
+        const onlyBlank = tabsRef.current.length === 1 && activeDocument.id === initialDocumentId.current && !activeDocument.token && activeDocument.markdown === '' && !isDirty(sessionRef.current)
+        if (onlyBlank) { updateTabs(items); activateTab(activeItem ?? items[0]) }
+        // Something else opened first, such as a file from Finder, so it stays in front.
+        else { captureCurrentTab(); updateTabs([...items, ...tabsRef.current]) }
+      }
+      if (missing > 0) setStatus(`已恢复 ${items.length} 个文档；${missing} 个文件已不在原位置`)
+    } catch (error) { setStatus(errorText(error)) }
+    finally { busyRef.current = false; setBusy(false) }
+  }
+
+  useEffect(() => {
+    if (!desktop || !settingsLoaded || sessionStarted.current) return
+    sessionStarted.current = true
+    if (getCurrentWindow().label !== 'main' || !settingsRef.current.restoreSession) { setSessionReady(true); return }
+    void restoreLastSession().finally(() => setSessionReady(true))
+  }, [desktop, settingsLoaded])
+
+  useEffect(() => {
+    // Waiting for `sessionReady` keeps the blank startup tab from overwriting the saved session.
+    if (!desktop || !sessionReady || getCurrentWindow().label !== 'main') return
+    if (!settings.restoreSession) {
+      if (lastSessionRecord.current) { lastSessionRecord.current = ''; void invoke('remember_session', { tokens: [], active: null }).catch(() => undefined) }
+      return
+    }
+    const timer = window.setTimeout(() => {
+      const open = tabsRef.current.map((tab) => ({ key: tab.key, token: tab.key === activeTabKeyRef.current ? documentRef.current.token : tab.document.token })).filter((tab) => tab.token)
+      const active = open.findIndex((tab) => tab.key === activeTabKeyRef.current)
+      const payload = { tokens: open.map((tab) => tab.token), active: active < 0 ? null : active }
+      const record = JSON.stringify(payload)
+      if (record === lastSessionRecord.current) return
+      lastSessionRecord.current = record
+      void invoke('remember_session', payload).catch((error: unknown) => setStatus(errorText(error)))
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [desktop, sessionReady, settings.restoreSession, tabs, activeTabKey, document.token])
+
   async function newDocument() {
     if (busy) { noteBusy(); return }
     openTab(makeDocument('', settings.language === 'en-US' ? 'Untitled' : '未命名'))
@@ -981,6 +1139,7 @@ export function useDocumentWorkspace() {
   }
 
   async function activateWorkspace(chosen: WorkspaceRoot) {
+    resetWorkspaceSearch()
     if (workspace) await invoke('release_workspace', { token: workspace.token })
     setWorkspace(chosen)
     setTree({})
@@ -1008,8 +1167,50 @@ export function useDocumentWorkspace() {
     finally { setBusy(false) }
   }
 
+  /** Newer queries overtake older ones: Rust stops the old walk and the sequence drops any late answer. */
+  function runWorkspaceSearch(query: string) {
+    window.clearTimeout(searchTimer.current)
+    const sequence = ++searchSequence.current
+    const root = workspace?.token
+    if (!root || !query.trim()) {
+      setSearchState({ results: null, searching: false, error: null })
+      if (root && desktop) void invoke('search_workspace', { rootToken: root, query: '' }).catch(() => undefined)
+      return
+    }
+    setSearchState((current) => ({ ...current, searching: true, error: null }))
+    searchTimer.current = window.setTimeout(() => {
+      invoke<SearchResults>('search_workspace', { rootToken: root, query })
+        .then((results) => { if (sequence === searchSequence.current) setSearchState({ results, searching: false, error: null }) })
+        .catch((error: unknown) => { if (sequence === searchSequence.current && String(error) !== 'SEARCH_CANCELED') setSearchState({ results: null, searching: false, error: errorText(error) }) })
+    }, 250)
+  }
+
+  function resetWorkspaceSearch() {
+    window.clearTimeout(searchTimer.current)
+    searchSequence.current++
+    setSearchQuery('')
+    setSearchState({ results: null, searching: false, error: null })
+  }
+
+  async function openSearchHit(hit: SearchHit) {
+    const query = searchQuery.trim()
+    const open = tabsRef.current.find((tab) => tab.document.entryToken === hit.token)
+    if (open) switchTab(open.key)
+    else await openWorkspaceEntry(hit.token)
+    if (documentRef.current.entryToken !== hit.token) return
+    findRef.current = { open: true, query }
+    setFindQuery(query)
+    openFind()
+    const deadline = performance.now() + 5000
+    do await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    while (performance.now() < deadline && !(documentRef.current.mode === 'visual' ? adapterDocumentId.current === documentRef.current.id && adapter.current?.isReady() : sourceEditor.current))
+    runFindRef.current(query)
+    for (let step = 0; step < hit.occurrence; step++) findStepRef.current(1)
+  }
+
   async function closeWorkspace() {
     if (!workspace) return
+    resetWorkspaceSearch()
     try { await invoke('release_workspace', { token: workspace.token }); setWorkspace(null); setTree({}); setSelectedDirectory(null); setSelectedEntry(null) }
     catch (error) { setStatus(errorText(error)) }
   }
@@ -1057,8 +1258,9 @@ export function useDocumentWorkspace() {
     } catch (error) { setStatus(errorText(error)) }
   }
 
-  async function saveDocument(asNew = false): Promise<boolean> {
+  async function saveDocument(asNew = false, background = false): Promise<boolean> {
     const instance = adapter.current
+    if (background && (busyRef.current || toolbar.composing)) return false
     if (busy) {
       if (sessionRef.current.persistence === 'saving') { queuedSave.current = true; setStatus('正在保存，完成后会再保存一次') }
       else noteBusy()
@@ -1114,8 +1316,11 @@ export function useDocumentWorkspace() {
         try { await discardDraft(document.draftId) }
         catch (draftError) { draftCleanupError = `；草稿清理失败：${errorText(draftError)}` }
       }
-      setStatus(`已保存 ${saved.name}${isDirty(completed) ? '；保存期间的新修改仍未保存' : ''}${draftCleanupError}`)
-      void rememberDocument(saved.token).catch(() => undefined)
+      setStatus(`${background ? '已自动保存' : '已保存'} ${saved.name}${isDirty(completed) ? '；保存期间的新修改仍未保存' : ''}${draftCleanupError}`)
+      if (!background) {
+        autosaveStopped.current.delete(document.id)
+        void rememberDocument(saved.token).catch(() => undefined)
+      }
       return !isDirty(completed)
     } catch (error) {
       queuedSave.current = false
@@ -1127,29 +1332,30 @@ export function useDocumentWorkspace() {
       setBusy(false)
     }
   }
-  saveDocumentRef.current = () => saveDocument()
+  saveDocumentRef.current = (background = false) => saveDocument(false, background)
 
   async function exportPage(mode: 'html' | 'print') {
-    const instance = adapter.current
     if (busy) { noteBusy(); return }
-    if (!instance || document.mode === 'source-protected' || toolbar.composing) return
+    if ((document.mode === 'visual' && !adapter.current) || toolbar.composing) return
     setBusy(true)
     let snapshotId: string | null = null
     try {
       snapshotId = await captureSnapshot(false)
       const frozen = await invoke<SnapshotOut>('read_snapshot', { snapshotId })
       const assets = new Map(await Promise.all(frozen.assets.map(async (asset) => [asset.url, { bytes: await readStaged(asset.staged), mime: asset.mime }] as const)))
-      const [{ renderHtml }, { printHtml }] = await Promise.all([import('../features/export/renderHtml'), import('../features/export/printHtml')])
-      const html = await renderHtml(frozen.markdown, frozen.title.replace(/\.(md|markdown)$/i, ''), async (url) => {
-        const asset = assets.get(url)
-        return asset ?? null
-      })
+      const sources = mayContainMermaid(frozen.markdown) ? await mermaidSourcesAsync(frozen.markdown) : []
+      const diagrams = sources.length ? await (await import('../features/diagrams/mermaid')).renderDiagramsForExport(sources) : new Map<string, string>()
+      const rendered = await renderExportAsync(frozen.markdown, frozen.title.replace(/\.(md|markdown)$/i, ''), assets, diagrams)
+      const { omittedHtml, failedDiagrams } = rendered
+      const html = rendered.hasMath ? (await import('../features/export/katexStyles')).embedMathStyles(rendered.html) : rendered.html
+      const omitted = `${omittedHtml ? `；${omittedHtml} 处原始 HTML 未输出` : ''}${failedDiagrams ? `；${failedDiagrams} 张图表无法渲染，已保留代码` : ''}`
       if (mode === 'html') {
         const name = await invoke<string | null>('export_html', { html })
-        setStatus(name ? `已导出 ${name}` : '已取消 HTML 导出，当前文档未改变')
+        setStatus(name ? `已导出 ${name}${omitted}` : '已取消 HTML 导出，当前文档未改变')
       } else {
+        const { printHtml } = await import('../features/export/printHtml')
         const printState = await printHtml(html)
-        setStatus(printState === 'dialogOpened' ? '打印页已交给系统；请在系统对话框中选择“存储为 PDF”。应用无法确认最终 PDF 路径。' : '打印未完成')
+        setStatus(printState === 'dialogOpened' ? `打印页已交给系统；请在系统对话框中选择“存储为 PDF”。应用无法确认最终 PDF 路径。${omitted}` : '打印未完成')
       }
     } catch (error) {
       setStatus(errorText(error))
@@ -1166,17 +1372,11 @@ export function useDocumentWorkspace() {
     const markdown = document.mode === 'visual'
       ? composeVisualMarkdown(document.prepared.analysis, instance!.getPersistableMarkdown())
       : flushSourceText().sourceText
-    const assets: PendingAsset[] = []
-    const diskAssets: { url: string; relative: string }[] = []
+    let assets: PendingAsset[] = []
+    let diskAssets: { url: string; relative: string }[] = []
     if (!textOnly) {
-      const pending = new Map((await instance!.pendingAssets()).map((asset) => [asset.url, asset]))
-      for (const url of imageUrlsIn(markdown)) {
-        const staged = pending.get(url)
-        if (staged) { assets.push(staged); continue }
-        const relative = localAssetPath(url)
-        if (!document.token || !relative) throw new Error('EXPORT_RESOURCE_MISSING')
-        diskAssets.push({ url, relative })
-      }
+      const held: PendingAsset[] = document.mode === 'visual' ? await instance!.pendingAssets() : Array.from(document.recoveredAssets, ([url, asset]) => ({ url, ...asset }))
+      ;({ assets, diskAssets } = snapshotResources(await imageUrlsInAsync(markdown), new Map(held.map((asset) => [asset.url, asset])), Boolean(document.token)))
     }
     return invoke<string>('create_snapshot', { markdown, title: document.name, assets: await stageAssets(assets), diskAssets, token: document.token || null, generation: document.id, revision })
   }
@@ -1212,6 +1412,7 @@ export function useDocumentWorkspace() {
     if (action === 'print') void exportPage('print')
     if (action === 'view-toolbar') setSettings((current) => ({ ...current, showFileToolbar: !current.showFileToolbar }))
     if (action === 'view-sidebar') setSettings((current) => ({ ...current, showSidebar: !current.showSidebar }))
+    if (action === 'view-outline') setSettings((current) => ({ ...current, showOutline: !current.showOutline }))
     if (action === 'preferences') setSettingsOpen(true)
     if (action === 'recover-drafts') {
       setDraftsOpen(true)
@@ -1329,6 +1530,7 @@ export function useDocumentWorkspace() {
   }
 
   runFindRef.current = runFind
+  findStepRef.current = findStep
 
   function replaceInSource(ranges: FindMatch[]) {
     const element = sourceEditor.current
@@ -1537,7 +1739,7 @@ export function useDocumentWorkspace() {
 
   const persistenceLabel = session.persistence === 'saving' ? '保存中' : session.persistence === 'failed' ? '保存失败' : session.persistence === 'conflict' ? '磁盘冲突' : dirty ? '未保存' : document.token ? '已保存' : '未保存到磁盘'
 
-  return { notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, preview, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettings, setSettingsOpen, setSettingsTab, setSourceView, setStatus, setTabMenu, settings, settingsOpen, settingsTab, sidebarOpen, sidebarRoot, sourceEditor, sourceView, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabMenu, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspace }
+  return { scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, preview, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettings, setSettingsOpen, setSettingsTab, setSourceView, setStatus, setTabMenu, settings, settingsOpen, settingsTab, sidebarOpen, sidebarRoot, sourceEditor, sourceView, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabMenu, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspace }
 }
 
 export type DocumentWorkspace = ReturnType<typeof useDocumentWorkspace>

@@ -5,9 +5,9 @@ import { themeOptions } from '../appearance'
 import { translateStatus } from '../i18n'
 
 export function StatusBar({ workspace: w }: { workspace: DocumentWorkspace }) {
-  const { document, setSettings, settings, status, t } = w
+  const { document, setSettings, settings, status, t, wordCounts } = w
   return <>
-      <footer className="app-status"><span className="status-message" role="status" title={translateStatus(status, settings.language)}>{translateStatus(status, settings.language)}</span><span className="status-mode">{document.mode === 'source-protected' ? t('源码保护') : 'Markdown'}</span><label className="theme-control">{t('外观')} <select aria-label={t('外观主题')} value={settings.theme} onChange={(event) => setSettings((current) => ({ ...current, theme: event.target.value as Settings['theme'] }))}>{themeOptions.map((option) => <option key={option.id} value={option.id}>{t(option.label)}</option>)}</select></label></footer>
+      <footer className="app-status"><span className="status-message" role="status" title={translateStatus(status, settings.language)}>{translateStatus(status, settings.language)}</span><span className="status-mode">{wordCounts.selected !== null ? `${t('已选')} ${wordCounts.selected} / ` : ''}{wordCounts.total} {t('字')}</span><span className="status-mode">{document.mode === 'source-protected' ? t('源码保护') : 'Markdown'}</span><label className="theme-control">{t('外观')} <select aria-label={t('外观主题')} value={settings.theme} onChange={(event) => setSettings((current) => ({ ...current, theme: event.target.value as Settings['theme'] }))}>{themeOptions.map((option) => <option key={option.id} value={option.id}>{t(option.label)}</option>)}</select></label></footer>
   </>
 }
 

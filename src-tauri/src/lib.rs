@@ -34,6 +34,7 @@ pub fn run() {
         .manage(documents::DocumentStore::default())
         .manage(staging::StagingStore::default())
         .manage(workspace::WorkspaceStore::default())
+        .manage(workspace::SearchState::default())
         .manage(snapshots::SnapshotStore::default())
         .manage(open_intents::IntentStore::default())
         .manage(windows::TransferStore::default())
@@ -84,6 +85,7 @@ pub fn run() {
                             &MenuItem::with_id(app, "toggle-source", native_menu::label("toggle-source", english), true, None::<&str>)?,
                             &MenuItem::with_id(app, "view-toolbar", native_menu::label("view-toolbar", english), true, None::<&str>)?,
                             &MenuItem::with_id(app, "view-sidebar", native_menu::label("view-sidebar", english), true, None::<&str>)?,
+                            &MenuItem::with_id(app, "view-outline", native_menu::label("view-outline", english), true, None::<&str>)?,
                             &PredefinedMenuItem::separator(app)?,
                         ])?;
                     } else if title == app.package_info().name || title == "MinoMarkdown" {
@@ -149,6 +151,7 @@ pub fn run() {
             drafts::discard_draft,
             workspace::choose_workspace,
             workspace::list_children,
+            workspace::search_workspace,
             workspace::open_workspace_document,
             workspace::release_workspace,
             workspace::create_workspace_entry,
@@ -170,6 +173,8 @@ pub fn run() {
             recent::reorder_recent,
             recent::choose_recent_file,
             recent::choose_recent_workspace,
+            recent::remember_session,
+            recent::restore_session,
             settings::get_settings,
             settings::update_settings,
             windows::create_workspace_window,

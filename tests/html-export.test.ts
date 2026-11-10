@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { renderHtml } from '../src/features/export/renderHtml'
+import { renderExport, renderHtml } from '../src/features/export/renderHtml'
+import { snapshotResources } from '../src/features/export/snapshot'
 
 describe('self-contained HTML export', () => {
   it('uses the current snapshot and embeds a verified local image', async () => {
@@ -43,5 +44,36 @@ describe('self-contained HTML export', () => {
     expect(html).not.toContain(' onerror=')
     expect(html).not.toContain('href="data:')
     expect(html).toContain("default-src 'none'")
+  })
+
+  it('leaves front matter out of the page body', async () => {
+    const html = await renderHtml('---\ntitle: 机密元数据\n---\n# 正文\n', '文档', async () => null)
+    expect(html).toContain('<h1>正文</h1>')
+    expect(html).not.toContain('机密元数据')
+    const crlf = await renderHtml('\uFEFF---\r\ntitle: 机密元数据\r\n---\r\n# 正文\r\n', '文档', async () => null)
+    expect(crlf).not.toContain('机密元数据')
+  })
+
+  it('reports raw HTML it removes from a source-protected document, but not comments', async () => {
+    const source = '# 技术方案\n\n<div onclick="alert(1)">内容</div>\n\n<!-- 备注 -->\n\n<script>alert(1)</script>\n\n:::note\n指令\n:::\n'
+    const { html, omittedHtml } = await renderExport(source, '技术方案', async () => null)
+    expect(omittedHtml).toBe(2)
+    expect(html).not.toContain('<script>alert')
+    expect(html).not.toContain('onclick')
+    expect(html).toContain('技术方案')
+    expect(html).toContain(':::note')
+  })
+})
+
+describe('snapshot resources without an editor instance', () => {
+  it('uses recovered assets and disk files for a source-protected document', () => {
+    const recovered = { url: 'blob:one', mime: 'image/png' }
+    expect(snapshotResources(['blob:one', 'assets/a.png'], new Map([['blob:one', recovered]]), true)).toEqual({ assets: [recovered], diskAssets: [{ url: 'assets/a.png', relative: 'assets/a.png' }] })
+  })
+
+  it('rejects images that can not be read locally', () => {
+    expect(() => snapshotResources(['https://example.com/x.png'], new Map(), true)).toThrow('EXPORT_RESOURCE_MISSING')
+    expect(() => snapshotResources(['assets/a.png'], new Map(), false)).toThrow('EXPORT_RESOURCE_MISSING')
+    expect(() => snapshotResources(['../secret.png'], new Map(), true)).toThrow('EXPORT_RESOURCE_MISSING')
   })
 })

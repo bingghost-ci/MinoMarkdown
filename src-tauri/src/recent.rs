@@ -1,7 +1,7 @@
 use crate::{documents::{DocumentStore, OpenDocument, draft_target, open_granted_path, validate_selected_file}, fs::{app_data::ensure_dir, atomic_write, bounded_file::read_canonical_parent}, workspace::{WorkspaceStore, WorkspaceRoot, workspace_path, register_workspace}};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{fs, path::{Path, PathBuf}, sync::Mutex, time::{SystemTime, UNIX_EPOCH}};
+use std::{collections::HashSet, fs, path::{Path, PathBuf}, sync::Mutex, time::{SystemTime, UNIX_EPOCH}};
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 
 static RECENT_LOCK: Mutex<()> = Mutex::new(());
@@ -147,9 +147,106 @@ pub fn choose_recent_workspace(app: AppHandle, window: WebviewWindow, workspaces
     Ok(Some(register_workspace(&workspaces, path)?))
 }
 
+const MAX_SESSION_TABS: usize = 20;
+#[derive(Serialize, Deserialize, Default, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+struct SessionRecord { schema_version: u32, paths: Vec<String>, active: Option<usize> }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoredSession { documents: Vec<OpenDocument>, active: Option<usize>, missing: usize }
+
+fn session_storage(app: &AppHandle) -> Result<PathBuf, String> { Ok(ensure_dir(&app.path().app_data_dir().map_err(|_| "IO_ERROR")?)?.join("session.json")) }
+fn load_session(path: &Path) -> SessionRecord {
+    read_canonical_parent(path, 256 * 1024).ok().and_then(|bytes| serde_json::from_slice::<SessionRecord>(&bytes).ok()).filter(|record| record.schema_version == 1).unwrap_or_default()
+}
+fn write_session(path: &Path, record: &SessionRecord) -> Result<(), String> {
+    let _lock = RECENT_LOCK.lock().map_err(|_| "IO_ERROR")?;
+    let bytes = serde_json::to_vec(record).map_err(|_| "IO_ERROR")?;
+    let expected = read_canonical_parent(path, 256 * 1024).ok().map(|bytes| hash(&bytes));
+    atomic_write::commit_canonical_parent(path, &bytes, expected.as_deref()).map(|_| ())
+}
+/// Keeps only tabs that can reopen, with `active` still pointing at the same tab. Open or repeated paths don't count as missing.
+fn session_plan(record: SessionRecord, open: &HashSet<PathBuf>) -> (Vec<PathBuf>, Option<usize>, usize) {
+    let (mut paths, mut active, mut missing, mut seen) = (Vec::new(), None, 0, open.clone());
+    for (index, stored) in record.paths.into_iter().take(MAX_SESSION_TABS).enumerate() {
+        match validate_selected_file(Path::new(&stored)) {
+            Ok(path) if !seen.insert(path.clone()) => {}
+            Ok(path) => { if record.active == Some(index) { active = Some(paths.len()); } paths.push(path); }
+            Err(_) => missing += 1,
+        }
+    }
+    (paths, active, missing)
+}
+/// Only the main window has a session to restore. The frontend sends tokens, so it can't add a path of its own.
+#[tauri::command(async)]
+pub fn remember_session(app: AppHandle, window: WebviewWindow, documents: State<'_, DocumentStore>, tokens: Vec<String>, active: Option<usize>) -> Result<(), String> {
+    if window.label() != "main" { return Err("OUT_OF_SCOPE".into()); }
+    let mut record = SessionRecord { schema_version: 1, paths: Vec::new(), active: None };
+    for (index, token) in tokens.iter().take(MAX_SESSION_TABS).enumerate() {
+        let Ok(path) = draft_target(&documents, token) else { continue };
+        if active == Some(index) { record.active = Some(record.paths.len()); }
+        record.paths.push(path);
+    }
+    write_session(&session_storage(&app)?, &record)
+}
+#[tauri::command(async)]
+pub fn restore_session(app: AppHandle, window: WebviewWindow, documents: State<'_, DocumentStore>, open_tokens: Vec<String>) -> Result<RestoredSession, String> {
+    if window.label() != "main" { return Err("OUT_OF_SCOPE".into()); }
+    let open = open_tokens.iter().filter_map(|token| draft_target(&documents, token).ok()).map(PathBuf::from).collect::<HashSet<_>>();
+    let (paths, planned, mut missing) = session_plan(load_session(&session_storage(&app)?), &open);
+    let mut restored = Vec::with_capacity(paths.len());
+    let mut active = None;
+    for (index, path) in paths.iter().enumerate() {
+        match open_granted_path(&documents, path) {
+            Ok(document) => { if planned == Some(index) { active = Some(restored.len()); } restored.push(document); }
+            Err(_) => missing += 1,
+        }
+    }
+    Ok(RestoredSession { documents: restored, active, missing })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn corrupt_or_unknown_session_records_restore_nothing() {
+        let dir = std::env::temp_dir().join(format!("mino-session-bad-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap(); let file = dir.join("session.json");
+        fs::write(&file, b"not json").unwrap();
+        assert_eq!(load_session(&file), SessionRecord::default());
+        fs::write(&file, br#"{"schemaVersion":9,"paths":["/tmp/a.md"],"active":0}"#).unwrap();
+        assert_eq!(load_session(&file), SessionRecord::default());
+        let record = SessionRecord { schema_version: 1, paths: vec!["/tmp/a.md".into()], active: Some(0) };
+        write_session(&file, &record).unwrap();
+        assert_eq!(load_session(&file), record);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn session_plan_skips_missing_and_open_files_and_keeps_the_active_tab() {
+        let dir = std::env::temp_dir().join(format!("mino-session-plan-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap();
+        let (first, second, third) = (dir.join("first.md"), dir.join("second.md"), dir.join("third.md"));
+        for path in [&first, &second, &third] { fs::write(path, b"x").unwrap(); }
+        let paths = [first.clone(), dir.join("gone.md"), second.clone(), third.clone()].map(|path| path.to_string_lossy().into_owned()).to_vec();
+        let (plan, active, missing) = session_plan(SessionRecord { schema_version: 1, paths: paths.clone(), active: Some(3) }, &HashSet::from([second.clone()]));
+        assert_eq!(plan, vec![first.clone(), third.clone()]);
+        assert_eq!((active, missing), (Some(1), 1));
+        let (_, active, missing) = session_plan(SessionRecord { schema_version: 1, paths, active: Some(1) }, &HashSet::new());
+        assert_eq!((active, missing), (None, 1));
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[cfg(unix)]
+    #[test]
+    fn session_plan_rejects_links() {
+        let dir = std::env::temp_dir().join(format!("mino-session-link-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap();
+        fs::write(dir.join("real.md"), b"x").unwrap();
+        std::os::unix::fs::symlink(dir.join("real.md"), dir.join("link.md")).unwrap();
+        let (plan, _, missing) = session_plan(SessionRecord { schema_version: 1, paths: vec![dir.join("link.md").to_string_lossy().into_owned()], active: None }, &HashSet::new());
+        assert!(plan.is_empty());
+        assert_eq!(missing, 1);
+        fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn corrupt_recent_file_recovers_without_granting_paths() {
         let dir = std::env::temp_dir().join(format!("mino-recent-{}",std::process::id()));

@@ -1,8 +1,10 @@
 import type { Root } from 'mdast'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import remarkParse from 'remark-parse'
 import remarkStringify from 'remark-stringify'
 import { unified } from 'unified'
+import { remarkDemoteCurrency } from './math'
 
 // T30: parsing costs seconds per MiB and ProseMirror keeps one DOM node tree for the whole document.
 export const VISUAL_SIZE_LIMIT_BYTES = 2 * 1024 * 1024
@@ -14,12 +16,14 @@ export function exceedsVisualLimit(text: string): boolean {
   return new TextEncoder().encode(text).length > VISUAL_SIZE_LIMIT_BYTES
 }
 
-const processor = unified().use(remarkParse).use(remarkGfm).use(remarkStringify)
+const processor = unified().use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkDemoteCurrency).use(remarkStringify)
+const parseTree = (markdown: string) => processor.runSync(processor.parse(markdown), markdown) as Root
 const supportedNodes = new Set([
   'root', 'paragraph', 'heading', 'text', 'strong', 'emphasis', 'delete',
   'thematicBreak', 'blockquote', 'list', 'listItem', 'code', 'inlineCode',
   'link', 'linkReference', 'image', 'imageReference', 'definition', 'table',
   'tableRow', 'tableCell', 'break', 'html', 'footnoteReference', 'footnoteDefinition',
+  'inlineMath', 'math',
 ])
 
 export type CompatibilityIssue = {
@@ -60,7 +64,7 @@ function projectNode(value: unknown): unknown {
   return value
 }
 
-type NodeLike = { type: string; children?: unknown[]; position?: { start?: { offset?: number } }; value?: string }
+type NodeLike = { type: string; children?: unknown[]; position?: { start?: { offset?: number } }; value?: string; lang?: string | null; meta?: string | null }
 
 function walk(node: NodeLike, visit: (node: NodeLike) => void): void {
   visit(node)
@@ -78,14 +82,26 @@ function unsupportedIssues(tree: Root, body: string): CompatibilityIssue[] {
       const sourceFragment = offset === undefined || end === undefined ? '' : body.slice(offset, end).slice(0, 120)
       issues.push({ code: 'UNSUPPORTED_NODE', detail: `${node.type}: ${sourceFragment}`, offset })
     }
-    // remark treats several extension dialects as ordinary text. Reject the
-    // recognizable markers rather than silently normalizing away their source.
+    if (node.type === 'inlineMath' || node.type === 'math') {
+      const start = node.position?.start?.offset
+      const end = (node.position as { end?: { offset?: number } } | undefined)?.end?.offset
+      const text = start === undefined || end === undefined ? '' : body.slice(start, end)
+      // The editor writes `$x$` and a `$$` fence pair; any other spelling would be rewritten on save.
+      const canonical = node.type === 'inlineMath' ? !text.startsWith('$$') : !node.meta && text.startsWith('$$\n') && /\n\s*\$\$\s*$/.test(text)
+      if (!canonical) issues.push({ code: 'UNKNOWN_EXTENSION', detail: 'Math written in a form the editor would rewrite', offset: start })
+    }
+    // Crepe saves every `latex` code block as a `$$` formula, which would turn code into math.
+    if (node.type === 'code' && node.lang?.toLowerCase() === 'latex') {
+      issues.push({ code: 'ROUNDTRIP_RISK', detail: 'LaTeX code fence would be saved as a formula', offset: node.position?.start?.offset })
+    }
+    // remark treats directives as ordinary text. Reject the recognizable
+    // markers rather than silently normalizing away their source.
     if (node.type === 'text') {
       const start = node.position?.start?.offset
       const end = (node.position as { end?: { offset?: number } } | undefined)?.end?.offset
       const text = start === undefined || end === undefined ? node.value ?? '' : body.slice(start, end)
-      if (/(?:^|\n)\s*:::[\w-]+|\$\$|(?<!\\)\$(?=\S)[^$\n]*[\\_^{}=][^$\n]*(?<=\S)\$/.test(text)) {
-        issues.push({ code: 'UNKNOWN_EXTENSION', detail: 'Possible directive or math syntax', offset: node.position?.start?.offset })
+      if (/(?:^|\n)\s*:::[\w-]+/.test(text)) {
+        issues.push({ code: 'UNKNOWN_EXTENSION', detail: 'Possible directive syntax', offset: node.position?.start?.offset })
       }
     }
   })
@@ -125,6 +141,7 @@ function collectFragments(tree: Root): string[] {
   walk(tree, (node) => {
     const item = node as FragmentNode
     if (item.type === 'html') fragments.push(item.value ?? '')
+    if (item.type === 'inlineMath' || item.type === 'math') fragments.push(`${item.type}:${item.value ?? ''}`)
     if (item.type === 'footnoteReference') fragments.push(`ref:${item.identifier}`)
     if (item.type === 'footnoteDefinition') fragments.push(`def:${item.identifier}`)
   })
@@ -133,7 +150,7 @@ function collectFragments(tree: Root): string[] {
 
 /** Raw HTML and footnote identifiers in document order. */
 export function protectedFragments(markdown: string): string[] {
-  return collectFragments(processor.parse(markdown))
+  return collectFragments(parseTree(markdown))
 }
 
 const issueText: Record<CompatibilityIssue['code'], string> = {
@@ -142,7 +159,7 @@ const issueText: Record<CompatibilityIssue['code'], string> = {
   UNCLOSED_FRONT_MATTER: '文件头缺少结束标记',
   VISUAL_SIZE_LIMIT: `超过 ${VISUAL_SIZE_LIMIT_BYTES / 1024 / 1024} MiB 可视化上限`,
   UNSUPPORTED_NODE: '包含暂不支持的语法',
-  UNKNOWN_EXTENSION: '包含数学公式或扩展指令',
+  UNKNOWN_EXTENSION: '包含扩展指令或无法原样保留的公式写法',
   PARSE_FAILED: '无法解析',
   SERIALIZE_FAILED: '可视化保存可能改变内容',
   SEMANTIC_CHANGE: '可视化保存可能改变内容',
@@ -183,14 +200,14 @@ export function analyzeMarkdown(bytes: Uint8Array): DocumentAnalysis {
   let serialized: string | undefined
   let fragments: string[] | undefined
   try {
-    const tree = processor.parse(parts.body)
+    const tree = parseTree(parts.body)
     fragments = collectFragments(tree)
     const frontMatterLines = parts.frontMatter.split('\n').length - 1
     issues.push(...unsupportedIssues(tree, parts.body).map((issue) => issue.offset === undefined ? issue : { ...issue, line: parts.body.slice(0, issue.offset).split('\n').length + frontMatterLines }))
     if (issues.length === 0) {
       semantics = projectNode(tree)
       const normalized = processor.stringify(tree)
-      const reparsed = processor.parse(normalized)
+      const reparsed = parseTree(normalized)
       if (JSON.stringify(semantics) !== JSON.stringify(projectNode(reparsed))) {
         issues.push({ code: 'SEMANTIC_CHANGE', detail: 'parse → serialize → parse changed Markdown AST semantics' })
       } else {

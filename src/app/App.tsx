@@ -2,6 +2,7 @@ import { useDocumentWorkspace } from './useDocumentWorkspace'
 import { DiffDialog } from './components/NoticeBar'
 import { FileControls } from './components/FileControls'
 import { FileSidebar } from './components/FileSidebar'
+import { OutlinePanel } from './components/OutlinePanel'
 import { TabBar } from './components/TabBar'
 import { EditorToolbar } from './components/EditorToolbar'
 import { EditorBody } from './components/EditorBody'
@@ -21,6 +22,7 @@ export function App() {
           <EditorToolbar workspace={controller} />
           <EditorBody workspace={controller} />
         </section>
+        <OutlinePanel workspace={controller} />
       </div>
       <StatusBar workspace={controller} />
       <TabContextMenu workspace={controller} />

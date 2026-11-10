@@ -16,14 +16,15 @@ fn default_editor_font() -> String { "system".into() }
 fn default_editor_font_size() -> u32 { 15 }
 fn default_editor_line_height() -> String { "comfortable".into() }
 fn default_show_sidebar() -> bool { true }
+fn default_auto_save_seconds() -> u32 { 30 }
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct Settings { schema_version: u32, theme: String, sidebar_width: u32, window_width: u32, window_height: u32, #[serde(default)] show_file_toolbar: bool, #[serde(default = "default_editor_width")] editor_width: String, #[serde(default = "default_language")] language: String, #[serde(default = "default_editor_font")] editor_font: String, #[serde(default = "default_editor_font_size")] editor_font_size: u32, #[serde(default = "default_editor_line_height")] editor_line_height: String, #[serde(default = "default_show_sidebar")] show_sidebar: bool }
+pub struct Settings { schema_version: u32, theme: String, sidebar_width: u32, window_width: u32, window_height: u32, #[serde(default)] show_file_toolbar: bool, #[serde(default = "default_editor_width")] editor_width: String, #[serde(default = "default_language")] language: String, #[serde(default = "default_editor_font")] editor_font: String, #[serde(default = "default_editor_font_size")] editor_font_size: u32, #[serde(default = "default_editor_line_height")] editor_line_height: String, #[serde(default = "default_show_sidebar")] show_sidebar: bool, #[serde(default)] show_outline: bool, #[serde(default)] auto_save: bool, #[serde(default = "default_auto_save_seconds")] auto_save_seconds: u32, #[serde(default)] restore_session: bool }
 impl Default for Settings {
-    fn default() -> Self { Self { schema_version: 1, theme: "system".into(), sidebar_width: 230, window_width: 1100, window_height: 760, show_file_toolbar: false, editor_width: default_editor_width(), language: default_language(), editor_font: default_editor_font(), editor_font_size: default_editor_font_size(), editor_line_height: default_editor_line_height(), show_sidebar: default_show_sidebar() } }
+    fn default() -> Self { Self { schema_version: 1, theme: "system".into(), sidebar_width: 230, window_width: 1100, window_height: 760, show_file_toolbar: false, editor_width: default_editor_width(), language: default_language(), editor_font: default_editor_font(), editor_font_size: default_editor_font_size(), editor_line_height: default_editor_line_height(), show_sidebar: default_show_sidebar(), show_outline: false, auto_save: false, auto_save_seconds: default_auto_save_seconds(), restore_session: false } }
 }
 fn valid(settings: &Settings) -> bool {
-    settings.schema_version == 1 && matches!(settings.theme.as_str(), "system" | "light" | "dark" | "paper" | "graphite" | "blueprint" | "mint" | "butter" | "eink") && matches!(settings.editor_width.as_str(), "centered" | "wide") && matches!(settings.language.as_str(), "zh-CN" | "en-US") && matches!(settings.editor_font.as_str(), "system" | "serif" | "mono" | "pingfang" | "songti" | "kaiti" | "yahei" | "georgia" | "avenir") && matches!(settings.editor_line_height.as_str(), "compact" | "comfortable" | "relaxed") && (13..=22).contains(&settings.editor_font_size) && (170..=420).contains(&settings.sidebar_width) && (720..=3000).contains(&settings.window_width) && (520..=2000).contains(&settings.window_height)
+    settings.schema_version == 1 && matches!(settings.auto_save_seconds, 15 | 30 | 60 | 120 | 300) && matches!(settings.theme.as_str(), "system" | "light" | "dark" | "paper" | "graphite" | "blueprint" | "mint" | "butter" | "eink") && matches!(settings.editor_width.as_str(), "centered" | "wide") && matches!(settings.language.as_str(), "zh-CN" | "en-US") && matches!(settings.editor_font.as_str(), "system" | "serif" | "mono" | "pingfang" | "songti" | "kaiti" | "yahei" | "georgia" | "avenir") && matches!(settings.editor_line_height.as_str(), "compact" | "comfortable" | "relaxed") && (13..=22).contains(&settings.editor_font_size) && (170..=420).contains(&settings.sidebar_width) && (720..=3000).contains(&settings.window_width) && (520..=2000).contains(&settings.window_height)
 }
 fn path(app: &AppHandle) -> Result<PathBuf, String> { Ok(ensure_dir(&app.path().app_data_dir().map_err(|_| "IO_ERROR")?)?.join("settings.json")) }
 pub fn initial_language(app: &AppHandle) -> String { path(app).map(|file| read_at(&file).language).unwrap_or_else(|_| default_language()) }
@@ -95,6 +96,10 @@ mod tests {
         assert_eq!(read_at(&file).editor_font, "system");
         assert_eq!(read_at(&file).editor_font_size, 15);
         assert!(read_at(&file).show_sidebar);
+        assert!(!read_at(&file).show_outline);
+        assert!(!read_at(&file).auto_save);
+        assert!(!read_at(&file).restore_session);
+        assert_eq!(read_at(&file).auto_save_seconds, 30);
         write_at(&file,&read_at(&file)).unwrap();
         assert_eq!(read_at(&file).schema_version,1);
         let mut expanded = read_at(&file);
@@ -125,6 +130,8 @@ mod tests {
         settings = Settings::default(); settings.editor_width = "stretched".into();
         assert!(!valid(&settings));
         settings = Settings::default(); settings.language = "fr-FR".into();
+        assert!(!valid(&settings));
+        settings = Settings::default(); settings.auto_save_seconds = 1;
         assert!(!valid(&settings));
         settings = Settings::default(); settings.editor_font_size = 40;
         assert!(!valid(&settings));

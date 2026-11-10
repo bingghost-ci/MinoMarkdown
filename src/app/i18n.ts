@@ -2,6 +2,10 @@ export type Language = 'zh-CN' | 'en-US'
 
 const english: Record<string, string> = {
   '查找和替换': 'Find and Replace', '查找': 'Find', '替换为': 'Replace with', '替换': 'Replace', '全部替换': 'Replace All', '上一个': 'Previous', '下一个': 'Next', '关闭查找': 'Close Find', '查看差异': 'View Differences', '使用磁盘版本': 'Use Disk Version', '关闭提示': 'Dismiss', '查看草稿': 'View Drafts', '正在生成预览…': 'Generating preview…', '关闭': 'Close', '与磁盘版本的差异': 'Differences from Disk Version', '差异过大，无法在此显示。': 'Too many differences to show here.', '内容相同。': 'The contents match.', '“-”为磁盘版本，“+”为当前编辑内容。': '“-” is the disk version and “+” is your current text.', '磁盘上的文件已被其他程序修改，你的未保存内容仍保留在这里。': 'Another app changed this file on disk. Your unsaved text is still here.',
+  '自动保存': 'Autosave', '定时把已有文件的修改写回磁盘，新建文档仍需手动保存': 'Writes changes to existing files on a timer. New documents still need a manual save.', '不自动保存': 'Off', '秒': 's', '分钟': 'min',
+  '搜索文件夹': 'Search Folder', '搜索结果': 'Search Results', '正在搜索…': 'Searching…', '没有找到匹配内容': 'No matches', '结果过多，只显示前 500 条': 'Too many results. Showing the first 500.', '部分文件因过大、编码或权限被跳过': 'Some files were skipped because of size, encoding or permissions.',
+  '恢复上次打开的文档': 'Reopen Last Documents', '启动时重新打开主窗口上次的标签；未保存的新文档仍从恢复草稿找回': 'Reopens the main window\'s tabs at launch. Unsaved new documents are still found in recovered drafts.', '已选': 'Selected', '字': 'words',
+  '文档大纲': 'Outline', '显示大纲': 'Show Outline', '隐藏大纲': 'Hide Outline', '当前文档没有标题': 'This document has no headings',
   '新建文档': 'New Document', '打开文件夹': 'Open Folder', '打开文件': 'Open File', '新建': 'New', '保存': 'Save', '另存为': 'Save As',
   '隐藏文件栏': 'Hide Sidebar', '显示文件栏': 'Show Sidebar', '文档操作': 'File Actions', '文档更多操作': 'More File Actions',
   '源码模式': 'Source Mode', '可视化模式': 'Visual Mode', '导出 HTML': 'Export HTML', '打印 / PDF': 'Print / PDF',
@@ -82,7 +86,7 @@ const statusEnglish: [string, string][] = [
   ['选择新建文档或打开本地文件', 'Create a document or open a local file'],
   ['已关闭 ', 'Closed '], ['已将 ', 'Moved '], [' 移到新窗口', ' to a new window'],
   ['源码模式：', 'Source mode: '], ['超过 2 MiB 可视化上限', 'exceeds the 2 MiB visual limit'],
-  ['手动切换', 'switched manually'], ['；可保存原文，HTML/PDF 暂不可导出', '; the source can be saved, but HTML/PDF export is unavailable'],
+  ['手动切换', 'switched manually'], ['；可保存原文', '; the source can be saved'], ['已自动保存', 'Autosaved'], ['自动保存已暂停；请处理上面的问题后手动保存一次', 'Autosave is paused. Fix the problem above, then save once by hand.'], ['已恢复 ', 'Restored '], [' 个文档；', ' documents; '], [' 个文件已不在原位置', ' files are no longer in their original location'], [' 处原始 HTML 未输出', ' raw HTML fragments were left out'], [' 张图表无法渲染，已保留代码', ' diagrams could not be drawn and stay as code'],
   ['已打开文件夹 ', 'Opened folder '], ['已打开 ', 'Opened '], ['编辑器已就绪 · 新文档尚未保存', 'Editor ready · new document not yet saved'],
   ['编辑器启动失败：', 'Editor failed to start: '], ['草稿保存失败：', 'Failed to save draft: '],
   ['已恢复草稿；原文件已有新版本，保存时请选择新文件名', 'Draft recovered. The original file changed; choose a new filename when saving.'],

@@ -1,11 +1,16 @@
 use crate::documents::{DocumentStore, OpenDocument, open_granted_path, relocate_grants, forget_grants};
 use serde::Serialize;
-use std::{collections::{HashMap, HashSet}, fs, path::{Path, PathBuf}, sync::{atomic::{AtomicU64, Ordering}, Mutex}};
+use std::{collections::{HashMap, HashSet}, fs, path::{Path, PathBuf}, sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex}};
 use tauri::{AppHandle, State, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 
 static NEXT_ENTRY: AtomicU64 = AtomicU64::new(1);
 const PAGE_SIZE: usize = 200;
+const MAX_SEARCH_HITS: usize = 500;
+const MAX_HITS_PER_FILE: usize = 5;
+const MAX_SEARCH_DOCUMENT: u64 = 20 * 1024 * 1024;
+const MAX_SEARCH_QUERY_CHARS: usize = 256;
+const SNIPPET_CHARS: usize = 120;
 
 #[derive(Clone)]
 struct EntryGrant { workspace: String, root: PathBuf, path: PathBuf, directory: bool }
@@ -20,6 +25,15 @@ pub struct WorkspaceEntry { token: String, name: String, directory: bool }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChildrenPage { entries: Vec<WorkspaceEntry>, next_offset: Option<usize> }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit { token: String, name: String, path: String, line: usize, snippet: String, occurrence: usize }
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResults { hits: Vec<SearchHit>, truncated: bool, skipped: usize }
+/// One counter per window: starting a search makes that window's earlier search stop.
+#[derive(Default)]
+pub struct SearchState(Mutex<HashMap<String, Arc<AtomicU64>>>);
 
 fn require_main(window: &WebviewWindow) -> Result<(), String> { if crate::is_workspace_window(window.label()) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
 fn is_markdown(path: &Path) -> bool { path.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("md") || x.eq_ignore_ascii_case("markdown")) }
@@ -275,9 +289,185 @@ pub fn trash_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceSt
     Ok(())
 }
 
+fn snippet_around(line: &str, match_char: usize) -> String {
+    let start = match_char.saturating_sub(SNIPPET_CHARS / 3);
+    line.chars().skip(start).take(SNIPPET_CHARS).collect::<String>().trim().to_owned()
+}
+
+struct FileHit { path: PathBuf, relative: String, line: usize, snippet: String, occurrence: usize }
+
+/// Appends this document's matches, at most `MAX_HITS_PER_FILE`. `occurrence` counts every match before the hit.
+fn search_text(text: &str, query: &str, path: &Path, relative: &str, hits: &mut Vec<FileHit>) {
+    if !text.to_lowercase().contains(query) { return; }
+    let mut occurrence = 0;
+    let mut found = 0;
+    for (index, raw) in text.split('\n').enumerate() {
+        let line = raw.strip_suffix('\r').unwrap_or(raw);
+        let lower = line.to_lowercase();
+        let mut from = 0;
+        while let Some(at) = lower[from..].find(query) {
+            let start = from + at;
+            hits.push(FileHit { path: path.to_owned(), relative: relative.to_owned(), line: index + 1, snippet: snippet_around(line, lower[..start].chars().count()), occurrence });
+            occurrence += 1;
+            found += 1;
+            if found == MAX_HITS_PER_FILE || hits.len() > MAX_SEARCH_HITS { return; }
+            from = start + query.len();
+        }
+    }
+}
+
+/// Reads no file outside the granted root: it never follows links and rechecks each directory it enters.
+fn search_at(store: &WorkspaceStore, root_token: &str, query: &str, canceled: impl Fn() -> bool) -> Result<SearchResults, String> {
+    let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(root_token).cloned().ok_or("OUT_OF_SCOPE")?;
+    if grant.workspace != root_token || !grant.directory { return Err("OUT_OF_SCOPE".into()); }
+    let root = checked_path(&grant)?;
+    let query = query.trim().to_lowercase();
+    if query.is_empty() { return Ok(SearchResults::default()); }
+    if query.chars().count() > MAX_SEARCH_QUERY_CHARS { return Err("INVALID_QUERY".into()); }
+    let mut pending = vec![root.clone()];
+    let mut hits: Vec<FileHit> = Vec::new();
+    let mut skipped = 0;
+    'walk: while let Some(directory) = pending.pop() {
+        if canceled() { return Err("SEARCH_CANCELED".into()); }
+        if fs::canonicalize(&directory).ok().as_deref() != Some(directory.as_path()) || !directory.starts_with(&root) { skipped += 1; continue; }
+        let Ok(reader) = fs::read_dir(&directory) else { skipped += 1; continue };
+        let mut names = reader.flatten().map(|entry| entry.file_name()).collect::<Vec<_>>();
+        names.sort();
+        let mut directories = Vec::new();
+        for name in names {
+            if canceled() { return Err("SEARCH_CANCELED".into()); }
+            if ignored(&name.to_string_lossy()) { continue; }
+            let path = directory.join(&name);
+            let Ok(meta) = fs::symlink_metadata(&path) else { continue };
+            if meta.file_type().is_symlink() { continue; }
+            if meta.is_dir() { directories.push(path); continue; }
+            if !meta.is_file() || !is_markdown(&path) { continue; }
+            if meta.len() > MAX_SEARCH_DOCUMENT { skipped += 1; continue; }
+            let Ok(bytes) = crate::fs::bounded_file::read_no_follow(&path, MAX_SEARCH_DOCUMENT) else { skipped += 1; continue };
+            let Ok(text) = String::from_utf8(bytes) else { skipped += 1; continue };
+            let relative = path.strip_prefix(&root).map_err(|_| "OUT_OF_SCOPE")?.to_string_lossy().into_owned();
+            search_text(text.strip_prefix('\u{feff}').unwrap_or(&text), &query, &path, &relative, &mut hits);
+            if hits.len() > MAX_SEARCH_HITS { break 'walk; }
+        }
+        pending.extend(directories.into_iter().rev());
+    }
+    let truncated = hits.len() > MAX_SEARCH_HITS;
+    hits.truncate(MAX_SEARCH_HITS);
+    if canceled() { return Err("SEARCH_CANCELED".into()); }
+    let mut map = store.0.lock().map_err(|_| "IO_ERROR")?;
+    let mut existing: HashMap<PathBuf, String> = map.iter().filter(|(_, entry)| entry.workspace == grant.workspace && !entry.directory).map(|(token, entry)| (entry.path.clone(), token.clone())).collect();
+    let mut results = Vec::with_capacity(hits.len());
+    for hit in hits {
+        let token = existing.entry(hit.path.clone()).or_insert_with(|| format!("entry-{}", NEXT_ENTRY.fetch_add(1, Ordering::Relaxed))).clone();
+        let name = hit.path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+        map.entry(token.clone()).or_insert_with(|| EntryGrant { workspace: grant.workspace.clone(), root: grant.root.clone(), path: hit.path.clone(), directory: false });
+        results.push(SearchHit { token, name, path: hit.relative, line: hit.line, snippet: hit.snippet, occurrence: hit.occurrence });
+    }
+    Ok(SearchResults { hits: results, truncated, skipped })
+}
+
+/// An empty query is how the frontend stops a search that is still running.
+#[tauri::command(async)]
+pub fn search_workspace(window: WebviewWindow, store: State<'_, WorkspaceStore>, searches: State<'_, SearchState>, root_token: String, query: String) -> Result<SearchResults, String> {
+    require_main(&window)?;
+    let counter = searches.0.lock().map_err(|_| "IO_ERROR")?.entry(window.label().to_owned()).or_default().clone();
+    let current = counter.fetch_add(1, Ordering::SeqCst) + 1;
+    search_at(&store, &root_token, &query, || counter.load(Ordering::SeqCst) != current)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn searched(store: &WorkspaceStore, token: &str, query: &str) -> SearchResults { search_at(store, token, query, || false).unwrap() }
+    #[test]
+    fn search_finds_text_case_insensitively_with_context() {
+        let dir = temp();
+        fs::create_dir(dir.join("子目录")).unwrap();
+        fs::write(dir.join("a.md"), "第一行\r\n这里有 Mino 和 mino\r\n").unwrap();
+        fs::write(dir.join("子目录/b.markdown"), "\u{feff}只有 MINO").unwrap();
+        fs::write(dir.join("c.txt"), "mino").unwrap();
+        let store = WorkspaceStore::default();
+        let root = register_workspace(&store, dir.clone()).unwrap();
+        let results = searched(&store, &root.token, "  mInO ");
+        let found = results.hits.iter().map(|hit| (hit.path.as_str(), hit.line, hit.occurrence)).collect::<Vec<_>>();
+        assert_eq!(found, vec![("a.md", 2, 0), ("a.md", 2, 1), ("子目录/b.markdown", 1, 0)]);
+        assert_eq!(results.hits[0].snippet, "这里有 Mino 和 mino");
+        assert!(!results.truncated);
+        let grant = store.0.lock().unwrap().get(&results.hits[0].token).cloned().unwrap();
+        assert!(!grant.directory);
+        assert_eq!(results.hits[0].token, results.hits[1].token);
+        let again = searched(&store, &root.token, "mino");
+        assert_eq!(again.hits[0].token, results.hits[0].token);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn search_skips_ignored_oversized_and_non_utf8_files() {
+        let dir = temp();
+        for ignored_dir in [".git", "node_modules", "assets", "target"] {
+            fs::create_dir(dir.join(ignored_dir)).unwrap();
+            fs::write(dir.join(ignored_dir).join("hidden.md"), "needle").unwrap();
+        }
+        fs::write(dir.join(".secret.md"), "needle").unwrap();
+        fs::write(dir.join("binary.md"), [0xff, 0xfe, b'n', b'e', b'e', b'd', b'l', b'e']).unwrap();
+        let big = fs::File::create(dir.join("big.md")).unwrap();
+        big.set_len(MAX_SEARCH_DOCUMENT + 1).unwrap();
+        fs::write(dir.join("visible.md"), "needle").unwrap();
+        let store = WorkspaceStore::default();
+        let root = register_workspace(&store, dir.clone()).unwrap();
+        let results = searched(&store, &root.token, "needle");
+        assert_eq!(results.hits.iter().map(|hit| hit.path.as_str()).collect::<Vec<_>>(), vec!["visible.md"]);
+        assert_eq!(results.skipped, 2);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[cfg(unix)]
+    #[test]
+    fn search_does_not_follow_links_or_accept_other_roots() {
+        let dir = temp();
+        let outside = temp();
+        fs::write(outside.join("secret.md"), "needle").unwrap();
+        fs::write(dir.join("inside.md"), "needle").unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.md"), dir.join("link.md")).unwrap();
+        std::os::unix::fs::symlink(&outside, dir.join("linked-dir")).unwrap();
+        std::os::unix::fs::symlink(&dir, dir.join("loop")).unwrap();
+        let store = WorkspaceStore::default();
+        let root = register_workspace(&store, dir.clone()).unwrap();
+        assert_eq!(searched(&store, &root.token, "needle").hits.iter().map(|hit| hit.path.as_str()).collect::<Vec<_>>(), vec!["inside.md"]);
+        let child = list_at(&store, &root.token, 0).unwrap().entries.remove(0);
+        assert_eq!(search_at(&store, &child.token, "needle", || false).err(), Some("OUT_OF_SCOPE".to_owned()));
+        assert_eq!(search_at(&store, "unknown", "needle", || false).err(), Some("OUT_OF_SCOPE".to_owned()));
+        fs::remove_dir_all(dir).unwrap();
+        fs::remove_dir_all(outside).unwrap();
+    }
+    #[test]
+    fn search_stops_at_the_limit_and_when_canceled() {
+        let dir = temp();
+        for index in 0..110 { fs::write(dir.join(format!("{index:03}.md")), "needle\n".repeat(9)).unwrap(); }
+        let store = WorkspaceStore::default();
+        let root = register_workspace(&store, dir.clone()).unwrap();
+        let results = searched(&store, &root.token, "needle");
+        assert_eq!(results.hits.len(), MAX_SEARCH_HITS);
+        assert!(results.truncated);
+        assert_eq!(results.hits[0].occurrence, 0);
+        assert_eq!(results.hits[4].occurrence, 4);
+        assert_eq!(results.hits[5].path, "001.md");
+        assert_eq!(search_at(&store, &root.token, "needle", || true).err(), Some("SEARCH_CANCELED".to_owned()));
+        assert!(searched(&store, &root.token, "   ").hits.is_empty());
+        assert_eq!(search_at(&store, &root.token, &"x".repeat(257), || false).err(), Some("INVALID_QUERY".to_owned()));
+        fs::remove_dir_all(dir).unwrap();
+    }
+    /// `MINO_SEARCH_FIXTURES=dist-package/performance-fixtures/directory cargo test --lib search_fixture -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn search_fixture_timing() {
+        let dir = fs::canonicalize(std::env::var("MINO_SEARCH_FIXTURES").unwrap()).unwrap();
+        let store = WorkspaceStore::default();
+        let root = register_workspace(&store, dir).unwrap();
+        for query in ["Synthetic", "不存在的查询内容"] {
+            let started = std::time::Instant::now();
+            let results = searched(&store, &root.token, query);
+            println!("query={query} hits={} truncated={} skipped={} elapsed_ms={}", results.hits.len(), results.truncated, results.skipped, started.elapsed().as_millis());
+        }
+    }
     fn temp() -> PathBuf { let dir = std::env::temp_dir().join(format!("mino-workspace-test-{}-{}",std::process::id(),NEXT_ENTRY.fetch_add(1,Ordering::Relaxed))); fs::create_dir(&dir).unwrap(); dir }
     #[cfg(target_os = "macos")]
     #[test]
