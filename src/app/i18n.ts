@@ -68,6 +68,8 @@ const english: Record<string, string> = {
   '在左侧显示文件夹目录': 'Show the folder tree on the left',
   '正在读取…': 'Loading…', '加载更多': 'Load More', '编辑器验证样本': 'Editor Test Samples', '样本': 'Sample',
   '当前文档': 'Current Document', '检查语义往返': 'Check Round Trip',
+  '区分大小写': 'Match Case', '全词匹配': 'Whole Word', '使用正则表达式': 'Use Regular Expression', '文档超过 2 MiB，不能使用正则表达式': 'Regular expressions are unavailable for documents over 2 MiB', '正则无效': 'Invalid',
+  '任务列表': 'Task List', '增加缩进': 'Increase Indent', '减少缩进': 'Decrease Indent',
   '加粗': 'Bold', '斜体': 'Italic', '删除线': 'Strikethrough', '行内代码': 'Inline Code', '清除格式': 'Clear Formatting',
   '项目列表': 'Bulleted List', '编号列表': 'Numbered List', '引用': 'Quote', '分割线': 'Divider', '代码块': 'Code Block',
   '撤销': 'Undo', '重做': 'Redo',

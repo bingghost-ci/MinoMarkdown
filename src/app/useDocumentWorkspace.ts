@@ -16,11 +16,14 @@ import { mayLeaveDocument, type UnsavedAction } from '../features/document/lifec
 import { createDraftScheduler, type DraftScheduler } from '../features/document/draftScheduler'
 import { autosaveDecision } from '../features/document/autosave'
 import { lineDiff, type DiffLine } from '../features/document/lineDiff'
-import { findInText, type FindMatch } from '../features/editor/find'
+import { defaultFindOptions, findInText, replacementFor, type FindMatch, type FindOptions } from '../features/editor/find'
 import { outlineFromSource, type OutlineItem } from '../features/outline/outline'
 import { imageUrlsIn, localAssetPath, rewriteImageUrls, snapshotResources } from '../features/export/snapshot'
 import { translate, translateStatus, type Language } from './i18n'
 import { fontFamilies, type EditorFontId, type ThemeId } from './appearance'
+import { isZoomAction, zoomedFontSize } from './textZoom'
+import { formatMenuCommands, transformMenuActions } from './formatActions'
+import type { SourceEditor } from '../features/source/SourceEditor'
 import { applyRemoteSettings, settingsPatch } from './settingsSync'
 import { blobUrl, readStaged, stageAssets, type StagedAsset } from './binary'
 // Listed individually so unused Crepe features add no styles.
@@ -140,7 +143,7 @@ export function useDocumentWorkspace() {
   const editorHost = useRef<HTMLDivElement>(null)
   const editorPool = useRef<EditorPool<EditorInstance> | null>(null)
   const previewRoot = useRef<HTMLDivElement>(null)
-  const sourceEditor = useRef<HTMLTextAreaElement>(null)
+  const sourceEditor = useRef<SourceEditor | null>(null)
   const forceSourceView = useRef(false)
   const sidebarRoot = useRef<HTMLElement>(null)
   const imageInput = useRef<HTMLInputElement>(null)
@@ -179,6 +182,9 @@ export function useDocumentWorkspace() {
   const [replaceText, setReplaceText] = useState('')
   const [findCount, setFindCount] = useState({ current: 0, total: 0 })
   const sourceFind = useRef<{ matches: FindMatch[]; index: number }>({ matches: [], index: 0 })
+  const [findOptions, setFindOptionsState] = useState<FindOptions>(defaultFindOptions)
+  const findOptionsRef = useRef<FindOptions>(defaultFindOptions)
+  const [findRegexBlocked, setFindRegexBlocked] = useState(false)
   const findRef = useRef({ open: findOpen, query: findQuery })
   findRef.current = { open: findOpen, query: findQuery }
   const runFindRef = useRef<(query: string) => void>(() => undefined)
@@ -186,7 +192,7 @@ export function useDocumentWorkspace() {
   const [drafts, setDrafts] = useState<DraftSummary[]>([])
   const [draftPreview, setDraftPreview] = useState<DraftContent | null>(null)
   const [draftsOpen, setDraftsOpen] = useState(false)
-  const [toolbar, setToolbar] = useState<ToolbarState>({ ready: false, composing: false, block: 'paragraph', marks: [], canUndo: false, canRedo: false, inTable: false, linkHref: null, imageAlt: null })
+  const [toolbar, setToolbar] = useState<ToolbarState>({ ready: false, composing: false, block: 'paragraph', marks: [], canUndo: false, canRedo: false, inTable: false, inList: false, linkHref: null, imageAlt: null })
   const [linkOpen, setLinkOpen] = useState(false)
   const [sourceView, setSourceView] = useState(false)
   const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([])
@@ -270,8 +276,7 @@ export function useDocumentWorkspace() {
     if (!element) return
     element.focus()
     element.setSelectionRange(item.target, item.target)
-    const lines = element.value.slice(0, item.target).split('\n').length
-    element.scrollTop = Math.max(0, (lines - 2) * (parseFloat(getComputedStyle(element).lineHeight) || 22))
+    element.reveal(item.target, 1)
   }
 
   const canProceedRef = useRef<(finalizeDiscard?: boolean) => Promise<boolean>>(async () => true)
@@ -496,7 +501,7 @@ export function useDocumentWorkspace() {
 
   useEffect(() => {
     if (sessionRef.current.generation !== document.id) updateSession(createSession(document.id, document.revision || null))
-    setToolbar({ ready: false, composing: false, block: 'paragraph', marks: [], canUndo: false, canRedo: false, inTable: false, linkHref: null, imageAlt: null })
+    setToolbar({ ready: false, composing: false, block: 'paragraph', marks: [], canUndo: false, canRedo: false, inTable: false, inList: false, linkHref: null, imageAlt: null })
     setLinkOpen(false)
     setSourceView(forceSourceView.current || (findRef.current.open && document.mode === 'source-protected'))
     forceSourceView.current = false
@@ -1199,6 +1204,8 @@ export function useDocumentWorkspace() {
     else await openWorkspaceEntry(hit.token)
     if (documentRef.current.entryToken !== hit.token) return
     findRef.current = { open: true, query }
+    findOptionsRef.current = defaultFindOptions
+    setFindOptionsState(defaultFindOptions)
     setFindQuery(query)
     openFind()
     const deadline = performance.now() + 5000
@@ -1397,8 +1404,20 @@ export function useDocumentWorkspace() {
     }
   }
 
+  function runFormatAction(action: string) {
+    const editor = adapter.current
+    if (documentRef.current.mode !== 'visual' || !editor?.hasEditorFocus()) return
+    if (action === 'format-link') { setLinkHref(editor.captureSelection() ?? ''); setLinkOpen(true); return }
+    const command = formatMenuCommands[action]
+    if (command) editor.runCommand(command)
+    const transform = transformMenuActions[action]
+    if (transform) editor.runTextTransform(transform)
+  }
+
   function runFileAction(action: string) {
     if (action.startsWith('recent:')) { void openRecent(action); return }
+    if (action.startsWith('format-') || action.startsWith('transform-')) { runFormatAction(action); return }
+    if (isZoomAction(action)) { setSettings((current) => ({ ...current, editorFontSize: zoomedFontSize(current.editorFontSize, action) })); return }
     if (action === 'new') void newDocument()
     if (action === 'open') void openDocument()
     if (action === 'open-folder') void chooseWorkspace()
@@ -1427,7 +1446,7 @@ export function useDocumentWorkspace() {
       // In the desktop app the native menu owns these shortcuts, so each key press has exactly one path.
       if (!desktop && (event.metaKey || event.ctrlKey)) {
         const key = event.key.toLowerCase()
-        const action = key === 's' ? null : key === 'n' ? (event.shiftKey ? 'new-window' : 'new') : key === 'o' ? (event.shiftKey ? 'open-folder' : 'open') : key === 'w' ? 'close-tab' : key === ',' ? 'preferences' : key === 'f' ? 'find' : null
+        const action = key === 's' ? null : key === 'n' ? (event.shiftKey ? 'new-window' : 'new') : key === 'o' ? (event.shiftKey ? 'open-folder' : 'open') : key === 'w' ? 'close-tab' : key === ',' ? 'preferences' : key === 'f' ? 'find' : key === '=' || key === '+' ? 'zoom-in' : key === '-' ? 'zoom-out' : key === '0' ? 'zoom-reset' : key === 'k' ? 'format-link' : null
         if (key === 's') event.preventDefault()
         if (action) { event.preventDefault(); runFileAction(action) }
       }
@@ -1497,25 +1516,34 @@ export function useDocumentWorkspace() {
     const match = sourceFind.current.matches[sourceFind.current.index]
     if (!element || !match) return
     element.setSelectionRange(match.from, match.to)
-    const lines = element.value.slice(0, match.from).split('\n').length
-    element.scrollTop = Math.max(0, (lines - 3) * (parseFloat(getComputedStyle(element).lineHeight) || 22))
+    element.reveal(match.from, 2)
   }
 
   function reapplyFind(instance: EditorInstance) {
-    const count = instance.find(findRef.current.open ? findRef.current.query : '')
+    const count = instance.find(findRef.current.open ? findRef.current.query : '', findOptionsRef.current)
     if (adapter.current === instance) setFindCount(count)
   }
 
+  /** A pathological pattern on a huge document would freeze the window, so large sources search literally. */
+  function sourceFindOptions(text: string): FindOptions {
+    const options = findOptionsRef.current
+    if (!options.regex) return options
+    return exceedsVisualLimit(text) ? { ...options, regex: false } : options
+  }
+
   function runFind(query: string) {
-    if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.find(query) ?? { current: 0, total: 0 }); return }
-    sourceFind.current = { matches: findInText(sourceEditor.current?.value ?? documentRef.current.sourceText, query), index: 0 }
+    if (documentRef.current.mode === 'visual') { setFindRegexBlocked(false); setFindCount(adapter.current?.find(query, findOptionsRef.current) ?? { current: 0, total: 0 }); return }
+    const text = sourceEditor.current?.value ?? documentRef.current.sourceText
+    setFindRegexBlocked(exceedsVisualLimit(text))
+    sourceFind.current = { matches: findInText(text, query, sourceFindOptions(text)), index: 0 }
     setFindCount({ current: 0, total: sourceFind.current.matches.length })
     revealSourceMatch()
   }
 
   /** The user can type in the source editor while the find bar is open, so stored offsets go stale. */
   function refreshSourceMatches() {
-    const matches = findInText(sourceEditor.current?.value ?? documentRef.current.sourceText, findQuery)
+    const text = sourceEditor.current?.value ?? documentRef.current.sourceText
+    const matches = findInText(text, findQuery, sourceFindOptions(text))
     sourceFind.current = { matches, index: Math.min(sourceFind.current.index, Math.max(0, matches.length - 1)) }
   }
 
@@ -1529,13 +1557,19 @@ export function useDocumentWorkspace() {
     revealSourceMatch()
   }
 
+  function setFindOptions(next: FindOptions) {
+    findOptionsRef.current = next
+    setFindOptionsState(next)
+    runFind(findQuery)
+  }
+
   runFindRef.current = runFind
   findStepRef.current = findStep
 
   function replaceInSource(ranges: FindMatch[]) {
     const element = sourceEditor.current
     if (!element) return
-    for (const range of [...ranges].reverse()) element.setRangeText(replaceText, range.from, range.to, 'end')
+    element.replaceRanges(ranges.map((range) => ({ from: range.from, to: range.to, insert: replacementFor(range, replaceText) })))
     updateSession(editSession(sessionRef.current))
     runFind(findQuery)
   }
@@ -1621,10 +1655,6 @@ export function useDocumentWorkspace() {
     }).then((stop) => { if (canceled) stop(); else unlistenQuit = stop }).catch((error: unknown) => setStatus(errorText(error)))
     return () => { canceled = true; unlistenClose?.(); unlistenQuit?.() }
   }, [desktop])
-
-  useEffect(() => {
-    if (desktop) void getCurrentWindow().setTitle(document.name).catch(() => undefined)
-  }, [desktop, document.name])
 
   async function selectSample(sampleId: string) {
     if (busy || !await canProceed()) {
@@ -1739,7 +1769,8 @@ export function useDocumentWorkspace() {
 
   const persistenceLabel = session.persistence === 'saving' ? '保存中' : session.persistence === 'failed' ? '保存失败' : session.persistence === 'conflict' ? '磁盘冲突' : dirty ? '未保存' : document.token ? '已保存' : '未保存到磁盘'
 
-  return { scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, preview, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettings, setSettingsOpen, setSettingsTab, setSourceView, setStatus, setTabMenu, settings, settingsOpen, settingsTab, sidebarOpen, sidebarRoot, sourceEditor, sourceView, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabMenu, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspace }
+  const sourceDark = settings.theme === 'dark' || settings.theme === 'graphite' || (settings.theme === 'system' && systemDark)
+  return { sourceDark, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, preview, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettings, setSettingsOpen, setSettingsTab, setSourceView, setStatus, setTabMenu, settings, settingsOpen, settingsTab, sidebarOpen, sidebarRoot, sourceEditor, sourceView, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabMenu, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspace }
 }
 
 export type DocumentWorkspace = ReturnType<typeof useDocumentWorkspace>

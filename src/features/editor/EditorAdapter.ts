@@ -2,11 +2,14 @@ import { Crepe, CrepeFeature } from '@milkdown/crepe'
 import { insertImageCommand } from '@milkdown/kit/preset/commonmark'
 import { callCommand } from '@milkdown/kit/utils'
 import { commandsCtx, editorViewCtx, inputRulesCtx, prosePluginsCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
-import { undoDepth, redoDepth } from '@milkdown/kit/prose/history'
-import { toggleStrongCommand, toggleEmphasisCommand, toggleInlineCodeCommand, wrapInHeadingCommand, turnIntoTextCommand, wrapInBulletListCommand, wrapInOrderedListCommand, wrapInBlockquoteCommand, insertHrCommand, createCodeBlockCommand, clearTextInCurrentBlockCommand } from '@milkdown/kit/preset/commonmark'
+import { closeHistory, undoDepth, redoDepth } from '@milkdown/kit/prose/history'
+import { toggleStrongCommand, toggleEmphasisCommand, toggleInlineCodeCommand, wrapInHeadingCommand, turnIntoTextCommand, wrapInBulletListCommand, wrapInOrderedListCommand, wrapInBlockquoteCommand, insertHrCommand, createCodeBlockCommand, clearTextInCurrentBlockCommand, wrapInBlockTypeCommand, listItemSchema, sinkListItemCommand, liftListItemCommand } from '@milkdown/kit/preset/commonmark'
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
 import { undoCommand, redoCommand } from '@milkdown/kit/plugin/history'
-import { TextSelection, NodeSelection, type Transaction } from '@milkdown/kit/prose/state'
+import { TextSelection, NodeSelection, type Command, type EditorState, type Transaction } from '@milkdown/kit/prose/state'
+import { keymap as proseKeymap } from '@milkdown/kit/prose/keymap'
+import { Prec } from '@codemirror/state'
+import { keymap as codeKeymap } from '@codemirror/view'
 import { deleteRow, deleteColumn } from '@milkdown/kit/prose/tables'
 import { insertTableCommand, addRowAfterCommand, addColAfterCommand, setAlignCommand } from '@milkdown/kit/preset/gfm'
 import { toggleLinkCommand, updateLinkCommand, updateImageCommand } from '@milkdown/kit/preset/commonmark'
@@ -16,13 +19,16 @@ import { renderMermaidPreview } from '../diagrams/mermaid'
 import { remarkDemoteCurrencyPlugin } from './mathEditor'
 import { CREPE_INLINE_MATH_RULE, STRICT_INLINE_MATH_RULE } from '../../core/markdown/math'
 import { isAssetUrl, relativeFromAssetUrl } from './assetUrl'
-import { findKey, findPlugin, setFind } from './find'
+import { findKey, findPlugin, replacementFor, setFind, type FindOptions } from './find'
+import { duplicateBlock, moveBlock } from './blockCommands'
+import { textTransformTransaction, type TextTransform } from './textTransform'
+import { linkPasteTransaction, parseTabularText, pastedLinkHref, tablePasteTransaction } from './smartPaste'
 import { outlineFromDoc, type OutlineItem } from '../outline/outline'
 
 export type PendingAsset = { url: string; bytes: Uint8Array<ArrayBuffer>; mime: string }
 type PendingImage = { file: File; validation: Promise<void>; error: string | null }
-export type EditorCommand = 'paragraph' | 'heading1' | 'heading2' | 'heading3' | 'heading4' | 'heading5' | 'heading6' | 'bold' | 'italic' | 'strike' | 'inlineCode' | 'clearFormat' | 'bullet' | 'ordered' | 'quote' | 'rule' | 'codeBlock' | 'undo' | 'redo'
-export type ToolbarState = { ready: boolean; composing: boolean; block: string; marks: string[]; canUndo: boolean; canRedo: boolean; inTable: boolean; linkHref: string | null; imageAlt: string | null }
+export type EditorCommand = 'paragraph' | 'heading1' | 'heading2' | 'heading3' | 'heading4' | 'heading5' | 'heading6' | 'bold' | 'italic' | 'strike' | 'inlineCode' | 'clearFormat' | 'bullet' | 'ordered' | 'task' | 'indent' | 'outdent' | 'quote' | 'rule' | 'codeBlock' | 'undo' | 'redo'
+export type ToolbarState = { ready: boolean; composing: boolean; block: string; marks: string[]; canUndo: boolean; canRedo: boolean; inTable: boolean; inList: boolean; linkHref: string | null; imageAlt: string | null }
 export type TableCommand = 'insert' | 'row' | 'column' | 'deleteRow' | 'deleteColumn' | 'alignLeft' | 'alignCenter' | 'alignRight'
 
 export class EditorAdapter {
@@ -62,7 +68,15 @@ export class EditorAdapter {
         [CrepeFeature.TopBar]: false,
       },
       featureConfigs: {
-        [CrepeFeature.CodeMirror]: { renderPreview: renderMermaidPreview },
+        [CrepeFeature.CodeMirror]: {
+          renderPreview: renderMermaidPreview,
+          // Inside a code block these keys would otherwise never reach the document.
+          extensions: [Prec.high(codeKeymap.of([
+            { key: 'Alt-ArrowUp', run: () => this.runBlockCommand(moveBlock(-1)) },
+            { key: 'Alt-ArrowDown', run: () => this.runBlockCommand(moveBlock(1)) },
+            { key: 'Mod-Shift-d', run: () => this.runBlockCommand(duplicateBlock) },
+          ]))],
+        },
         [CrepeFeature.Latex]: { katexOptions: { trust: false, strict: 'ignore' } },
         [CrepeFeature.BlockEdit]: {
           buildMenu: (builder) => {
@@ -85,7 +99,7 @@ export class EditorAdapter {
       },
     })
     this.crepe.editor.use(remarkDemoteCurrencyPlugin).config((ctx) => {
-      ctx.update(prosePluginsCtx, (plugins) => plugins.concat(findPlugin))
+      ctx.update(prosePluginsCtx, (plugins) => plugins.concat(findPlugin, proseKeymap({ 'Alt-ArrowUp': moveBlock(-1), 'Alt-ArrowDown': moveBlock(1), 'Mod-Shift-d': duplicateBlock })))
       ctx.update(remarkStringifyOptionsCtx, (options) => ({
         ...options,
         handlers: { ...options.handlers, text: safeTextHandler },
@@ -156,13 +170,15 @@ export class EditorAdapter {
       if (block === 'heading') block = `heading${$from.parent.attrs.level}`
       for (let depth = $from.depth; depth > 0; depth--) {
         const type = $from.node(depth).type.name
+        if (type === 'list_item' && $from.node(depth).attrs.checked != null) { block = 'task_list'; break }
         if (type === 'bullet_list' || type === 'ordered_list' || type === 'blockquote') { block = type; break }
       }
       const marks = (state.storedMarks ?? $from.marks()).map((mark) => mark.type.name)
       const link = (state.storedMarks ?? $from.marks()).find((mark) => mark.type.name === 'link')
       const selectedImage = state.selection instanceof NodeSelection && state.selection.node.type.name === 'image' ? state.selection.node : null
       const inTable = Array.from({ length: $from.depth + 1 }, (_, depth) => $from.node(depth).type.name).includes('table')
-      const next: ToolbarState = { ready: true, composing: this.composing, block, marks, canUndo: undoDepth(state) > 0, canRedo: redoDepth(state) > 0, inTable, linkHref: link?.attrs.href ?? null, imageAlt: selectedImage?.attrs.alt ?? null }
+      const inList = Array.from({ length: $from.depth + 1 }, (_, depth) => $from.node(depth).type.name).includes('list_item')
+      const next: ToolbarState = { ready: true, composing: this.composing, block, marks, canUndo: undoDepth(state) > 0, canRedo: redoDepth(state) > 0, inTable, inList, linkHref: link?.attrs.href ?? null, imageAlt: selectedImage?.attrs.alt ?? null }
       const serialized = JSON.stringify(next)
       if (serialized === this.lastToolbarState) return
       this.lastToolbarState = serialized
@@ -190,6 +206,13 @@ export class EditorAdapter {
       this.savedLinkHref = href
     })
     return href
+  }
+
+  /** Menu commands act on the body only while it holds focus, not a code block, the find bar or a dialog. */
+  hasEditorFocus(): boolean {
+    let focused = false
+    if (this.created && !this.composing) this.crepe.editor.action((ctx) => { focused = ctx.get(editorViewCtx).hasFocus() })
+    return focused
   }
 
   focus(): void {
@@ -251,6 +274,7 @@ export class EditorAdapter {
 
   runCommand(command: EditorCommand): void {
     if (!this.created || this.composing) return
+    if (command === 'task') { this.toggleTaskList(); this.emitToolbarState(); return }
     const commands = {
       paragraph: turnIntoTextCommand,
       heading1: wrapInHeadingCommand,
@@ -265,6 +289,8 @@ export class EditorAdapter {
       inlineCode: toggleInlineCodeCommand,
       bullet: wrapInBulletListCommand,
       ordered: wrapInOrderedListCommand,
+      indent: sinkListItemCommand,
+      outdent: liftListItemCommand,
       quote: wrapInBlockquoteCommand,
       rule: insertHrCommand,
       codeBlock: createCodeBlockCommand,
@@ -284,6 +310,50 @@ export class EditorAdapter {
       this.crepe.editor.action((ctx) => ctx.get(editorViewCtx).focus())
     }
     this.emitToolbarState()
+  }
+
+  /** Flips the selected list items between task and plain; outside a list it wraps the block as a task. */
+  private toggleTaskList(): void {
+    this.crepe.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx)
+      const { doc, selection } = view.state
+      const items = new Set<number>()
+      doc.nodesBetween(selection.from, selection.to, (node, position, parent) => {
+        if (node.isTextblock && parent?.type.name === 'list_item') items.add(doc.resolve(position).before())
+        return !node.isTextblock
+      })
+      if (items.size === 0) ctx.get(commandsCtx).call(wrapInBlockTypeCommand.key, { nodeType: listItemSchema.type(ctx), attrs: { checked: false } })
+      else {
+        const positions = [...items]
+        const checked = doc.nodeAt(positions[0])?.attrs.checked == null ? false : null
+        const tr = view.state.tr
+        for (const position of positions) tr.setNodeAttribute(position, 'checked', checked)
+        view.dispatch(tr)
+      }
+      view.focus()
+    })
+  }
+
+  runTextTransform(kind: TextTransform): void {
+    if (!this.created || this.composing) return
+    this.crepe.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx)
+      const tr = textTransformTransaction(view.state, kind)
+      if (tr) view.dispatch(tr)
+      view.focus()
+    })
+    this.emitToolbarState()
+  }
+
+  private runBlockCommand(command: Command): boolean {
+    if (!this.created || this.composing) return false
+    let handled = false
+    this.crepe.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx)
+      handled = command(view.state, view.dispatch, view)
+      if (handled) view.focus()
+    })
+    return handled
   }
 
   private registerImage(file: File): string {
@@ -338,12 +408,36 @@ export class EditorAdapter {
   }
 
   private onPaste = (event: ClipboardEvent): void => {
+    if (!this.created) return
+    const text = event.clipboardData?.getData('text/plain') ?? ''
+    // Spreadsheets also offer a picture of the cells, so regular tabular text wins over that image.
+    if (this.applyPaste(event, (state) => { const rows = parseTabularText(text); return rows && tablePasteTransaction(state, rows) })) return
     const file = Array.from(event.clipboardData?.files ?? []).find((item) => item.type.startsWith('image/'))
-    if (!file || !this.created) return
-    event.preventDefault()
-    event.stopPropagation()
-    try { this.insertFile(file) }
-    catch (error) { this.onImageError?.(String(error)) }
+    if (file) {
+      event.preventDefault()
+      event.stopPropagation()
+      try { this.insertFile(file) }
+      catch (error) { this.onImageError?.(String(error)) }
+      return
+    }
+    this.applyPaste(event, (state) => { const href = pastedLinkHref(text); return href && linkPasteTransaction(state, href) })
+  }
+
+  /** Runs a paste rule while the body itself has focus; pastes into a code block stay verbatim. */
+  private applyPaste(event: ClipboardEvent, rule: (state: EditorState) => Transaction | null | ''): boolean {
+    if (this.composing) return false
+    let applied = false
+    this.crepe.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx)
+      if (!view.hasFocus()) return
+      const tr = rule(view.state)
+      if (!tr) return
+      event.preventDefault()
+      event.stopPropagation()
+      view.dispatch(tr)
+      applied = true
+    })
+    return applied
   }
 
   private onDragOver = (event: DragEvent): void => {
@@ -375,8 +469,8 @@ export class EditorAdapter {
   }
 
   /** Highlights matches of `query` and returns the match count. */
-  find(query: string): { current: number; total: number } {
-    return this.updateFind((tr) => setFind(tr, { query }))
+  find(query: string, options?: FindOptions): { current: number; total: number } {
+    return this.updateFind((tr) => setFind(tr, { query, options }))
   }
 
   findStep(direction: 1 | -1): { current: number; total: number } {
@@ -395,15 +489,20 @@ export class EditorAdapter {
     if (this.composing) return this.findCounts()
     return this.updateFind((tr, find) => {
       const match = find?.matches[find.index]
-      return match ? (text ? tr.insertText(text, match.from, match.to) : tr.delete(match.from, match.to)) : tr
+      if (!match) return tr
+      const replacement = replacementFor(match, text)
+      return replacement ? tr.insertText(replacement, match.from, match.to) : tr.delete(match.from, match.to)
     }, true)
   }
 
   replaceAll(text: string): { current: number; total: number } {
     if (this.composing) return this.findCounts()
     return this.updateFind((tr, find) => {
-      for (const match of [...(find?.matches ?? [])].reverse()) { if (text) tr.insertText(text, match.from, match.to); else tr.delete(match.from, match.to) }
-      return tr
+      for (const match of [...(find?.matches ?? [])].reverse()) {
+        const replacement = replacementFor(match, text)
+        if (replacement) tr.insertText(replacement, match.from, match.to); else tr.delete(match.from, match.to)
+      }
+      return closeHistory(tr)
     })
   }
 

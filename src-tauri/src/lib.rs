@@ -87,6 +87,10 @@ pub fn run() {
                             &MenuItem::with_id(app, "view-sidebar", native_menu::label("view-sidebar", english), true, None::<&str>)?,
                             &MenuItem::with_id(app, "view-outline", native_menu::label("view-outline", english), true, None::<&str>)?,
                             &PredefinedMenuItem::separator(app)?,
+                            &MenuItem::with_id(app, "zoom-in", native_menu::label("zoom-in", english), true, Some("Cmd+="))?,
+                            &MenuItem::with_id(app, "zoom-out", native_menu::label("zoom-out", english), true, Some("Cmd+-"))?,
+                            &MenuItem::with_id(app, "zoom-reset", native_menu::label("zoom-reset", english), true, Some("Cmd+0"))?,
+                            &PredefinedMenuItem::separator(app)?,
                         ])?;
                     } else if title == app.package_info().name || title == "MinoMarkdown" {
                         submenu.insert_items(&[
@@ -105,6 +109,39 @@ pub fn run() {
                     }
                 }
             }
+            let format_position = menu.items()?.iter().position(|item| matches!(item, MenuItemKind::Submenu(submenu) if submenu.text().is_ok_and(|title| title == "Edit" || title == "编辑"))).map_or(0, |index| index + 1);
+            let format_menu = Submenu::with_id_and_items(app, "format", native_menu::label("format", english), true, &[
+                &MenuItem::with_id(app, "format-paragraph", native_menu::label("format-paragraph", english), true, Some("Cmd+Alt+0"))?,
+                &MenuItem::with_id(app, "format-heading1", native_menu::label("format-heading1", english), true, Some("Cmd+Alt+1"))?,
+                &MenuItem::with_id(app, "format-heading2", native_menu::label("format-heading2", english), true, Some("Cmd+Alt+2"))?,
+                &MenuItem::with_id(app, "format-heading3", native_menu::label("format-heading3", english), true, Some("Cmd+Alt+3"))?,
+                &MenuItem::with_id(app, "format-heading4", native_menu::label("format-heading4", english), true, Some("Cmd+Alt+4"))?,
+                &MenuItem::with_id(app, "format-heading5", native_menu::label("format-heading5", english), true, Some("Cmd+Alt+5"))?,
+                &MenuItem::with_id(app, "format-heading6", native_menu::label("format-heading6", english), true, Some("Cmd+Alt+6"))?,
+                &PredefinedMenuItem::separator(app)?,
+                &MenuItem::with_id(app, "format-bold", native_menu::label("format-bold", english), true, Some("Cmd+B"))?,
+                &MenuItem::with_id(app, "format-italic", native_menu::label("format-italic", english), true, Some("Cmd+I"))?,
+                &MenuItem::with_id(app, "format-strike", native_menu::label("format-strike", english), true, Some("Cmd+Alt+X"))?,
+                &MenuItem::with_id(app, "format-inline-code", native_menu::label("format-inline-code", english), true, Some("Cmd+E"))?,
+                &PredefinedMenuItem::separator(app)?,
+                &MenuItem::with_id(app, "format-bullet", native_menu::label("format-bullet", english), true, Some("Cmd+Alt+8"))?,
+                &MenuItem::with_id(app, "format-ordered", native_menu::label("format-ordered", english), true, Some("Cmd+Alt+7"))?,
+                &MenuItem::with_id(app, "format-task", native_menu::label("format-task", english), true, None::<&str>)?,
+                &MenuItem::with_id(app, "format-quote", native_menu::label("format-quote", english), true, Some("Cmd+Shift+B"))?,
+                &MenuItem::with_id(app, "format-code-block", native_menu::label("format-code-block", english), true, Some("Cmd+Alt+C"))?,
+                &PredefinedMenuItem::separator(app)?,
+                &MenuItem::with_id(app, "format-link", native_menu::label("format-link", english), true, Some("Cmd+K"))?,
+                &PredefinedMenuItem::separator(app)?,
+                &Submenu::with_id_and_items(app, "transform", native_menu::label("transform", english), true, &[
+                    &MenuItem::with_id(app, "transform-upper", native_menu::label("transform-upper", english), true, None::<&str>)?,
+                    &MenuItem::with_id(app, "transform-lower", native_menu::label("transform-lower", english), true, None::<&str>)?,
+                    &MenuItem::with_id(app, "transform-title", native_menu::label("transform-title", english), true, None::<&str>)?,
+                    &MenuItem::with_id(app, "transform-cjk-spacing", native_menu::label("transform-cjk-spacing", english), true, None::<&str>)?,
+                    &MenuItem::with_id(app, "transform-full-punct", native_menu::label("transform-full-punct", english), true, None::<&str>)?,
+                    &MenuItem::with_id(app, "transform-half-punct", native_menu::label("transform-half-punct", english), true, None::<&str>)?,
+                ])?,
+            ])?;
+            menu.insert(&format_menu, format_position)?;
             Ok(menu)
         })
         .on_menu_event(|app, event| {

@@ -380,6 +380,22 @@ G01–G29 分别对应 T01–T29，每项命令可独立复制到支持 Goals �
 /goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 T35、T36、T37、T38、T39、T40、T41 的顺序完成首版后增强开发。先读 CLAUDE.md、Markdown编辑器.md、doc/01-产品方案.md §3.4、doc/02-技术设计.md §15、doc/03-开发计划.md 的 T35–T41、doc/05-验收与发布.md §8B、doc/06-开发进度.md，并遵守 doc/04-Goal命令列表.md 的通用约束；技术设计是计划，以实际代码为准。每项从当前代码出发，只做该项完成条件所需的改动，已有实现先复用，需要时才顺带拆分 src/app/useDocumentWorkspace.ts 的相关部分。不得削弱路径授权、符号链接拒绝、原子保存与冲突检测、草稿恢复、HTML 净化、IME 保护和离线边界；不得把文档内容改写成不同的 Markdown；新增文件操作必须留在现有授权之后。新增依赖只限 T37/T38 确需的包，版本写入锁文件；安装不可用时记录原因，并继续不依赖它的任务。用户同时在做实机验收：不得运行 ./start.sh、build.sh、install.sh 或 tauri build，不得启动、结束或替换 mino-markdown，不得删除现有 .app、ZIP 或 manifest。每项完成后运行 npm run typecheck、npm run test、npm run build，涉及 Rust 时运行 cargo test --lib --manifest-path src-tauri/Cargo.toml；同一检查最多 3 次，仍失败则记录命令、输出、影响和下一步，继续不依赖该结果的任务。每项在 doc/evidence 写对应证据，更新 doc/06-开发进度.md 的唯一状态表，把代码、自动化、原生实机和用户验收分开记录；实机和性能项记 PENDING，不得写成 PASS，也不因此停止。发现严重数据风险时先隔离受影响的功能并记录。全部任务完成后给出改动路径、检查结果、未验证项和集中实测清单，然后结束本 Goal；不自动提交、推送、签名、公证或发布。
 ```
 
+## G42–G48 编辑能力增强
+
+2026-11-10 按用户要求建立的单条 Goal，分阶段对应 T42–T48，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。
+
+- G42 文本缩放与居中加宽：完成条件见 T42。
+- G43 编辑入口与快捷键：完成条件见 T43。
+- G44 段落移动与复制：完成条件见 T44。
+- G45 查找增强：完成条件见 T45。
+- G46 智能粘贴：完成条件见 T46。
+- G47 选中文本转换：完成条件见 T47。
+- G48 源码编辑器升级：完成条件见 T48。
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 T42、T43、T44、T45、T46、T47、T48 的顺序完成编辑能力增强开发。先读 CLAUDE.md、doc/01-产品方案.md §3.5、doc/02-技术设计.md §16、doc/03-开发计划.md 的 T42–T48、doc/05-验收与发布.md §8C、doc/06-开发进度.md，并遵守 doc/04-Goal命令列表.md 的通用约束；技术设计是计划，以实际代码为准。每项从当前代码出发，只做该项完成条件所需的改动，已有实现先复用。不新增 Markdown 语法，不把文档内容改写成不同的 Markdown，不改变 HTML/PDF 导出样式。不得削弱路径授权、符号链接拒绝、原子保存与冲突检测、草稿恢复、HTML 净化、IME 保护和离线边界；编辑器事务仍是正文唯一来源，React 不持有正文副本，也不因这些操作重建编辑器。新增菜单项同步 src-tauri/src/lib.rs、native_menu.rs 和 src/app/i18n.ts。依赖只允许把已随 Crepe 安装的 @codemirror 包声明为直接依赖，版本与锁文件现有版本一致；不可用时记录原因，并继续不依赖它的任务。不得运行 ./start.sh、build.sh、install.sh 或 tauri build，不得启动、结束或替换 mino-markdown，不得删除现有 .app、ZIP 或 manifest。每项完成后运行 npm run typecheck、npm run test、npm run build，涉及 Rust 时运行 cargo test --lib --manifest-path src-tauri/Cargo.toml；同一检查最多 3 次，仍失败则记录命令、输出、影响和下一步，继续不依赖该结果的任务。每项在 doc/evidence 写对应证据，更新 doc/06-开发进度.md 的唯一状态表，把代码、自动化、原生实机和用户验收分开记录；实机和性能项记 PENDING，不得写成 PASS，也不因此停止。发现严重数据风险时先隔离受影响的功能并记录。全部任务完成后给出改动路径、检查结果、未验证项和集中实测清单，然后结束本 Goal；不自动提交、推送、签名、公证或发布。
+```
+
 ## 连续开发总 Goal（逐项读取列表）
 
 此命令只负责开发阶段。每轮读取 G01–G29 的当前任务，依据代码依赖推进；已实现的任务先复核，不重复开发。最终原生验收层级与 Gate 留待集中测试，不能虚报 PASS。单项命令和本总 Goal 共用进度表，不创建嵌套 Goal。

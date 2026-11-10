@@ -1,6 +1,6 @@
 import { TableSizePicker } from '../TableSizePicker'
 import { errorText, type DocumentWorkspace } from '../useDocumentWorkspace'
-import { Bold, Code2, Italic, Link2, List, ListOrdered, ListTree, Minus, MoreHorizontal, Pencil, Quote, Redo2, RemoveFormatting, Strikethrough, Table2, Undo2, type LucideIcon, Image as ImageIcon } from 'lucide-react'
+import { Bold, Code2, IndentDecrease, IndentIncrease, Italic, Link2, List, ListChecks, ListOrdered, ListTree, Minus, MoreHorizontal, Pencil, Quote, Redo2, RemoveFormatting, Strikethrough, Table2, Undo2, type LucideIcon, Image as ImageIcon } from 'lucide-react'
 import type { EditorCommand } from '../../features/editor/EditorAdapter'
 
 const toolbarItems: { command: EditorCommand; label: string; icon: LucideIcon; primary?: boolean }[] = [
@@ -11,6 +11,9 @@ const toolbarItems: { command: EditorCommand; label: string; icon: LucideIcon; p
   { command: 'clearFormat', label: '清除格式', icon: RemoveFormatting },
   { command: 'bullet', label: '项目列表', icon: List, primary: true },
   { command: 'ordered', label: '编号列表', icon: ListOrdered },
+  { command: 'task', label: '任务列表', icon: ListChecks },
+  { command: 'indent', label: '增加缩进', icon: IndentIncrease },
+  { command: 'outdent', label: '减少缩进', icon: IndentDecrease },
   { command: 'quote', label: '引用', icon: Quote, primary: true },
   { command: 'rule', label: '分割线', icon: Minus },
   { command: 'codeBlock', label: '代码块', icon: Code2, primary: true },
@@ -21,10 +24,10 @@ const toolbarItems: { command: EditorCommand; label: string; icon: LucideIcon; p
 export function EditorToolbar({ workspace: w }: { workspace: DocumentWorkspace }) {
   const { tablePicker, setTablePicker, adapter, applyLink, document, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, openTablePickerFromToolbar, previewHtml, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setSettings, setSourceView, setStatus, settings, sourceView, t, toolbar } = w
   function renderToolbarButton(item: (typeof toolbarItems)[number], inMenu = false) {
-    const active = ({ bold: 'strong', italic: 'emphasis', strike: 'strike_through', inlineCode: 'inlineCode', bullet: 'bullet_list', ordered: 'ordered_list', quote: 'blockquote', codeBlock: 'code_block' } as Record<string, string>)[item.command]
-    const pressed = active ? (['bullet', 'ordered', 'quote', 'codeBlock'].includes(item.command) ? toolbar.block === active : toolbar.marks.includes(active)) : undefined
+    const active = ({ bold: 'strong', italic: 'emphasis', strike: 'strike_through', inlineCode: 'inlineCode', bullet: 'bullet_list', ordered: 'ordered_list', task: 'task_list', quote: 'blockquote', codeBlock: 'code_block' } as Record<string, string>)[item.command]
+    const pressed = active ? (['bullet', 'ordered', 'task', 'quote', 'codeBlock'].includes(item.command) ? toolbar.block === active : toolbar.marks.includes(active)) : undefined
     const Icon = item.icon
-    return <button key={item.command} type="button" className={inMenu ? 'menu-command' : 'icon-button'} title={t(item.label)} aria-label={t(item.label)} aria-pressed={pressed} disabled={!toolbar.ready || toolbar.composing || item.command === 'undo' && !toolbar.canUndo || item.command === 'redo' && !toolbar.canRedo} onClick={() => adapter.current?.runCommand(item.command)}><Icon aria-hidden="true" />{inMenu && <span>{t(item.label)}</span>}</button>
+    return <button key={item.command} type="button" className={inMenu ? 'menu-command' : 'icon-button'} title={t(item.label)} aria-label={t(item.label)} aria-pressed={pressed} disabled={!toolbar.ready || toolbar.composing || item.command === 'undo' && !toolbar.canUndo || item.command === 'redo' && !toolbar.canRedo || (item.command === 'indent' || item.command === 'outdent') && !toolbar.inList} onClick={() => adapter.current?.runCommand(item.command)}><Icon aria-hidden="true" />{inMenu && <span>{t(item.label)}</span>}</button>
   }
   return <>
           <div className="editor-toolbar" role="toolbar" aria-label={t('编辑工具栏')} onMouseDown={(event) => { if ((event.target as HTMLElement).closest('button')) event.preventDefault() }}>

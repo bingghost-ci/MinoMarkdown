@@ -21,6 +21,34 @@ pub fn label(id: &str, english: bool) -> &'static str {
         ("view-toolbar", true) => "Toggle File Toolbar", ("view-toolbar", false) => "显示或隐藏操作栏",
         ("view-sidebar", true) => "Toggle Sidebar", ("view-sidebar", false) => "显示或隐藏文件栏",
         ("view-outline", true) => "Toggle Outline", ("view-outline", false) => "显示或隐藏大纲",
+        ("zoom-in", true) => "Increase Text Size", ("zoom-in", false) => "放大文本",
+        ("zoom-out", true) => "Decrease Text Size", ("zoom-out", false) => "缩小文本",
+        ("zoom-reset", true) => "Actual Text Size", ("zoom-reset", false) => "恢复默认文本大小",
+        ("format", true) => "Format", ("format", false) => "格式",
+        ("format-paragraph", true) => "Paragraph", ("format-paragraph", false) => "正文",
+        ("format-heading1", true) => "Heading 1", ("format-heading1", false) => "标题 1",
+        ("format-heading2", true) => "Heading 2", ("format-heading2", false) => "标题 2",
+        ("format-heading3", true) => "Heading 3", ("format-heading3", false) => "标题 3",
+        ("format-heading4", true) => "Heading 4", ("format-heading4", false) => "标题 4",
+        ("format-heading5", true) => "Heading 5", ("format-heading5", false) => "标题 5",
+        ("format-heading6", true) => "Heading 6", ("format-heading6", false) => "标题 6",
+        ("format-bold", true) => "Bold", ("format-bold", false) => "加粗",
+        ("format-italic", true) => "Italic", ("format-italic", false) => "斜体",
+        ("format-strike", true) => "Strikethrough", ("format-strike", false) => "删除线",
+        ("format-inline-code", true) => "Inline Code", ("format-inline-code", false) => "行内代码",
+        ("format-bullet", true) => "Bulleted List", ("format-bullet", false) => "项目列表",
+        ("format-ordered", true) => "Numbered List", ("format-ordered", false) => "编号列表",
+        ("format-task", true) => "Task List", ("format-task", false) => "任务列表",
+        ("format-quote", true) => "Quote", ("format-quote", false) => "引用",
+        ("format-code-block", true) => "Code Block", ("format-code-block", false) => "代码块",
+        ("format-link", true) => "Insert Link…", ("format-link", false) => "插入链接…",
+        ("transform", true) => "Transform Text", ("transform", false) => "转换文本",
+        ("transform-upper", true) => "Uppercase", ("transform-upper", false) => "转为大写",
+        ("transform-lower", true) => "Lowercase", ("transform-lower", false) => "转为小写",
+        ("transform-title", true) => "Capitalize Words", ("transform-title", false) => "单词首字母大写",
+        ("transform-cjk-spacing", true) => "Add Spaces Between CJK and Latin", ("transform-cjk-spacing", false) => "中英文之间加空格",
+        ("transform-full-punct", true) => "Full-width Punctuation", ("transform-full-punct", false) => "标点转全角",
+        ("transform-half-punct", true) => "Half-width Punctuation", ("transform-half-punct", false) => "标点转半角",
         ("preferences", true) => "Settings…", ("preferences", false) => "设置…",
         ("open-recent", true) => "Open Recent", ("open-recent", false) => "打开最近使用",
         ("no-recent", true) => "No Recent Items", ("no-recent", false) => "没有最近使用的项目",
@@ -38,22 +66,26 @@ pub fn set_language(app: &AppHandle, language: &str) {
     if let Some(menu) = app.menu() {
         if let Ok(items) = menu.items() {
             for item in items {
-                if let MenuItemKind::Submenu(submenu) = item {
-                    if let Ok(children) = submenu.items() {
-                        for child in children {
-                            if let MenuItemKind::MenuItem(item) = &child {
-                                let translated = label(item.id().as_ref(), english);
-                                if !translated.is_empty() { let _ = item.set_text(translated); }
-                            }
-                            if let MenuItemKind::Submenu(item) = &child {
-                                let translated = label(item.id().as_ref(), english);
-                                if !translated.is_empty() { let _ = item.set_text(translated); }
-                            }
-                        }
-                    }
-                }
+                relabel(&item, english);
             }
         }
+    }
+}
+
+fn relabel(item: &MenuItemKind<tauri::Wry>, english: bool) {
+    match item {
+        MenuItemKind::MenuItem(item) => {
+            let translated = label(item.id().as_ref(), english);
+            if !translated.is_empty() { let _ = item.set_text(translated); }
+        }
+        MenuItemKind::Submenu(submenu) => {
+            let translated = label(submenu.id().as_ref(), english);
+            if !translated.is_empty() { let _ = submenu.set_text(translated); }
+            if let Ok(children) = submenu.items() {
+                for child in &children { relabel(child, english); }
+            }
+        }
+        _ => {}
     }
 }
 
