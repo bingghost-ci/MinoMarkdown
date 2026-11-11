@@ -21,12 +21,16 @@ pulldown-cmark = { version = "=0.13.6", default-features = false }
 percent-encoding = "=2.3.2"
 tauri = { version = "=2.12.4", features = [] }
 tauri-plugin-dialog = "2"
+# HTTP for the AI assistant. TLS comes from macOS (Secure Transport) and uses the system trust store.
+ureq = { version = "=3.5.1", default-features = false, features = ["native-tls-no-default"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "=0.6.5"
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSDocumentController", "NSMenu", "NSMenuItem"] }
 libc = "=0.2.191"
 objc2-foundation = { version = "=0.3.2", features = ["NSFileManager", "NSURL", "NSError", "NSString"] }
+core-foundation = "=0.10.1"
+security-framework = { version = "=3.7.0", default-features = false }
 
 # Debug info goes to a separate dSYM beside the binary and stays out of the app bundle.
 [profile.release]

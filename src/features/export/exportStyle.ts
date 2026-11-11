@@ -1,5 +1,5 @@
 import { exportReadingStyle, exportStylesheet, type Typography } from '../reading/css'
-import { bundledFaces, facesForText, familiesIn, fontFaceCss, KAI_FAMILY, SERIF_FAMILY, type FontFace } from '../reading/fonts'
+import { bundledFaces, CODE_FONT_STACK, facesForText, familiesIn, fontFaceCss, withoutBundledFonts, type FontFace } from '../reading/fonts'
 import type { ReadingStyle } from '../reading/styles'
 
 /** §3 budgets: exported HTML carries at most 6 MiB of fonts. Print pages are never saved, so they may carry more. */
@@ -29,17 +29,16 @@ function base64(bytes: Uint8Array): string {
   return btoa(output)
 }
 
-/** Removes the bundled families from a font stack, leaving its system fallbacks. */
-export function withoutBundledFonts(stack: string): string {
-  return stack.split(',').map((name) => name.trim()).filter((name) => !name.includes(SERIF_FAMILY) && !name.includes(KAI_FAMILY)).join(', ')
-}
+export { withoutBundledFonts }
 
 /**
  * Builds the stylesheet of an exported page. Only the font subsets that cover characters of the text are
  * embedded as data URIs; when they cannot be read or exceed the budget, the page falls back to system fonts.
  */
 export async function buildExportStyle(input: ExportStyleInput): Promise<ExportStyle> {
-  const faces = facesForText(input.text, familiesIn(input.typography.fontFamily), input.faces ?? bundledFaces)
+  // Code blocks draw with the bundled monospace font, so its Latin subset travels with the page too.
+  const families = new Set([...familiesIn(input.typography.fontFamily), ...familiesIn(CODE_FONT_STACK)])
+  const faces = facesForText(input.text, families, input.faces ?? bundledFaces, /(^|[^\\*_])[*_][^\s*_]/.test(input.text))
   const budget = input.mode === 'html' ? HTML_FONT_BUDGET : PRINT_FONT_BUDGET
   let typography = input.typography
   let fontFaces = ''
@@ -70,6 +69,6 @@ export async function buildExportStyle(input: ExportStyleInput): Promise<ExportS
     fontsEmbedded: fontFaces !== '',
     fontFallback: fallback,
     fontBytes,
-    diagramStyleId: printsWhite && drawn.dark ? 'light' : drawn.id,
+    diagramStyleId: printsWhite && drawn.dark ? 'white' : drawn.id,
   }
 }

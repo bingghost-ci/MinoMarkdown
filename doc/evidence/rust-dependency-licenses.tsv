@@ -7,6 +7,7 @@ anyhow	1.0.104	MIT OR Apache-2.0	crates.io
 autocfg	1.5.1	Apache-2.0 OR MIT	crates.io
 base64	0.21.7	MIT OR Apache-2.0	crates.io
 base64	0.23.1	MIT OR Apache-2.0	crates.io
+base64ct	1.8.3	Apache-2.0 OR MIT	crates.io
 bit-set	0.8.0	Apache-2.0 OR MIT	crates.io
 bit-vec	0.8.0	Apache-2.0 OR MIT	crates.io
 bitflags	1.3.2	MIT/Apache-2.0	crates.io
@@ -48,6 +49,7 @@ darling_macro	0.24.1	MIT	crates.io
 defmt	1.2.0	MIT OR Apache-2.0	crates.io
 defmt-macros	1.2.0	MIT OR Apache-2.0	crates.io
 defmt-parser	1.1.0	MIT OR Apache-2.0	crates.io
+der	0.8.3	Apache-2.0 OR MIT	crates.io
 deranged	0.5.9	MIT OR Apache-2.0	crates.io
 derive_more	2.1.1	MIT	crates.io
 derive_more-impl	2.1.1	MIT	crates.io
@@ -66,6 +68,7 @@ embed-resource	3.0.12	MIT	crates.io
 embed_plist	1.2.2	MIT OR Apache-2.0	crates.io
 equivalent	1.0.3	Apache-2.0 OR MIT	crates.io
 erased-serde	0.4.10	MIT OR Apache-2.0	crates.io
+errno	0.3.14	MIT OR Apache-2.0	crates.io
 fastrand	2.5.0	Apache-2.0 OR MIT	crates.io
 fdeflate	0.3.7	MIT OR Apache-2.0	crates.io
 find-msvc-tools	0.1.15	MIT OR Apache-2.0	crates.io
@@ -87,6 +90,7 @@ heck	0.5.0	MIT OR Apache-2.0	crates.io
 hex	0.4.3	MIT OR Apache-2.0	crates.io
 html5ever	0.39.0	MIT OR Apache-2.0	crates.io
 http	1.5.0	MIT OR Apache-2.0	crates.io
+httparse	1.10.1	MIT OR Apache-2.0	crates.io
 iana-time-zone	0.1.65	MIT OR Apache-2.0	crates.io
 ico	0.5.0	MIT	crates.io
 icu_collections	2.3.0	Unicode-3.0	crates.io
@@ -122,6 +126,7 @@ miniz_oxide	0.9.1	MIT OR Zlib OR Apache-2.0	crates.io
 mio	1.2.4	MIT	crates.io
 moxcms	0.8.1	BSD-3-Clause OR Apache-2.0	crates.io
 muda	0.20.0	Apache-2.0 OR MIT	crates.io
+native-tls	0.2.18	MIT OR Apache-2.0	crates.io
 new_debug_unreachable	1.0.6	MIT	crates.io
 num-conv	0.2.2	MIT OR Apache-2.0	crates.io
 num-traits	0.2.19	MIT OR Apache-2.0	crates.io
@@ -139,6 +144,7 @@ once_cell	1.21.4	MIT OR Apache-2.0	crates.io
 option-ext	0.2.0	MPL-2.0	crates.io
 parking_lot	0.12.5	MIT OR Apache-2.0	crates.io
 parking_lot_core	0.9.12	MIT OR Apache-2.0	crates.io
+pem-rfc7468	1.0.0	Apache-2.0 OR MIT	crates.io
 percent-encoding	2.3.2	MIT OR Apache-2.0	crates.io
 phf	0.13.1	MIT	crates.io
 phf_codegen	0.13.1	MIT	crates.io
@@ -167,12 +173,16 @@ regex-syntax	0.8.11	MIT OR Apache-2.0	crates.io
 rfd	0.17.2	MIT	crates.io
 rustc-hash	2.1.3	Apache-2.0 OR MIT	crates.io
 rustc_version	0.4.1	MIT OR Apache-2.0	crates.io
+rustix	1.1.6	Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT	crates.io
+rustls-pki-types	1.16.0	MIT OR Apache-2.0	crates.io
 same-file	1.0.6	Unlicense/MIT	crates.io
 schemars	0.8.22	MIT	crates.io
 schemars	0.9.0	MIT	crates.io
 schemars	1.2.3	MIT	crates.io
 schemars_derive	0.8.22	MIT	crates.io
 scopeguard	1.2.0	MIT OR Apache-2.0	crates.io
+security-framework	3.7.0	MIT OR Apache-2.0	crates.io
+security-framework-sys	2.17.0	MIT OR Apache-2.0	crates.io
 selectors	0.38.0	MPL-2.0	crates.io
 semver	1.0.28	MIT OR Apache-2.0	crates.io
 serde	1.0.229	MIT OR Apache-2.0	crates.io
@@ -215,6 +225,7 @@ tauri-runtime	2.12.2	Apache-2.0 OR MIT	crates.io
 tauri-runtime-wry	2.12.2	Apache-2.0 OR MIT	crates.io
 tauri-utils	2.10.2	Apache-2.0 OR MIT	crates.io
 tauri-winres	0.3.7	MIT	crates.io
+tempfile	3.27.0	MIT OR Apache-2.0	crates.io
 tendril	0.5.1	MIT OR Apache-2.0	crates.io
 thiserror	2.0.21	MIT OR Apache-2.0	crates.io
 thiserror-impl	2.0.21	MIT OR Apache-2.0	crates.io
@@ -233,8 +244,11 @@ typeid	1.0.3	MIT OR Apache-2.0	crates.io
 typenum	1.20.1	MIT OR Apache-2.0	crates.io
 unicase	2.10.0	MIT OR Apache-2.0	crates.io
 unicode-ident	1.0.27	(MIT OR Apache-2.0) AND Unicode-3.0	crates.io
+ureq	3.5.1	MIT OR Apache-2.0	crates.io
+ureq-proto	0.7.1	MIT OR Apache-2.0	crates.io
 url	2.5.8	MIT OR Apache-2.0	crates.io
 urlpattern	0.6.0	MIT	crates.io
+utf8-zero	0.8.1	MIT OR Apache-2.0	crates.io
 utf8_iter	1.0.4	Apache-2.0 OR MIT	crates.io
 uuid	1.29.0	Apache-2.0 OR MIT	crates.io
 version_check	0.9.5	MIT/Apache-2.0	crates.io
@@ -250,6 +264,7 @@ yoke	0.8.3	Unicode-3.0	crates.io
 yoke-derive	0.8.4	Unicode-3.0	crates.io
 zerofrom	0.1.8	Unicode-3.0	crates.io
 zerofrom-derive	0.1.8	Unicode-3.0	crates.io
+zeroize	1.9.1	Apache-2.0 OR MIT	crates.io
 zerotrie	0.2.5	Unicode-3.0	crates.io
 zerovec	0.11.8	Unicode-3.0	crates.io
 zerovec-derive	0.11.6	Unicode-3.0	crates.io

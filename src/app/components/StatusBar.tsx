@@ -1,13 +1,11 @@
 import type { DocumentWorkspace } from '../useDocumentWorkspace'
-import type { Settings } from '../useDocumentWorkspace'
 import { samples, uiPreview } from '../useDocumentWorkspace'
-import { groupLabels, readingStyles, type StyleGroup } from '../../features/reading/styles'
 import { translateStatus } from '../i18n'
 
 export function StatusBar({ workspace: w }: { workspace: DocumentWorkspace }) {
-  const { document, setSettings, settings, status, t, wordCounts } = w
+  const { document, settings, status, t, wordCounts } = w
   return <>
-      <footer className="app-status"><span className="status-message" role="status" title={translateStatus(status, settings.language)}>{translateStatus(status, settings.language)}</span><span className="status-mode">{wordCounts.selected !== null ? `${t('已选')} ${wordCounts.selected} / ` : ''}{wordCounts.total} {t('字')}</span><span className="status-mode">{document.mode === 'source-protected' ? t('源码保护') : 'Markdown'}</span><label className="theme-control">{t('外观')} <select aria-label={t('外观主题')} value={settings.theme} onChange={(event) => setSettings((current) => ({ ...current, theme: event.target.value as Settings['theme'] }))}><option value="system">{t('跟随系统')}</option>{(['paper', 'eye', 'night', 'other'] as StyleGroup[]).map((group) => <optgroup key={group} label={t(groupLabels[group])}>{readingStyles.filter((style) => style.group === group).map((style) => <option key={style.id} value={style.id}>{t(style.name)}</option>)}</optgroup>)}</select></label></footer>
+      <footer className="app-status"><span className="status-message" role="status" title={translateStatus(status, settings.language)}>{translateStatus(status, settings.language)}</span><span className="status-mode">{wordCounts.selected !== null ? `${t('已选')} ${wordCounts.selected} / ` : ''}{wordCounts.total} {t('字')}</span><span className="status-mode">{w.previewPartial ? t('正在加载余下内容…') : document.deferredVisual ? t('快速阅读') : document.mode === 'source-protected' ? t('源码保护') : 'Markdown'}</span></footer>
   </>
 }
 

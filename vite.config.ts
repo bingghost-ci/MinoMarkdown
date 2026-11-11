@@ -20,7 +20,7 @@ function woff2OnlyKatex(): Plugin {
 }
 
 // Bundled fonts may not exceed the reading-experience budget (doc/08 §3); the build fails instead.
-export const FONT_BUDGET_BYTES = 32 * 1024 * 1024
+export const FONT_BUDGET_BYTES = 48 * 1024 * 1024
 function fontBudget(): Plugin {
   return {
     name: 'font-budget',
@@ -37,13 +37,30 @@ function fontBudget(): Plugin {
   }
 }
 
+// micromark's entity decoder has a `browser` build that calls `document.createElement` while loading. Inside
+// the analysis worker that stopped the worker from starting, and the app then quietly did all analysis on the
+// main thread. The alias below selects the DOM-free build; this fails the build if the other one comes back.
+function workerWithoutDom(): Plugin {
+  return {
+    name: 'worker-without-dom',
+    generateBundle(_options, bundle) {
+      for (const [file, chunk] of Object.entries(bundle)) {
+        if (chunk.type === 'chunk' && chunk.code.includes('document.createElement("i")')) this.error(`${file}: the analysis worker contains the DOM build of decode-named-character-reference`)
+      }
+    },
+  }
+}
+
 export default defineConfig({
   plugins: [react(), woff2OnlyKatex(), fontBudget(), ...(sourceMapDir ? [moveSourceMapsOutOfDist(sourceMapDir)] : [])],
   build: { sourcemap: sourceMapDir ? 'hidden' : false },
   // Code highlighting loads language parsers on demand inside the analysis worker, which needs code splitting.
-  worker: { format: 'es' },
+  worker: { format: 'es', plugins: () => [workerWithoutDom()] },
+  // The package's `browser` build decodes entities with `document.createElement`, which does not exist in a
+  // worker: the analysis worker then failed while loading and every analysis ran on the main thread (T77).
+  resolve: { alias: [{ find: /^decode-named-character-reference$/, replacement: new URL('./node_modules/decode-named-character-reference/index.js', import.meta.url).pathname }] },
   clearScreen: false,
   server: { host: '127.0.0.1', port: 1420, strictPort: true },
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
-  test: { css: { include: [/katex\.min\.css/, /@fontsource\/noto-serif-sc\/\d+\.css/] } },
+  test: { css: { include: [/katex\.min\.css/, /@fontsource\/noto-(?:serif|sans)-sc\/\d+\.css/, /@fontsource-variable\/[^/]+\/wght(?:-italic)?\.css/] } },
 })

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import { compareMarkdown, describeIssues, exceedsVisualLimit, protectedFragments } from '../core/markdown/compatibility'
+import { opensForQuickReading, previewHead, quickReadAnalysis } from '../features/document/largeDocument'
 import { countWordsAsync, imageUrlsInAsync, mermaidSourcesAsync, prepareMarkdownAsync, renderExportAsync, renderPreviewAsync } from '../core/markdown/analysisClient'
 import { mayContainMermaid } from '../core/markdown/diagrams'
 import { composeVisualMarkdown, prepareMarkdown, type PreparedMarkdown } from '../core/markdown/codec'
@@ -20,10 +21,13 @@ import { defaultFindOptions, findInText, replacementFor, type FindMatch, type Fi
 import { outlineFromSource, type OutlineItem } from '../features/outline/outline'
 import { imageUrlsIn, localAssetPath, rewriteImageUrls, snapshotResources } from '../features/export/snapshot'
 import { translate, translateStatus, type Language } from './i18n'
-import { activeStyle, defaultReadingSettings, documentTypography, lineHeights, opensInReadingMode, type ReadingSettings } from './readingSettings'
+import { activeStyle, defaultReadingSettings, documentTypography, layoutScript, lineHeights, opensInReadingMode, pickedStyle, toggledDayNight, type ReadingSettings } from './readingSettings'
 import { typographyVariables } from '../features/reading/css'
-import { isStyleId } from '../features/reading/styles'
-import { previewSampleSource } from './previewSample'
+import { dominantScript } from '../features/reading/script'
+import { migrateStyleId, type ReadingStyle } from '../features/reading/styles'
+import { previewAiTransport, previewSampleSource } from './previewSample'
+import { useAiAssistant, type InsertPlacement } from './aiAssistant'
+import type { AiTransport } from '../features/ai/client'
 import { isZoomAction, zoomedFontSize } from './textZoom'
 import { formatMenuCommands, transformMenuActions } from './formatActions'
 import type { SourceEditor } from '../features/source/SourceEditor'
@@ -61,7 +65,7 @@ export const samples = [
 type OpenResult = { token: string; name: string; markdown: string; revision: string; assetKey: string }
 type SaveResult = OpenResult & { assetPaths: Record<string, string>; assetRelocations: Record<string, string> }
 type DiskStatus = { kind: 'same' | 'changed' | 'deleted'; revision: string | null }
-type DocumentState = OpenResult & { id: number; draftId: string; imageUrls: Map<string, string>; recoveredAssets: Map<string, { bytes: Uint8Array<ArrayBuffer>; mime: string }>; pendingFiles: Map<string, File>; retiredTokens: string[]; entryToken?: string; sampleId?: string; originalMarkdown: string; prepared: PreparedMarkdown; sourceText: string; mode: 'visual' | 'source-protected'; reading?: boolean }
+type DocumentState = OpenResult & { id: number; draftId: string; imageUrls: Map<string, string>; recoveredAssets: Map<string, { bytes: Uint8Array<ArrayBuffer>; mime: string }>; pendingFiles: Map<string, File>; retiredTokens: string[]; entryToken?: string; sampleId?: string; originalMarkdown: string; prepared: PreparedMarkdown; /** T77: a large document shown through the preview until the user edits; see largeDocument.ts. */ deferredVisual?: boolean; sourceText: string; mode: 'visual' | 'source-protected'; reading?: boolean }
 type DraftSummary = { draftId: string; name: string; targetPath: string | null; targetStatus: 'same' | 'changed' | 'deleted' | 'unknown' | 'untitled'; snapshots: number }
 type DraftContent = DraftSummary & { markdown: string; assets: StagedAsset[]; assetCount: number }
 type WorkspaceRoot = { token: string; name: string }
@@ -75,7 +79,8 @@ type OpenIntent = { token: string; name: string; kind: 'markdown' | 'image' | 'f
 type NativeImageIntent = { name: string; mime: string; staged: string }
 export type Settings = ReadingSettings & { schemaVersion: number; sidebarWidth: number; windowWidth: number; windowHeight: number; showFileToolbar: boolean; showSidebar: boolean; showOutline: boolean; autoSave: boolean; autoSaveSeconds: number; restoreSession: boolean; editorWidth: 'centered' | 'wide'; language: Language }
 const defaultSettings: Settings = { ...defaultReadingSettings, schemaVersion: 1, sidebarWidth: 230, windowWidth: 1100, windowHeight: 760, showFileToolbar: false, showSidebar: true, showOutline: false, autoSave: false, autoSaveSeconds: 30, restoreSession: false, editorWidth: 'centered', language: 'zh-CN' }
-export type SettingsTab = 'appearance' | 'typography' | 'reading' | 'workspace'
+export type SettingsTab = 'appearance' | 'typography' | 'reading' | 'workspace' | 'ai'
+export type FloatingPanel = 'appearance' | null
 type TabItem = { key: string; document: DocumentState; session: DocumentSession }
 type DetachedAsset = { url: string; staged: string; mime: string }
 type DetachedTransfer = { name: string; token: string; assetKey: string; retiredTokens: string[]; revision: string; markdown: string; originalMarkdown: string; sourceText: string; mode: DocumentState['mode']; draftId: string; session: DocumentSession; assets: DetachedAsset[]; imageUrls: [string, string][] }
@@ -95,7 +100,7 @@ function previewSettings(): Settings {
   const theme = params.get('ui-theme') ?? 'dark'
   let overrides: Partial<Settings> = {}
   try { overrides = JSON.parse(params.get('ui-settings') ?? '{}') as Partial<Settings> } catch { /* ignore */ }
-  return { ...defaultSettings, theme: isStyleId(theme) ? theme : 'dark', ...overrides }
+  return { ...defaultSettings, theme: migrateStyleId(theme) ?? 'dark', ...overrides }
 }
 export const uiPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('ui-preview') === 'editor'
 const previewTree: Record<string, TreeState> = {
@@ -135,8 +140,14 @@ export function errorText(error: unknown): string {
   return messages[code] ?? `操作失败：${code}`
 }
 
+/** T77: a large document as it opens for reading, before any analysis: the preview shows it and saving keeps its source. */
+function quickDocument(markdown: string, name: string): DocumentState {
+  return { token: '', assetKey: '', name, markdown, revision: '', id: nextDocumentId++, draftId: crypto.randomUUID(), originalMarkdown: markdown, imageUrls: new Map(), recoveredAssets: new Map(), pendingFiles: new Map(), retiredTokens: [], prepared: { analysis: quickReadAnalysis(markdown), editorMarkdown: markdown }, sourceText: markdown, mode: 'source-protected', deferredVisual: true }
+}
+
 /** Prepares an opened file without reading its images; the webview loads those lazily by URL. */
-async function hydrateImages(opened: OpenResult): Promise<DocumentState> {
+async function hydrateImages(opened: OpenResult, quickRead = false): Promise<DocumentState> {
+  if (opensForQuickReading(opened.markdown, quickRead)) return { ...quickDocument(opened.markdown, opened.name), ...opened }
   const prepared = await prepareMarkdownAsync(opened.markdown)
   let markdown = prepared.editorMarkdown
   const imageUrls = new Map<string, string>()
@@ -172,7 +183,7 @@ export function useDocumentWorkspace() {
   const adapter = useRef<EditorInstance | null>(null)
   const adapterDocumentId = useRef<number | null>(null)
   const draftUploads = useRef(new Map<string, Set<string>>())
-  const [document, setDocument] = useState<DocumentState>(() => uiPreview ? { ...makeDocument(previewSampleSource(new URLSearchParams(window.location.search).get('ui-sample')), '产品笔记.md'), entryToken: 'preview-file', reading: new URLSearchParams(window.location.search).get('ui-reading') === '1' } : makeDocument(''))
+  const [document, setDocument] = useState<DocumentState>(() => uiPreview ? { ...(new URLSearchParams(window.location.search).get('ui-quick') === '1' ? quickDocument(previewSampleSource(new URLSearchParams(window.location.search).get('ui-sample')), '产品笔记.md') : makeDocument(previewSampleSource(new URLSearchParams(window.location.search).get('ui-sample')), '产品笔记.md')), entryToken: 'preview-file', reading: new URLSearchParams(window.location.search).get('ui-reading') === '1' } : makeDocument(''))
   const documentRef = useRef(document)
   documentRef.current = document
   const initialDocumentId = useRef(document.id)
@@ -191,6 +202,8 @@ export function useDocumentWorkspace() {
   const previewSettingsTab = uiPreview ? new URLSearchParams(window.location.search).get('ui-settings-tab') as SettingsTab | null : null
   const [settingsOpen, setSettingsOpen] = useState(previewSettingsTab !== null)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(previewSettingsTab ?? 'appearance')
+  const [panel, setPanel] = useState<FloatingPanel>(uiPreview && new URLSearchParams(window.location.search).get('ui-panel') === 'appearance' ? 'appearance' : null)
+  const [systemFonts, setSystemFonts] = useState<string[] | null>(null)
   const queuedSave = useRef(false)
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(busy)
@@ -255,14 +268,18 @@ export function useDocumentWorkspace() {
   const dirty = isDirty(session)
   const activeConflict = diskConflict?.documentId === document.id
   const wantsPreview = document.mode === 'source-protected' && !sourceView && !exceedsVisualLimit(document.sourceText)
-  const [preview, setPreview] = useState<{ source: string; html: string | null } | null>(null)
+  const [preview, setPreview] = useState<{ source: string; html: string | null; partial?: boolean } | null>(null)
   const previewPending = wantsPreview && preview?.source !== document.sourceText
   const previewHtml = wantsPreview && !previewPending ? preview?.html ?? null : null
+  const previewPartial = previewHtml !== null && Boolean(preview?.partial)
   useEffect(() => {
     if (!wantsPreview) return
     let current = true
     const source = document.sourceText
-    renderPreviewAsync(source, document.assetKey || undefined, settings.imageCaptions).then((html) => html, () => null).then((html) => { if (current) setPreview({ source, html }) })
+    // T77: the opening pages of a long document appear first; the worker renders the whole after them.
+    const head = previewHead(source)
+    if (head !== null) renderPreviewAsync(head, document.assetKey || undefined, settings.imageCaptions).then((html) => { if (current) { performance.mark('mino-preview-head'); setPreview((shown) => shown?.source === source && !shown.partial ? shown : { source, html, partial: true }) } }, () => undefined)
+    renderPreviewAsync(source, document.assetKey || undefined, settings.imageCaptions).then((html) => html, () => null).then((html) => { if (current) { performance.mark('mino-preview-full'); setPreview({ source, html }) } })
     return () => { current = false }
   }, [wantsPreview, document.sourceText, document.assetKey, settings.imageCaptions])
   const refreshDerivedRef = useRef<() => void>(() => undefined)
@@ -384,18 +401,24 @@ export function useDocumentWorkspace() {
     if (!next) window.setTimeout(() => adapter.current?.focus(), 0)
   }
 
+  /** T77: where the reader was in the quick-reading preview, as a fraction, for the editor that replaces it. */
+  const carriedScroll = useRef<{ id: number; fraction: number } | null>(null)
   /** Puts the active document back where it was read last in this session, and redraws the progress bar. */
   function restoreScroll() {
     requestAnimationFrame(() => {
       const scroller = documentScroller()
       if (!scroller) return
-      scroller.scrollTop = scrollPositions.current.get(documentRef.current.id) ?? 0
+      const carried = carriedScroll.current?.id === documentRef.current.id ? carriedScroll.current.fraction : null
+      carriedScroll.current = null
+      scroller.scrollTop = carried !== null ? carried * (scroller.scrollHeight - scroller.clientHeight) : scrollPositions.current.get(documentRef.current.id) ?? 0
       updateReadingProgress(scroller)
     })
   }
 
   useEffect(() => { adapter.current?.setReadonly(reading) }, [reading, document.id, toolbar.ready])
   useEffect(() => { if (previewHtml !== null) restoreScroll() }, [previewHtml])
+  // T77: a quickly opened large document is analyzed and loaded into the editor once the user leaves reading mode.
+  useEffect(() => { if (document.deferredVisual && !document.reading && !busy) void switchToVisualRef.current().catch(() => { if (documentRef.current.deferredVisual) setDocument({ ...documentRef.current, deferredVisual: false }); setStatus('无法准备编辑器，文档保持源码模式') }) }, [document.id, document.deferredVisual, document.reading, busy])
 
   useEffect(() => {
     let frame = 0
@@ -605,7 +628,7 @@ export function useDocumentWorkspace() {
     setTablePicker(null)
     setImageAltOpen(false)
     if (document.mode === 'source-protected') {
-      setStatus(`源码模式：${describeIssues(document.prepared.analysis) || '手动切换'}；可保存原文`)
+      setStatus(document.deferredVisual ? `已打开 ${document.name} · 大文档快速阅读，按 ⌘⇧R 开始编辑` : `源码模式：${describeIssues(document.prepared.analysis) || '手动切换'}；可保存原文`)
       if (findRef.current.open) window.setTimeout(() => runFindRef.current(findRef.current.query), 0)
       return
     }
@@ -678,7 +701,10 @@ export function useDocumentWorkspace() {
     if (window.document.querySelector('.mermaid-preview')) void import('../features/diagrams/mermaid').then((module) => module.restyleDiagrams(window.document, style.id))
   }, [style.id])
 
-  const typography = documentTypography(settings, style)
+  // Western layout follows the text the document had when it was opened or last saved, so typing never reflows the page.
+  const docScript = useMemo(() => dominantScript(document.sourceText), [document.id, document.sourceText])
+  const latinLayout = layoutScript(settings, docScript) === 'latin'
+  const typography = documentTypography(settings, style, docScript)
   const typographyKey = JSON.stringify(typography)
   useEffect(() => {
     const root = window.document.documentElement
@@ -687,6 +713,15 @@ export function useDocumentWorkspace() {
     root.style.setProperty('--editor-font-size', `${typography.fontSize}px`)
     root.style.setProperty('--editor-line-height', String(typography.lineHeight))
   }, [typographyKey, style.id])
+
+  /** Font families installed on this Mac, read once when the font panel first needs them (T67). */
+  function loadSystemFonts() {
+    if (systemFonts !== null) return
+    if (!desktop) { setSystemFonts(uiPreview ? ['Avenir Next', 'Baskerville', 'Georgia', 'Helvetica Neue', 'Kaiti SC', 'PingFang SC', 'Songti SC', 'Times New Roman'] : []); return }
+    void invoke<string[]>('list_system_fonts').then(setSystemFonts, () => setSystemFonts([]))
+  }
+  const pickStyle = (picked: ReadingStyle) => setSettings((current) => ({ ...current, ...pickedStyle(picked, current, systemDark) }))
+  const toggleDayNight = () => setSettings((current) => ({ ...current, ...toggledDayNight(current, systemDark) }))
 
   useEffect(() => {
     window.document.documentElement.lang = settings.language
@@ -997,7 +1032,7 @@ export function useDocumentWorkspace() {
       if (wasDirty) await persistTabDraft(currentTabSnapshot(), adapter.current, true)
       if (!stillWanted || documentRef.current.id !== documentId) return
       const opened = await invoke<OpenResult>('reload_document', { token })
-      const next = await hydrateImages(opened)
+      const next = await hydrateImages(opened, Boolean(documentRef.current.reading))
       if (documentRef.current.id !== documentId) return
       const previous = documentRef.current
       next.retiredTokens = previous.retiredTokens
@@ -1094,7 +1129,7 @@ export function useDocumentWorkspace() {
       if (intent.kind === 'markdown') {
         const opened = await invoke<OpenResult>('open_intent_document', { token: intent.token })
         candidateToken = opened.token
-        const hydrated = await hydrateImages(opened)
+        const hydrated = await hydrateImages(opened, settingsRef.current.openInReadingMode)
         openTab(hydrated, createSession(hydrated.id, hydrated.revision))
         candidateToken = null
         void rememberDocument(hydrated.token).catch(() => undefined)
@@ -1157,7 +1192,7 @@ export function useDocumentWorkspace() {
       let missing = restored.missing
       for (const [index, opened] of restored.documents.entries()) {
         try {
-          const hydrated = await hydrateImages(opened)
+          const hydrated = await hydrateImages(opened, settingsRef.current.openInReadingMode)
           const item = { key: crypto.randomUUID(), document: hydrated, session: createSession(hydrated.id, hydrated.revision) }
           items.push(item)
           if (index === restored.active) activeItem = item
@@ -1215,7 +1250,7 @@ export function useDocumentWorkspace() {
         candidateToken = opened.token
         setBusy(true)
         setStatus(`正在打开 ${opened.name}…`)
-        const hydrated = await hydrateImages(opened)
+        const hydrated = await hydrateImages(opened, settingsRef.current.openInReadingMode)
         openTab(hydrated, createSession(hydrated.id, hydrated.revision))
         candidateToken = null
         void rememberDocument(opened.token).catch(() => undefined)
@@ -1268,7 +1303,7 @@ export function useDocumentWorkspace() {
     try {
       const opened = await invoke<OpenResult>('open_workspace_document', { entryToken: token })
       candidateToken = opened.token
-      const hydrated = await hydrateImages(opened)
+      const hydrated = await hydrateImages(opened, settingsRef.current.openInReadingMode)
       openTab({ ...hydrated, entryToken: token }, createSession(hydrated.id, hydrated.revision))
       candidateToken = null
       void rememberDocument(opened.token).catch(() => undefined)
@@ -1459,12 +1494,12 @@ export function useDocumentWorkspace() {
       const { buildExportStyle } = await import('../features/export/exportStyle')
       const { readAppAsset } = await import('../features/export/appAssets')
       const look = await buildExportStyle({
-        style, typography: documentTypography(current, style), exportStyle: current.exportStyle, pdfMode: current.pdfMode, pageSize: current.pageSize, pageMargin: current.pageMargin,
+        style, typography: documentTypography(current, style, docScript), exportStyle: current.exportStyle, pdfMode: current.pdfMode, pageSize: current.pageSize, pageMargin: current.pageMargin,
         text: `${frozen.title}\n${frozen.markdown}`, mode, readAsset: (path) => readAppAsset(path, (assetPath) => invoke<ArrayBuffer>('read_app_asset', { path: assetPath })),
       })
       const sources = mayContainMermaid(frozen.markdown) ? await mermaidSourcesAsync(frozen.markdown) : []
       const diagrams = sources.length ? await (await import('../features/diagrams/mermaid')).renderDiagramsForExport(sources, look.diagramStyleId) : new Map<string, string>()
-      const rendered = await renderExportAsync(frozen.markdown, frozen.title.replace(/\.(md|markdown)$/i, ''), assets, diagrams, { stylesheet: look.stylesheet, fontsEmbedded: look.fontsEmbedded, captions: current.imageCaptions })
+      const rendered = await renderExportAsync(frozen.markdown, frozen.title.replace(/\.(md|markdown)$/i, ''), assets, diagrams, { stylesheet: look.stylesheet, fontsEmbedded: look.fontsEmbedded, captions: current.imageCaptions, lang: layoutScript(current, docScript) === 'latin' ? 'en' : 'zh-CN' })
       const { omittedHtml, failedDiagrams } = rendered
       const html = rendered.hasMath ? (await import('../features/export/katexStyles')).embedMathStyles(rendered.html) : rendered.html
       const omitted = `${omittedHtml ? `；${omittedHtml} 处原始 HTML 未输出` : ''}${failedDiagrams ? `；${failedDiagrams} 张图表无法渲染，已保留代码` : ''}${look.fontFallback ? '；字体未能内嵌，已改用系统字体' : ''}`
@@ -1565,6 +1600,7 @@ export function useDocumentWorkspace() {
       }
       if (documentRef.current.reading && !settingsOpen && !draftsOpen && !lightbox && handleReadingKey(event)) return
       if (event.key === 'Escape') {
+        setPanel(null)
         setLightbox(null)
         setTabMenu(null)
         setSettingsOpen(false)
@@ -1606,7 +1642,7 @@ export function useDocumentWorkspace() {
       candidateToken = opened.token
       setBusy(true)
       setStatus(`正在打开 ${opened.name}…`)
-      const hydrated = await hydrateImages(opened)
+      const hydrated = await hydrateImages(opened, settingsRef.current.openInReadingMode)
       openTab(hydrated, createSession(hydrated.id, hydrated.revision))
       candidateToken = null
       void rememberDocument(opened.token).catch(() => undefined)
@@ -1850,6 +1886,7 @@ export function useDocumentWorkspace() {
   async function switchToVisual() {
     if (busy) { noteBusy(); return }
     if (document.mode !== 'source-protected') return
+    if (document.deferredVisual) setStatus('正在准备编辑器，大文档需要一些时间…')
     const document_ = flushSourceText()
     if (document_ !== document) { window.setTimeout(() => void switchToVisualRef.current(), 0); return }
     setBusy(true)
@@ -1857,6 +1894,8 @@ export function useDocumentWorkspace() {
       const visual = await hydrateImages({ token: document.token, assetKey: document.assetKey, name: document.name, markdown: document.sourceText, revision: document.revision })
       if (visual.mode !== 'visual') {
         setStatus(`仍需源码保护：${describeIssues(visual.prepared.analysis)}`)
+        // The stand-in analysis of a quickly opened document gives way to the real one, so this is not retried.
+        if (document.deferredVisual) setDocument({ ...documentRef.current, deferredVisual: false, prepared: visual.prepared })
         return
       }
       const recoveredReplacements = new Map<string, string>()
@@ -1872,6 +1911,8 @@ export function useDocumentWorkspace() {
         setStatus('图片引用无法安全恢复，请继续使用源码模式')
         return
       }
+      const scroller = document.deferredVisual ? documentScroller() : null
+      if (scroller && scroller.scrollHeight > scroller.clientHeight) carriedScroll.current = { id: visual.id, fraction: scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight) }
       updateSession({ ...sessionRef.current, generation: visual.id })
       setDocument({ ...visual, draftId: document.draftId, retiredTokens: document.retiredTokens, originalMarkdown: document.originalMarkdown, sampleId: document.sampleId })
     } finally {
@@ -1892,8 +1933,51 @@ export function useDocumentWorkspace() {
     setLightbox({ src: image.currentSrc, alt: image.alt })
   }
 
+  // The optional AI assistant (T70–T73). Its requests leave from Rust; this hook only passes the IPC along.
+  const aiTransport = useMemo<AiTransport | null>(() => uiPreview ? previewAiTransport() : desktop ? {
+    invoke: (command, args) => invoke(command, args),
+    listen: (event, handler) => getCurrentWindow().listen(event, (message) => handler(message.payload as never)),
+  } : null, [desktop])
+  function aiSelection() {
+    const current = documentRef.current
+    if (current.mode === 'visual') return adapter.current?.selectionContext() ?? null
+    const element = sourceEditor.current
+    if (!element || element.selectionStart === element.selectionEnd) return null
+    const text = element.value
+    return { selection: text.slice(element.selectionStart, element.selectionEnd), before: text.slice(Math.max(0, element.selectionStart - 1500), element.selectionStart), after: text.slice(element.selectionEnd, element.selectionEnd + 1500) }
+  }
+  function insertAiMarkdown(markdown: string, placement: InsertPlacement) {
+    const current = documentRef.current
+    if (current.reading) throw new Error('READING_MODE')
+    if (current.mode === 'visual') {
+      if (!adapter.current) throw new Error('EDITOR_NOT_READY')
+      adapter.current.insertMarkdown(markdown, placement)
+      return
+    }
+    const element = sourceEditor.current
+    if (!element) throw new Error('EDITOR_NOT_READY')
+    const [from, to] = [element.selectionStart, element.selectionEnd]
+    element.replaceRanges(placement === 'replace' ? [{ from, to, insert: markdown }] : [{ from: to, to, insert: `\n\n${markdown}\n` }])
+    if (sessionRef.current.generation === current.id) updateSession(editSession(sessionRef.current))
+    element.focus()
+  }
+  const ai = useAiAssistant({
+    transport: aiTransport,
+    documentId: document.id,
+    language: settings.language,
+    getDocument: () => {
+      const current = documentRef.current
+      return { title: current.name.replace(/\.(md|markdown)$/i, ''), markdown: current.mode === 'visual' ? adapter.current?.getMarkdown() ?? current.markdown : sourceEditor.current?.value ?? current.sourceText }
+    },
+    getHeadings: () => currentOutline(),
+    getSelection: aiSelection,
+    // Answers go through the preview renderer: sanitized, and images are never fetched from the network.
+    renderMarkdown: (markdown) => renderPreviewAsync(markdown, undefined, false).then((html) => html, () => null),
+    insertMarkdown: insertAiMarkdown,
+    onStatus: setStatus,
+  })
   const sourceDark = style.dark
-  return { style, sourceDark, reading, setReading, lightbox, setLightbox, openImageFromClick, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, preview, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettings, setSettingsOpen, setSettingsTab, setSourceView, setStatus, setTabMenu, settings, settingsOpen, settingsTab, sidebarOpen, sidebarRoot, sourceEditor, sourceView, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabMenu, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspace }
+  return { previewPartial, ai, panel, setPanel, systemFonts, loadSystemFonts, pickStyle, toggleDayNight, systemDark, latinLayout, style, sourceDark, reading, setReading, lightbox, setLightbox, openImageFromClick, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, preview, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettings, setSettingsOpen, setSettingsTab, setSourceView, setStatus, setTabMenu, settings, settingsOpen, settingsTab, sidebarOpen, sidebarRoot, sourceEditor, sourceView, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabMenu, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspace }
 }
 
 export type DocumentWorkspace = ReturnType<typeof useDocumentWorkspace>

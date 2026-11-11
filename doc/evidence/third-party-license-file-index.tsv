@@ -54,7 +54,13 @@ npm	@esbuild/darwin-arm64	0.27.7	MIT			missing
 npm	@floating-ui/core	1.8.0	MIT	LICENSE	0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce	present
 npm	@floating-ui/dom	1.8.0	MIT	LICENSE	0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce	present
 npm	@floating-ui/utils	0.2.12	MIT	LICENSE	0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce	present
+npm	@fontsource-variable/eb-garamond	5.3.0	OFL-1.1	LICENSE	f03c8eda63076cd52317dcd40aa04db8472d4cb592dfaafa385129dfdafc7f9c	present
+npm	@fontsource-variable/inter	5.3.0	OFL-1.1	LICENSE	3b0a5fca3d17942cde889069889dedbbbd075e9b599968c82a95f4d944e9b345	present
+npm	@fontsource-variable/jetbrains-mono	5.3.0	OFL-1.1	LICENSE	403581b69dac5cff4079205e01c6b467e56af449ecbd7247693ddb1baafa005b	present
+npm	@fontsource-variable/literata	5.3.0	OFL-1.1	LICENSE	9895ebc015226accf416b758ac1ca02a2fb4f83a89d316791ef697c3dc0852aa	present
+npm	@fontsource-variable/source-serif-4	5.3.1	OFL-1.1	LICENSE	18aabf190848725e2576eefb5c29ba06aac1029d02132252a7f312eac2e50cf3	present
 npm	@fontsource/lxgw-wenkai	5.3.0	OFL-1.1	LICENSE	a4654e013454eb0ea7b4b35689d235de2452a13737805e2a172761ae110b6905	present
+npm	@fontsource/noto-sans-sc	5.3.1	OFL-1.1	LICENSE	18aabf190848725e2576eefb5c29ba06aac1029d02132252a7f312eac2e50cf3	present
 npm	@fontsource/noto-serif-sc	5.3.1	OFL-1.1	LICENSE	18aabf190848725e2576eefb5c29ba06aac1029d02132252a7f312eac2e50cf3	present
 npm	@jridgewell/gen-mapping	0.3.13	MIT	LICENSE	769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c	present
 npm	@jridgewell/remapping	2.3.5	MIT	LICENSE	769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c	present
@@ -316,6 +322,8 @@ rust	base64	0.21.7	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e0076573
 rust	base64	0.21.7	MIT OR Apache-2.0	LICENSE-MIT	0dd882e53de11566d50f8e8e2d5a651bcf3fabee4987d70f306233cf39094ba7	present
 rust	base64	0.23.1	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
 rust	base64	0.23.1	MIT OR Apache-2.0	LICENSE-MIT	ab499c75a0f0da8e0fe83bf9ba3a27e5c39705310f07107c6c66b69958d2401c	present
+rust	base64ct	1.8.3	Apache-2.0 OR MIT	LICENSE-APACHE	a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5	present
+rust	base64ct	1.8.3	Apache-2.0 OR MIT	LICENSE-MIT	2d1c57bff28344b9e698f51063bc8509799cc4c99a4e0cf2aa3f7e7c3e1f9a9d	present
 rust	bit-set	0.8.0	Apache-2.0 OR MIT	LICENSE-APACHE	8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90	present
 rust	bit-set	0.8.0	Apache-2.0 OR MIT	LICENSE-MIT	f51ac2c59a222f7476ce507ca879960e2b64ea64bb2786eefdbeb7b0b538d1b7	present
 rust	bit-vec	0.8.0	Apache-2.0 OR MIT	LICENSE-APACHE	8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90	present
@@ -386,6 +394,8 @@ rust	defmt-macros	1.2.0	MIT OR Apache-2.0	LICENSE-APACHE	8173d5c29b4f956d532781d
 rust	defmt-macros	1.2.0	MIT OR Apache-2.0	LICENSE-MIT	2710a622a896bba67356913d4d0492cab5465f61b2ecce6d880aeb483834fb50	present
 rust	defmt-parser	1.1.0	MIT OR Apache-2.0	LICENSE-APACHE	8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90	present
 rust	defmt-parser	1.1.0	MIT OR Apache-2.0	LICENSE-MIT	2710a622a896bba67356913d4d0492cab5465f61b2ecce6d880aeb483834fb50	present
+rust	der	0.8.3	Apache-2.0 OR MIT	LICENSE-APACHE	a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5	present
+rust	der	0.8.3	Apache-2.0 OR MIT	LICENSE-MIT	73b9dc2e79c7308998dd30296e073aefaefb944a68fb89aa412c23c0edcabcaa	present
 rust	deranged	0.5.9	MIT OR Apache-2.0	LICENSE-Apache	edd65bdd88957a205c47d53fa499eed8865a70320f0f03f6391668cb304ea376	present
 rust	deranged	0.5.9	MIT OR Apache-2.0	LICENSE-MIT	231c837c45eb53f108fb48929e488965bc4fcc14e9ea21d35f50e6b99d98685b	present
 rust	derive_more	2.1.1	MIT	LICENSE	8a35369f3ca263b3c62fbb5032947e53b6bfebc6c8a4d1bb982de1c069f6fba5	present
@@ -415,6 +425,8 @@ rust	equivalent	1.0.3	Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e0076
 rust	equivalent	1.0.3	Apache-2.0 OR MIT	LICENSE-MIT	7365cc8878a1d7ce155a58c4ca09c3d7a6be413efa5334a80ea842912b669349	present
 rust	erased-serde	0.4.10	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
 rust	erased-serde	0.4.10	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	errno	0.3.14	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	errno	0.3.14	MIT OR Apache-2.0	LICENSE-MIT	8764a597675778ddfd4e25f81b08a05dbcf089ac05662df7613fe67f150e3aa2	present
 rust	fastrand	2.5.0	Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
 rust	fastrand	2.5.0	Apache-2.0 OR MIT	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
 rust	fdeflate	0.3.7	MIT OR Apache-2.0	LICENSE-APACHE	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
@@ -455,6 +467,8 @@ rust	html5ever	0.39.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e0076
 rust	html5ever	0.39.0	MIT OR Apache-2.0	LICENSE-MIT	86dd7f026f916daf7511e39951ad8ea8cf55a8db67ae64060dacf829761c18f3	present
 rust	http	1.5.0	MIT OR Apache-2.0	LICENSE-APACHE	8bb1b50b0e5c9399ae33bd35fab2769010fa6c14e8860c729a52295d84896b7a	present
 rust	http	1.5.0	MIT OR Apache-2.0	LICENSE-MIT	dc91f8200e4b2a1f9261035d4c18c33c246911a6c0f7b543d75347e61b249cff	present
+rust	httparse	1.10.1	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	httparse	1.10.1	MIT OR Apache-2.0	LICENSE-MIT	391a5396cec6230bfabd4ef4eb2350eb895bc5efce377a2218f5702ed020d3e3	present
 rust	iana-time-zone	0.1.65	MIT OR Apache-2.0	LICENSE-APACHE	696759d65dfe558ff7d9f031c76db19ec5c0767470fb67c4e8d990820d1e99c9	present
 rust	iana-time-zone	0.1.65	MIT OR Apache-2.0	LICENSE-MIT	da28ccc6b158fc2d8cccc74e99794b1cff1d29bd7bbeb019442fcf0c04c6cad9	present
 rust	ico	0.5.0	MIT	LICENSE	41ca90213441b294e7517d5858f0cc85bc12e19ec044001b45bc213de461d33b	present
@@ -518,6 +532,8 @@ rust	moxcms	0.8.1	BSD-3-Clause OR Apache-2.0	LICENSE.md	2aa92cada6431e75615e3fe6
 rust	muda	0.20.0	Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
 rust	muda	0.20.0	Apache-2.0 OR MIT	LICENSE-MIT	2ab5537b8c0cb1d475e2145b6a7994b04e7c71e6e5bd836f7f9c47c221a5ad9a	present
 rust	muda	0.20.0	Apache-2.0 OR MIT	LICENSE.spdx	b99f9d43803f2ac979c50949df630bd8eeaf2fcd1b9fdb9093710d70f5dfb63d	present
+rust	native-tls	0.2.18	MIT OR Apache-2.0	LICENSE-APACHE	c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08	present
+rust	native-tls	0.2.18	MIT OR Apache-2.0	LICENSE-MIT	f2ad7982ddbfa8c45eb965315718c55b70b9cc311b49afacb50d5fe84173ae2c	present
 rust	new_debug_unreachable	1.0.6	MIT	LICENSE-MIT	f7715d38a3fa1b4ac97c5729740752505a39cb92ee83ab5b102aeb5eaa7cdea4	present
 rust	num-conv	0.2.2	MIT OR Apache-2.0	LICENSE-Apache	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
 rust	num-conv	0.2.2	MIT OR Apache-2.0	LICENSE-MIT	e2e245f2b566d0bfafb0f6a04c16b82d710c4e6e7d799e39bb4ef6e541b85b98	present
@@ -540,6 +556,8 @@ rust	parking_lot	0.12.5	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00
 rust	parking_lot	0.12.5	MIT OR Apache-2.0	LICENSE-MIT	c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5	present
 rust	parking_lot_core	0.9.12	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
 rust	parking_lot_core	0.9.12	MIT OR Apache-2.0	LICENSE-MIT	c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5	present
+rust	pem-rfc7468	1.0.0	Apache-2.0 OR MIT	LICENSE-APACHE	a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5	present
+rust	pem-rfc7468	1.0.0	Apache-2.0 OR MIT	LICENSE-MIT	4148e7b027fba018131f297b4fe27995386ba317018d6855e182fd0e86cd754f	present
 rust	percent-encoding	2.3.2	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
 rust	percent-encoding	2.3.2	MIT OR Apache-2.0	LICENSE-MIT	b38f11f6096706e6de553dabe2a7ed142d59b6fa8c97e290c67496154745cdd5	present
 rust	phf	0.13.1	MIT	LICENSE	0ab4d106b6faac07fb6a051815fd1b4d862d730895e2d7d7358c2f13565e7a38	present
@@ -586,6 +604,11 @@ rust	rustc-hash	2.1.3	Apache-2.0 OR MIT	LICENSE-APACHE	95bd3988beee069fa2848f648
 rust	rustc-hash	2.1.3	Apache-2.0 OR MIT	LICENSE-MIT	30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652	present
 rust	rustc_version	0.4.1	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
 rust	rustc_version	0.4.1	MIT OR Apache-2.0	LICENSE-MIT	c9a75f18b9ab2927829a208fc6aa2cf4e63b8420887ba29cdb265d6619ae82d5	present
+rust	rustix	1.1.6	Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	rustix	1.1.6	Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT	LICENSE-Apache-2.0_WITH_LLVM-exception	268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5	present
+rust	rustix	1.1.6	Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
+rust	rustls-pki-types	1.16.0	MIT OR Apache-2.0	LICENSE-APACHE	45fd05c4865e7c350b98ad7ac50e1b15462d49af4a91e9b0c9dd933dc9a69742	present
+rust	rustls-pki-types	1.16.0	MIT OR Apache-2.0	LICENSE-MIT	9117d922e667125508dde62b02c1f57ed22f5ad21eb536aa2e2d99e1c796e639	present
 rust	same-file	1.0.6	Unlicense/MIT	COPYING	01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f	present
 rust	same-file	1.0.6	Unlicense/MIT	LICENSE-MIT	cb3c929a05e6cbc9de9ab06a4c57eeb60ca8c724bef6c138c87d3a577e27aa14	present
 rust	schemars	0.8.22	MIT	LICENSE	1954992a2b32e8a2af24a4c11b726902e344c1934b947a77f04d404908f8db30	present
@@ -594,6 +617,10 @@ rust	schemars	1.2.3	MIT	LICENSE	1954992a2b32e8a2af24a4c11b726902e344c1934b947a77
 rust	schemars_derive	0.8.22	MIT	LICENSE	1954992a2b32e8a2af24a4c11b726902e344c1934b947a77f04d404908f8db30	present
 rust	scopeguard	1.2.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
 rust	scopeguard	1.2.0	MIT OR Apache-2.0	LICENSE-MIT	fb77f0a9c53e473abe5103c8632ef9f0f2874d4fb3f17cb2d8c661aab9cee9d7	present
+rust	security-framework	3.7.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	security-framework	3.7.0	MIT OR Apache-2.0	LICENSE-MIT	91e934255ba3b2f21103d68c5581c23ef34aa95c4628e4405b8c901935e11c69	present
+rust	security-framework-sys	2.17.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	security-framework-sys	2.17.0	MIT OR Apache-2.0	LICENSE-MIT	91e934255ba3b2f21103d68c5581c23ef34aa95c4628e4405b8c901935e11c69	present
 rust	selectors	0.38.0	MPL-2.0			missing
 rust	semver	1.0.28	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
 rust	semver	1.0.28	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
@@ -677,6 +704,8 @@ rust	tauri-runtime-wry	2.12.2	Apache-2.0 OR MIT	LICENSE-MIT	9dd42ea92cff2ede5cd4
 rust	tauri-utils	2.10.2	Apache-2.0 OR MIT	LICENSE-APACHE-2.0	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
 rust	tauri-utils	2.10.2	Apache-2.0 OR MIT	LICENSE-MIT	9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d	present
 rust	tauri-winres	0.3.7	MIT	LICENSE	d9fa6b0e6fed50d4961b9c931587af6bd127df13e9473418d3e324f427db4f06	present
+rust	tempfile	3.27.0	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
+rust	tempfile	3.27.0	MIT OR Apache-2.0	LICENSE-MIT	8b427f5bc501764575e52ba4f9d95673cf8f6d80a86d0d06599852e1a9a20a36	present
 rust	tendril	0.5.1	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
 rust	tendril	0.5.1	MIT OR Apache-2.0	LICENSE-MIT	60a7062291b01ba068f300612cdbdc20382ac1d4934f07bcdd7167c15299f309	present
 rust	thiserror	2.0.21	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
@@ -715,9 +744,15 @@ rust	unicase	2.10.0	MIT OR Apache-2.0	LICENSE-MIT	4f6bd11a0f17fe5b085ace1daaedb7
 rust	unicode-ident	1.0.27	(MIT OR Apache-2.0) AND Unicode-3.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
 rust	unicode-ident	1.0.27	(MIT OR Apache-2.0) AND Unicode-3.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
 rust	unicode-ident	1.0.27	(MIT OR Apache-2.0) AND Unicode-3.0	LICENSE-UNICODE	f7db81051789b729fea528a63ec4c938fdcb93d9d61d97dc8cc2e9df6d47f2a1	present
+rust	ureq	3.5.1	MIT OR Apache-2.0	LICENSE-APACHE	c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4	present
+rust	ureq	3.5.1	MIT OR Apache-2.0	LICENSE-MIT	7e5886959f67f8c75063a9d55cd3cb08c5a8cbea9a944fa1df2d4ae038f53721	present
+rust	ureq-proto	0.7.1	MIT OR Apache-2.0	LICENSE-APACHE.txt	cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30	present
+rust	ureq-proto	0.7.1	MIT OR Apache-2.0	LICENSE-MIT.txt	5b460f37be48ac4cf2181596181cc6cae432fc2caae05944873f380730829a4b	present
 rust	url	2.5.8	MIT OR Apache-2.0	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
 rust	url	2.5.8	MIT OR Apache-2.0	LICENSE-MIT	b38f11f6096706e6de553dabe2a7ed142d59b6fa8c97e290c67496154745cdd5	present
 rust	urlpattern	0.6.0	MIT	LICENSE	5cf1c9dc617e4cad7fa03181ff893601ad5243aa3be527ef39034e1cd6377676	present
+rust	utf8-zero	0.8.1	MIT OR Apache-2.0	LICENSE-APACHE	62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a	present
+rust	utf8-zero	0.8.1	MIT OR Apache-2.0	LICENSE-MIT	23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3	present
 rust	utf8_iter	1.0.4	Apache-2.0 OR MIT	LICENSE-APACHE	cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30	present
 rust	utf8_iter	1.0.4	Apache-2.0 OR MIT	LICENSE-MIT	3fa4ca83dcc9237839b1bdeb2e6d16bdfb5ec0c5ce42b24694d8bbf0dcbef72c	present
 rust	uuid	1.29.0	Apache-2.0 OR MIT	LICENSE-APACHE	a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2	present
@@ -744,6 +779,8 @@ rust	yoke	0.8.3	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63
 rust	yoke-derive	0.8.4	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
 rust	zerofrom	0.1.8	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
 rust	zerofrom-derive	0.1.8	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
+rust	zeroize	1.9.1	Apache-2.0 OR MIT	LICENSE-APACHE	cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30	present
+rust	zeroize	1.9.1	Apache-2.0 OR MIT	LICENSE-MIT	8c7516d4b27b1e495be5e38b612298b63de48d05f49cdac94f70f3cd70f8864b	present
 rust	zerotrie	0.2.5	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
 rust	zerovec	0.11.8	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present
 rust	zerovec-derive	0.11.6	Unicode-3.0	LICENSE	f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2	present

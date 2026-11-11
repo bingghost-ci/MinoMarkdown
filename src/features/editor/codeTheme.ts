@@ -1,6 +1,6 @@
 import { EditorView } from '@codemirror/view'
 import { HighlightStyle, defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language'
-import { syntaxRole } from '../../core/markdown/syntaxRoles'
+import { extraSyntax, syntaxRole } from '../../core/markdown/syntaxRoles'
 
 /**
  * Code blocks follow the reading style: every color is a CSS variable set by the style's code palette
@@ -9,13 +9,14 @@ import { syntaxRole } from '../../core/markdown/syntaxRoles'
  * export use the same mapping (src/core/markdown/syntaxRoles.ts).
  */
 
-const styleHighlight = HighlightStyle.define(defaultHighlightStyle.specs.map((spec) => (
-  typeof spec.color === 'string' ? { ...spec, color: `var(--syntax-${syntaxRole(spec.color)})` } : spec
-)))
+const styleHighlight = HighlightStyle.define([
+  ...extraSyntax.map(({ tag, role }) => ({ tag, color: `var(--syntax-${role})` })),
+  ...defaultHighlightStyle.specs.map((spec) => (typeof spec.color === 'string' ? { ...spec, color: `var(--syntax-${syntaxRole(spec.color)})` } : spec)),
+])
 
 const frame = EditorView.theme({
   '&': { backgroundColor: 'transparent', color: 'var(--text)' },
-  '.cm-content': { caretColor: 'var(--text)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
+  '.cm-content': { caretColor: 'var(--text)', fontFamily: 'var(--code-font)' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--text)' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': { backgroundColor: 'var(--selection)' },
   '.cm-gutters': { backgroundColor: 'transparent', color: 'var(--muted)', border: 'none' },

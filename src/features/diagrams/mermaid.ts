@@ -105,7 +105,7 @@ function tracked(element: HTMLElement, content: string, theme: Theme): HTMLEleme
  * when a code block changes, so a style switch updates the drawn elements in place: the document, the
  * editor and its history are untouched. Diagrams with syntax errors do not depend on the style.
  */
-export async function restyleDiagrams(root: ParentNode, theme: Theme = document.documentElement.dataset.theme ?? 'light'): Promise<number> {
+export async function restyleDiagrams(root: ParentNode, theme: Theme = document.documentElement.dataset.theme ?? 'white'): Promise<number> {
   let redrawn = 0
   for (const element of Array.from(root.querySelectorAll<HTMLElement>('.mermaid-preview'))) {
     const state = drawn.get(element)
@@ -149,7 +149,7 @@ function flush(): void {
 /** Crepe's code block preview hook. Returning `undefined` tells it the result will arrive through `apply`. */
 export function renderMermaidPreview(language: string, content: string, apply: (value: HTMLElement) => void): HTMLElement | null | undefined {
   if (language.toLowerCase() !== 'mermaid' || !content.trim()) return null
-  const theme: Theme = document.documentElement.dataset.theme ?? 'light'
+  const theme: Theme = document.documentElement.dataset.theme ?? 'white'
   const cached = cache.get(`${theme}\0${content}`)
   if (cached) return tracked(cached.cloneNode(true) as HTMLElement, content, theme)
   // Only one block can be focused, so older pending edits from typing are already out of date.
@@ -162,7 +162,7 @@ export function renderMermaidPreview(language: string, content: string, apply: (
 }
 
 /** Exports draw diagrams in the export's style. A diagram that fails is left out, and the page keeps its code. */
-export async function renderDiagramsForExport(sources: readonly string[], styleId = 'light'): Promise<Map<string, string>> {
+export async function renderDiagramsForExport(sources: readonly string[], styleId = 'white'): Promise<Map<string, string>> {
   const diagrams = new Map<string, string>()
   for (const source of sources) {
     try { diagrams.set(source, await renderSvg(source, styleId)) }

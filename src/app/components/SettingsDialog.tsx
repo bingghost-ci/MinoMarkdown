@@ -1,13 +1,13 @@
-import type { CSSProperties, ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { FocusTrap } from './FocusTrap'
 import type { DocumentWorkspace, Settings } from '../useDocumentWorkspace'
-import { fontFamilies, fontOptions, fontPresetOptions } from '../appearance'
-import { documentFontFamily } from '../readingSettings'
 import { MAX_EDITOR_FONT_SIZE, MIN_EDITOR_FONT_SIZE, zoomedFontSize } from '../textZoom'
-import type { Language } from '../i18n'
-import { groupLabels, readingStyles, type ReadingStyle, type StyleGroup } from '../../features/reading/styles'
-import { textureUrl } from '../../features/reading/textures'
+import { translateStatus, type Language } from '../i18n'
+import { readingStyles } from '../../features/reading/styles'
+import { modelChoices, providerHasKey, providerIds, providerLabels, type AiProvider } from '../../features/ai/client'
+import { StyleSwatches } from './AppearancePanel'
+import { FontPicker } from './FontPicker'
 
 type Update = (patch: Partial<Settings>) => void
 
@@ -19,14 +19,59 @@ function Row({ title, note, children }: { title: string; note?: string; children
   return <div className="settings-row"><span>{title}{note && <small>{note}</small>}</span>{children}</div>
 }
 
-/** A miniature page drawn from the style data itself: paper, texture, ink, link and font. */
-function StyleCard({ style, active, onPick, t }: { style: ReadingStyle; active: boolean; onPick: () => void; t: (text: string) => string }) {
-  const texture = textureUrl(style.texture)
-  const page: CSSProperties = { backgroundColor: style.paper, backgroundImage: texture ? `url("${texture}")` : undefined, color: style.text, borderColor: style.edge, fontFamily: documentFontFamily({ fontPreset: 'auto', editorFont: 'system' }, style) }
-  return <button type="button" className="style-card" aria-pressed={active} onClick={onPick} style={{ background: style.desk }}>
-    <span className="style-card-page" style={page}><strong style={{ color: style.heading }}>{t('文')} Aa</strong><span>{t('读书是一件安静的事')}</span><em style={{ color: style.link }}>{t('链接')}</em></span>
-    <span className="style-card-name" style={{ color: style.text }}>{t(style.name)}</span>
-  </button>
+function isLoopback(baseUrl: string): boolean {
+  try { return ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(baseUrl).hostname) } catch { return false }
+}
+
+/** One provider's key: whether it is stored, and a field to save or remove it. The key itself is never read back. */
+function KeyRow({ workspace: w, provider }: { workspace: DocumentWorkspace; provider: AiProvider }) {
+  const { ai, t } = w
+  const [key, setKey] = useState('')
+  const saved = providerHasKey(ai.config, provider)
+  const label = t(providerLabels[provider])
+  const save = () => { const value = key.trim(); if (value) void ai.setKey(value, provider).then((done) => { if (done) setKey('') }) }
+  return <div className="settings-row"><span>{label}{provider === ai.config.provider && <em className="settings-badge">{t('当前使用')}</em>}<small className="settings-key-status" data-saved={saved}>{saved ? t('已保存') : t('未设置')}</small></span>
+    <span className="settings-key"><input type="password" value={key} autoComplete="off" spellCheck={false} placeholder={saved ? '••••••••' : 'sk-…'} aria-label={`${label} ${t('API 密钥')}`} onChange={(event) => setKey(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); save() } }} />
+      <button type="button" disabled={!key.trim()} onClick={save}>{t('保存')}</button>
+      <button type="button" disabled={!saved} onClick={() => void ai.clearKey(provider)}>{t('删除')}</button></span></div>
+}
+
+/** The AI page (T70, T73): off by default; keys go to the macOS Keychain and are never shown again. */
+function AiSettings({ workspace: w }: { workspace: DocumentWorkspace }) {
+  const { ai, settings, t } = w
+  const { config } = ai
+  const [baseUrl, setBaseUrl] = useState(config.baseUrl)
+  const [model, setModel] = useState(config.model)
+  const [synced, setSynced] = useState(`${config.provider}|${config.baseUrl}|${config.model}`)
+  // Another window or a provider switch changed the saved values: show those.
+  if (synced !== `${config.provider}|${config.baseUrl}|${config.model}`) { setSynced(`${config.provider}|${config.baseUrl}|${config.model}`); setBaseUrl(config.baseUrl); setModel(config.model) }
+  if (!ai.available) return <p className="settings-note">{t('AI 功能只在桌面应用中可用。')}</p>
+  const changed = baseUrl.trim() !== config.baseUrl || model.trim() !== config.model
+  const save = () => void ai.saveConfig({ baseUrl: baseUrl.trim(), model: model.trim() })
+  const suggested = modelChoices(config.provider)
+  const fetched = (ai.fetchedModels ?? []).filter((id) => !suggested.includes(id))
+  // Fetching is a network request, so it needs what a question needs: AI switched on and a key (a local service needs none).
+  const blocked = !config.enabled || !config.consented ? t('开启 AI 功能后才能获取') : !config.hasKey && !isLoopback(config.baseUrl) ? t('请先保存当前服务商的密钥') : null
+  const modelsStatus = blocked ?? (ai.modelsBusy ? t('正在获取…') : ai.modelsError ? translateStatus(ai.modelsError, settings.language) : ai.fetchedModels ? `${t('已获取模型：')}${ai.fetchedModels.length}` : t('向当前服务商查询可用的模型，只发送密钥，不发送文档'))
+  return <>
+    <label className="settings-row settings-toggle"><span>{t('开启 AI 功能')}<small>{t('默认关闭。关闭时 Mino 不发出任何网络请求。')}</small></span><input type="checkbox" checked={config.enabled} onChange={(event) => ai.setEnabled(event.target.checked)} /></label>
+    <Row title={t('服务商')} note={t('提问时使用的服务；各服务商的模型和密钥分别记住')}><Segmented t={t} value={config.provider} onChange={(value: AiProvider) => void ai.saveConfig({ provider: value })} options={providerIds.map((id) => [id, providerLabels[id]] as const)} /></Row>
+    <label className="settings-row"><span>{t('接口地址')}<small>{t('须以 https:// 开头；本机地址可用 http://')}</small></span><input type="url" value={baseUrl} spellCheck={false} disabled={config.provider !== 'custom'} onChange={(event) => setBaseUrl(event.target.value)} /></label>
+    <div className="settings-row"><span>{t('模型')}<small>{t('从列表选择，或输入任意模型名后按回车')}</small></span>
+      <span className="settings-key settings-model">
+        <input type="text" value={model} spellCheck={false} aria-label={t('模型')} onChange={(event) => setModel(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && model.trim()) { event.preventDefault(); save() } }} />
+        <select aria-label={t('选择模型')} value={suggested.includes(config.model) || fetched.includes(config.model) ? config.model : ''} onChange={(event) => { if (event.target.value) void ai.pickModel(event.target.value) }}>
+          <option value="">{t('选择模型…')}</option>
+          {suggested.length > 0 && <optgroup label={t('常用模型')}>{suggested.map((id) => <option key={id} value={id}>{id}</option>)}</optgroup>}
+          {fetched.length > 0 && <optgroup label={t('服务商提供的模型')}>{fetched.map((id) => <option key={id} value={id}>{id}</option>)}</optgroup>}
+        </select>
+      </span></div>
+    <div className="settings-model-tools"><span role={ai.modelsError && !blocked ? 'alert' : 'status'} data-error={Boolean(ai.modelsError) && !blocked && !ai.modelsBusy}>{modelsStatus}</span><button type="button" disabled={blocked !== null || ai.modelsBusy} title={blocked ?? undefined} onClick={() => void ai.fetchModels()}>{t('获取模型列表')}</button></div>
+    {changed && <div className="settings-actions"><button type="button" onClick={() => { setBaseUrl(config.baseUrl); setModel(config.model) }}>{t('取消')}</button><button type="button" className="primary" onClick={save}>{t('保存')}</button></div>}
+    <div className="settings-section-heading"><strong>{t('API 密钥')}</strong><small>{t('每个服务商的密钥分开保存在 macOS 钥匙串中，不写入设置文件，保存后不会再次显示')}</small></div>
+    {providerIds.filter((id) => id !== 'custom' || config.provider === 'custom' || providerHasKey(config, 'custom')).map((id) => <KeyRow key={id} workspace={w} provider={id} />)}
+    <p className="settings-note">{t('提问时，当前文档的标题和正文、你的问题和本次对话会发送到当前选中的服务商；图片和其他文件不会发送。')}</p>
+  </>
 }
 
 export function SettingsDialog({ workspace: w }: { workspace: DocumentWorkspace }) {
@@ -34,16 +79,11 @@ export function SettingsDialog({ workspace: w }: { workspace: DocumentWorkspace 
   if (!settingsOpen) return null
   const update: Update = (patch) => setSettings((current) => ({ ...current, ...patch }))
   const following = settings.theme === 'system'
-  const pick = (style: ReadingStyle) => {
-    if (!following) update({ theme: style.id })
-    else update(style.dark ? { nightTheme: style.id } : { dayTheme: style.id })
-  }
-  const groups: StyleGroup[] = ['paper', 'eye', 'night', 'other']
   return <FocusTrap><div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}>
     <section className="settings-dialog" role="dialog" aria-modal="true" aria-label={t('设置')}>
       <header className="settings-title"><div><h2>{t('设置')}</h2><p>{t('自定义阅读、写作和工作区')}</p></div><button type="button" aria-label={t('关闭设置')} onClick={() => setSettingsOpen(false)}><X aria-hidden="true" /></button></header>
       <nav className="settings-tabs" aria-label={t('设置分类')}>
-        {([['appearance', '外观'], ['typography', '排版'], ['reading', '阅读与导出'], ['workspace', '工作区']] as const).map(([key, label]) => <button key={key} type="button" aria-current={settingsTab === key ? 'page' : undefined} onClick={() => setSettingsTab(key)}>{t(label)}</button>)}
+        {([['appearance', '外观'], ['typography', '排版'], ['reading', '阅读与导出'], ['workspace', '工作区'], ['ai', 'AI']] as const).map(([key, label]) => <button key={key} type="button" aria-current={settingsTab === key ? 'page' : undefined} onClick={() => setSettingsTab(key)}>{t(label)}</button>)}
       </nav>
       <div className="settings-content">
         {settingsTab === 'appearance' && <>
@@ -53,19 +93,18 @@ export function SettingsDialog({ workspace: w }: { workspace: DocumentWorkspace 
             <label>{t('白天')}<select value={settings.dayTheme} onChange={(event) => update({ dayTheme: event.target.value as Settings['dayTheme'] })}>{readingStyles.filter((style) => !style.dark).map((style) => <option key={style.id} value={style.id}>{t(style.name)}</option>)}</select></label>
             <label>{t('夜间')}<select value={settings.nightTheme} onChange={(event) => update({ nightTheme: event.target.value as Settings['nightTheme'] })}>{readingStyles.filter((style) => style.dark).map((style) => <option key={style.id} value={style.id}>{t(style.name)}</option>)}</select></label>
           </div>}
-          {groups.map((group) => <div key={group}>
-            <div className="settings-section-heading"><strong>{t(groupLabels[group])}</strong></div>
-            <div className="style-gallery">{readingStyles.filter((style) => style.group === group).map((style) => <StyleCard key={style.id} style={style} t={t} active={following ? (style.dark ? settings.nightTheme : settings.dayTheme) === style.id : settings.theme === style.id} onPick={() => pick(style)} />)}</div>
-          </div>)}
+          <div className="settings-section-heading"><strong>{t('阅读风格')}</strong><small>{t('画布和界面保持中性灰，颜色只在纸面和标题上')}</small></div>
+          <StyleSwatches workspace={w} />
+          {active.texture && <Row title={t('纸张纹理')} note={t('纸面纤维、压纹和做旧的明显程度')}><input type="range" aria-label={t('纸张纹理')} min={0} max={100} step={10} value={settings.textureStrength} onChange={(event) => update({ textureStrength: Number(event.target.value) })} /></Row>}
         </>}
         {settingsTab === 'typography' && <>
-          <div className="settings-section-heading"><strong>{t('字体')}</strong><small>{t('书宋与文楷随应用提供，离线可用')}</small></div>
-          <div className="font-options">{fontPresetOptions.map((option) => <button key={option.id} type="button" className="font-option" aria-pressed={settings.fontPreset === option.id} onClick={() => update({ fontPreset: option.id })}><span className="font-option-sample" style={{ fontFamily: documentFontFamily({ fontPreset: option.id, editorFont: settings.editorFont }, active) }}>Aa 字</span><span className="font-option-copy"><strong>{t(option.label)}</strong><small>{t(option.note)}</small></span></button>)}</div>
-          {settings.fontPreset === 'system' && <label className="settings-row"><span>{t('本机字体')}<small>{t('使用 macOS 已安装的字体')}</small></span><select value={settings.editorFont} onChange={(event) => update({ editorFont: event.target.value as Settings['editorFont'] })}>{fontOptions.map((option) => <option key={option.id} value={option.id} style={{ fontFamily: fontFamilies[option.id] }}>{t(option.label)}</option>)}</select></label>}
+          <div className="settings-section-heading"><strong>{t('字体')}</strong><small>{t('中文和西文分开选择；随应用提供的字体离线可用')}</small></div>
+          <FontPicker workspace={w} />
           <Row title={t('字号')} note={t('正文大小，标题按比例调整')}><div className="settings-stepper"><button type="button" aria-label={t('缩小字号')} disabled={settings.editorFontSize <= MIN_EDITOR_FONT_SIZE} onClick={() => update({ editorFontSize: zoomedFontSize(settings.editorFontSize, 'zoom-out') })}>−</button><output>{settings.editorFontSize} px</output><button type="button" aria-label={t('增大字号')} disabled={settings.editorFontSize >= MAX_EDITOR_FONT_SIZE} onClick={() => update({ editorFontSize: zoomedFontSize(settings.editorFontSize, 'zoom-in') })}>+</button></div></Row>
           <Row title={t('行距')}><Segmented t={t} value={settings.editorLineHeight} onChange={(value) => update({ editorLineHeight: value })} options={[['compact', '紧凑'], ['comfortable', '舒适'], ['relaxed', '宽松']]} /></Row>
           <Row title={t('段间距')}><Segmented t={t} value={settings.paragraphSpacing} onChange={(value) => update({ paragraphSpacing: value })} options={[['compact', '紧凑'], ['standard', '标准'], ['relaxed', '宽松']]} /></Row>
           <Row title={t('行宽')} note={t('页面视图中每行大约容纳的汉字数')}><Segmented t={t} value={settings.measure} onChange={(value) => update({ measure: value })} options={[['30', '30 字'], ['36', '36 字'], ['42', '42 字'], ['unlimited', '不限']]} /></Row>
+          <Row title={t('西文排版')} note={t('以西文为主的文档自动两端对齐、按音节断词，并使用较小的行高和行宽')}><Segmented t={t} value={settings.latinLayout} onChange={(value) => update({ latinLayout: value })} options={[['auto', '自动'], ['off', '关闭']]} /></Row>
           <Row title={t('对齐')}><Segmented t={t} value={settings.textAlign} onChange={(value) => update({ textAlign: value })} options={[['left', '左对齐'], ['justify', '两端对齐']]} /></Row>
           <Row title={t('首行缩进')} note={t('只作用于正文段落')}><Segmented t={t} value={settings.firstLineIndent} onChange={(value) => update({ firstLineIndent: value })} options={[[false, '无'], [true, '2 字']]} /></Row>
           <Row title={t('表格')} note={t('只含数字的列自动右对齐，不改动文档')}><Segmented t={t} value={settings.tableStyle} onChange={(value) => update({ tableStyle: value })} options={[['three-line', '三线表'], ['grid', '全框线']]} /></Row>
@@ -83,6 +122,7 @@ export function SettingsDialog({ workspace: w }: { workspace: DocumentWorkspace 
           <Row title={t('纸型')}><Segmented t={t} value={settings.pageSize} onChange={(value) => update({ pageSize: value })} options={[['a4', 'A4'], ['letter', 'Letter']]} /></Row>
           <Row title={t('页边距')}><Segmented t={t} value={settings.pageMargin} onChange={(value) => update({ pageMargin: value })} options={[['narrow', '窄'], ['standard', '标准'], ['wide', '宽']]} /></Row>
         </>}
+        {settingsTab === 'ai' && <AiSettings workspace={w} />}
         {settingsTab === 'workspace' && <>
           <Row title={t('自动保存')} note={t('定时把已有文件的修改写回磁盘，新建文档仍需手动保存')}><div className="settings-segmented"><button type="button" aria-pressed={!settings.autoSave} onClick={() => update({ autoSave: false })}>{t('不自动保存')}</button>{[15, 30, 60, 120, 300].map((seconds) => <button key={seconds} type="button" aria-pressed={settings.autoSave && settings.autoSaveSeconds === seconds} onClick={() => update({ autoSave: true, autoSaveSeconds: seconds })}>{seconds < 60 ? `${seconds} ${t('秒')}` : `${seconds / 60} ${t('分钟')}`}</button>)}</div></Row>
           <label className="settings-row settings-toggle"><span>{t('恢复上次打开的文档')}<small>{t('启动时重新打开主窗口上次的标签；未保存的新文档仍从恢复草稿找回')}</small></span><input type="checkbox" checked={settings.restoreSession} onChange={(event) => update({ restoreSession: event.target.checked })} /></label>

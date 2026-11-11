@@ -433,6 +433,80 @@ G01–G29 分别对应 T01–T29，每项命令可独立复制到支持 Goals �
 
 2026-11-11 执行结果：第 1–7 项完成，记录在 T53、T55、T56、T58、T59、T60 证据和[开发进度](06-开发进度.md)。
 
+## G61–G73 阅读外观重做、字体扩充与 AI 分析
+
+2026-11-11 按用户要求建立，G61–G73 分别对应 T61–T73，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。背景与决定见[产品方案 §3.8、§3.9](01-产品方案.md) 和[阅读体验章程](08-阅读体验章程.md) v0.4 §13。分三个阶段各用一条 Goal 执行，按 G61–G65、G66–G69、G70–G73 的顺序；样张与演示记录照常生成但不阻塞开发，由用户集中审阅。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G61 | T61 | 无 | 配色体系重定 |
+| G62 | T62 | T61 | 风格精简为 9 种 |
+| G63 | T63 | T62 | 纸张材质重做 |
+| G64 | T64 | T61 | 界面外观 |
+| G65 | T65 | T61 | 风格与字体弹出面板 |
+| G66 | T66 | T65 | 随包开源中文字体扩充 |
+| G67 | T67 | T65 | 读取系统已装字体 |
+| G68 | T68 | T65 | 西文字体与中西搭配 |
+| G69 | T69 | T66、T68 | 体积与性能 |
+| G70 | T70 | 无 | AI 接入层 |
+| G71 | T71 | T70 | AI 面板 |
+| G72 | T72 | T71 | 选中文本操作 |
+| G73 | T73 | T70 | 隐私与离线边界 |
+
+### G61–G65 第一阶段：风格
+
+- G61 配色体系重定：完成条件见 T61。
+- G62 风格精简为 9 种：完成条件见 T62。
+- G63 纸张材质重做：完成条件见 T63。
+- G64 界面外观：完成条件见 T64。
+- G65 风格与字体弹出面板：完成条件见 T65。
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 T61、T62、T63、T64、T65 的顺序完成阅读外观重做的第一阶段（风格）。先读 CLAUDE.md、README.md 的“已知技术风险”、doc/08-阅读体验章程.md v0.4（重点是 §17 的差异）、doc/01-产品方案.md §3.8 与 §3.9、doc/02-技术设计.md §19 与 §20、doc/03-开发计划.md 的 T61–T73、doc/05-验收与发布.md §8F、doc/06-开发进度.md，并遵守 doc/04-Goal命令列表.md 的通用约束；技术设计是计划，以实际代码为准。参照是微信读书网页版的观感：中性灰画布上一张干净的大圆角纸面，颜色只用在标题上，右侧一列悬浮圆形按钮。T61：画布改为不随纸面染色的中性灰（浅色约 #f2f3f5，深色约 #1c1c1e），界面色只有浅、深两套中性色，只有强调色随风格，删除由纸面推导界面色的代码；纸面为圆角 14px、柔和阴影、更大页边距的卡片；一、二级标题用强调色。T62：风格精简为 white、mist、paper、xuan、parchment、kraft、mint、dark、black 九种，纸面与正文用章程 §4.2 的初始色值，次要文字与强调色在对比度测试约束下确定并写入证据；旧 ID 按技术设计 §19.1 的映射表在读取设置时迁移，Rust settings.rs 与前端用同一张映射表并加一致性测试，含旧 ID 的设置文件不得回退到默认设置。T63：用 scripts/generate-paper-textures.mjs 以固定种子按纸种生成分层透明图块（细颗粒层加大周期结构层，无缝周期不小于 1024px），只用 Node 内置模块；每种不超过 700 KiB、合计不超过 2 MiB；新增设置 textureStrength（0–100，默认 60），通过在纹理上叠一层纸面色实现；质量测试量化“可辨认”和“干净”；定出导出 HTML 内嵌纹理的做法。T64：编辑区右侧悬浮圆形按钮（目录、字体与风格面板、AI（仅启用后出现，本阶段恒不出现）、日夜切换、阅读/编辑切换），工具栏、标签栏、侧栏去重边框，阅读模式只留纸面。T65：弹出面板（字号滑杆、风格色块、纹理强度滑杆、字体网格、行距），设置页的外观与排版页改用同一套组件；字体网格的“本机”组留给第二阶段。红线：只改呈现，不改文档内容和 Markdown 导出；不加载远程资源；不放宽 HTML 净化和导出 CSP；正文对比度不低于 7:1，次要文字、链接与标题不低于 4.5:1；编辑器事务仍是正文唯一来源，React 不持有正文副本，切换风格、调节纹理强度和打开面板不重建编辑器、不丢选区与撤销栈，尊重输入法组合；T58 的阅读模式规则与只读拦截不得退化；不削弱路径授权、符号链接拒绝、原子保存与冲突检测、草稿恢复；本阶段不新增任何依赖。新增界面文案同步 src/app/i18n.ts，涉及菜单时同步 src-tauri/src/lib.rs 与 native_menu.rs，设置字段同步 settings.rs 的白名单与默认值。用 scripts/style-samples.swift（自己启动 Vite，不用 1420 端口）生成 9 种风格的样张和每种纸的 1:1 局部到 doc/evidence/，并用离屏长文测量确认纹理不拖慢滚动布局。不得运行 ./start.sh、./build.sh 或 ./install.sh，不得结束或替换正在运行的 mino-markdown，不得修改 /Applications；需要验证打包或体积时只用 npm run tauri -- build --bundles app。每项完成后运行 npm run typecheck、npm run test、npm run build，涉及 Rust 时运行 cargo test --lib --manifest-path src-tauri/Cargo.toml；同一检查最多 3 次，仍失败则记录命令、输出、影响和下一步，继续不依赖该结果的任务。每项在 doc/evidence 写对应证据，更新 doc/06-开发进度.md 的唯一状态表，代码、自动化、原生实机和用户验收分开记录，实机与用户验收记 PENDING，不得写成 PASS；实现与章程或技术设计不一致时同步修改，并按 01→05 的顺序更新相关文档；完成后更新 README 的使用说明与已知技术风险。不提交、不推送。全部完成后给出改动路径、各项检查结果、样张位置、降级或未完成项，以及需要用户实测和确认的清单。
+```
+
+### G66–G69 第二阶段：字体
+
+- G66 随包开源中文字体扩充：完成条件见 T66。
+- G67 读取系统已装字体：完成条件见 T67。
+- G68 西文字体与中西搭配：完成条件见 T68。
+- G69 体积与性能：完成条件见 T69。
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 T66、T67、T68、T69 的顺序完成阅读外观重做的第二阶段（字体）；前提是 T61–T65 已有可衔接的代码。先读 CLAUDE.md、README.md 的“已知技术风险”、doc/08-阅读体验章程.md v0.4（重点是 §17 的差异）、doc/01-产品方案.md §3.8 与 §3.9、doc/02-技术设计.md §19 与 §20、doc/03-开发计划.md 的 T61–T73、doc/05-验收与发布.md §8F、doc/06-开发进度.md，并遵守 doc/04-Goal命令列表.md 的通用约束；技术设计是计划，以实际代码为准。T66：候选为思源黑体、霞鹜新晰黑、朱雀仿宋、寒蝉活宋、汇文明朝体、京华老宋体；逐款核对授权原文，只收录明确允许随应用再分发、转换为 WOFF2 并嵌入导出 HTML 的字体，无法确认的不收录并写明原因；最终名单、来源、版本和授权依据写入 doc/evidence/T66-bundled-cjk-fonts.md，许可原文加入第三方许可清单和 generate-license-text-bundle.py；商业字体（方正、仓耳、汉仪等）一律不随包。T67：新增只读 Rust 命令 list_system_fonts，只返回字体族名列表，不返回路径、不读取字体文件，在 lib.rs 的 generate_handler! 注册并由 src/app/useDocumentWorkspace.ts 调用；设置中以 sys:<族名> 保存，settings.rs 限制长度并拒绝控制字符，族名在生成 CSS 前转义并加注入测试；导出 HTML 不内嵌本机字体并提示。T68：随包 Source Serif 4、Literata、EB Garamond、Inter、JetBrains Mono（均 OFL，仅 latin / latin-ext 子集，只留 woff2）；设置字段 cjkFont 与 latinFont 取代 fontPreset / editorFont，旧值读取时迁移且不得回退默认设置；字体栈西文在前、中文在后；代码使用随包等宽字体；以西文为主的文档自动使用西文排版（两端对齐、hyphens: auto 并设置 lang、较小行高、按字符数换算的行宽），由设置 latinLayout（auto / off）控制，判定是基于正文中 CJK 字符与拉丁字母占比的纯函数并有测试。T69：打包后 Mino.app 不超过 80 MiB（现为 36.82 MiB），按中文字体、西文字体、纹理分别记录增量，更新字体体积的构建检查；复现并查明 T55 证据中随包书宋在约 400 个代码块与表格的 1.95 MiB 文档上每次滚动布局 0.45–0.64 s 的问题并修复，给出同一样例修复前后的数值，无法修复时写明原因和规避方式。红线：只改呈现，不改文档内容和 Markdown 导出，lang 等属性不写入 Markdown；不加载远程字体；不放宽 HTML 净化，导出 CSP 保持只允许 font-src data:；read_app_asset 的范围不扩大；编辑器事务仍是正文唯一来源，切换字体和西文排版不重建编辑器；不削弱路径授权、符号链接拒绝、原子保存与冲突检测、草稿恢复和输入法保护。依赖只新增字体包，版本写入锁文件；npm 安装或字体来源不可用时记录原因，先完成不依赖它的任务，不得用未核对授权的字体文件代替。设置字段同步 settings.rs 的白名单与默认值，界面文案同步 src/app/i18n.ts。生成各字体的中英混排样张和一篇英文文档的西文排版样张到 doc/evidence/。不得运行 ./start.sh、./build.sh 或 ./install.sh，不得结束或替换正在运行的 mino-markdown，不得修改 /Applications；需要验证打包或体积时只用 npm run tauri -- build --bundles app。每项完成后运行 npm run typecheck、npm run test、npm run build，涉及 Rust 时运行 cargo test --lib --manifest-path src-tauri/Cargo.toml；同一检查最多 3 次，仍失败则记录命令、输出、影响和下一步，继续不依赖该结果的任务。每项在 doc/evidence 写对应证据，更新 doc/06-开发进度.md 的唯一状态表，代码、自动化、原生实机和用户验收分开记录，实机与用户验收记 PENDING，不得写成 PASS；实现与章程或技术设计不一致时同步修改，并按 01→05 的顺序更新相关文档；完成后更新 README 的使用说明与已知技术风险。不提交、不推送。全部完成后给出改动路径、各项检查结果、最终字体名单与授权依据、应用体积变化、性能问题的结论、降级或未完成项，以及需要用户实测和确认的清单。
+```
+
+### G70–G73 第三阶段：AI
+
+- G70 AI 接入层：完成条件见 T70。
+- G71 AI 面板：完成条件见 T71。
+- G72 选中文本操作：完成条件见 T72。
+- G73 隐私与离线边界：完成条件见 T73。
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 T70、T71、T72、T73 的顺序完成 AI 分析功能；AI 的悬浮按钮入口来自 T64。先读 CLAUDE.md、README.md 的“已知技术风险”、doc/08-阅读体验章程.md v0.4（重点是 §17 的差异）、doc/01-产品方案.md §3.8 与 §3.9、doc/02-技术设计.md §19 与 §20、doc/03-开发计划.md 的 T61–T73、doc/05-验收与发布.md §8F、doc/06-开发进度.md，并遵守 doc/04-Goal命令列表.md 的通用约束；技术设计是计划，以实际代码为准。产品定位是“默认离线，AI 为用户主动开启的可选联网功能”：不开启 AI 时应用行为必须与以前完全一样。T70：在 Rust 中实现 OpenAI 兼容的 /chat/completions 流式请求，预置 DeepSeek（https://api.deepseek.com/v1，deepseek-chat）与 OpenAI（https://api.openai.com/v1，gpt-4o-mini），也可自定义地址与模型；配置存于应用数据目录的 ai.json，不含密钥；密钥按服务商存入 macOS 钥匙串，服务名 app.mino.markdown.ai；地址必须是 https，仅回环地址允许 http；命令为 ai_get_config、ai_set_config、ai_set_key、ai_clear_key、ai_chat、ai_cancel，流式结果通过 ai-stream 事件只发给发起窗口；错误码为 AI_DISABLED、AI_NO_CONSENT、AI_NO_KEY、AI_TOO_LARGE、AI_BUSY、AI_NETWORK、AI_HTTP_<状态码>、AI_BAD_RESPONSE、AI_CANCELLED、AI_INVALID_CONFIG、AI_INVALID_KEY；请求上限、超时等数值定稿后写入证据。T71：右侧抽屉面板，流式输出、可取消，预设全文摘要、要点、关键概念、背景解读，可针对当前文档自由提问，推荐问题先由文档标题本地生成，也可请 AI 生成；回答按 Markdown 渲染并经过与预览相同的净化，不加载远程图片。T72：对选中文本解释、翻译、改写、续写，结果可替换选区或插在其后，通过一个编辑器事务完成因而可一步撤销；阅读模式与只读状态下不提供插入。T73：默认关闭；首次启用时弹出说明并要求确认“文档内容会发送到你配置的服务”；面板常驻显示当前服务商；长文超出上下文预算时分段摘要或截断并告知用户；断网、未配置或关闭时其余功能不受影响。红线：请求只由 Rust 进程发出，src-tauri/tauri.conf.json 的 CSP 与 src-tauri/capabilities/main.json 不得改动，不使用 Tauri 的 HTTP 插件，不给 webview 任何网络权限；ai_chat 不接受地址或密钥参数；密钥不进入日志、错误信息、事件、配置文件或测试输出；AI 关闭或未同意时不发任何请求、不访问钥匙串；只发送用户在面板中主动提交的当前文档正文或选区，不发送其他文件、目录结构或本机路径；AI 的回答不执行脚本、不触发文件操作，只有用户明确选择替换或插入时才修改文档；编辑器事务仍是正文唯一来源，React 不持有正文副本，尊重输入法组合；不削弱路径授权、符号链接拒绝、原子保存与冲突检测、草稿恢复和 HTML 净化。所有 invoke 与 listen 放在 src/app/useDocumentWorkspace.ts，命令在 src-tauri/src/lib.rs 的 generate_handler! 注册，涉及钥匙串和网络的命令用 #[tauri::command(async)]；界面文案同步 src/app/i18n.ts，涉及菜单时同步 native_menu.rs。Rust 新增的 HTTP 与钥匙串 crate 按需选定，版本写入 Cargo.lock 并更新 Rust 许可证清单；安装不可用时记录原因，先完成不依赖它的部分。自动化测试只用本机回环地址上的模拟服务，不使用真实密钥，不访问外网，不读写真实钥匙串；必须有测试断言 AI 关闭时不发请求、密钥不出现在 ai.json、事件和错误字符串中、http 非回环地址被拒绝、回答中的脚本与远程图片被净化、插入为一步撤销。真实 DeepSeek / OpenAI 请求、钥匙串授权弹窗和断网行为留给用户实机验收，不得向用户索要或在仓库中写入密钥。不得运行 ./start.sh、./build.sh 或 ./install.sh，不得结束或替换正在运行的 mino-markdown，不得修改 /Applications；需要验证打包或体积时只用 npm run tauri -- build --bundles app。每项完成后运行 npm run typecheck、npm run test、npm run build，涉及 Rust 时运行 cargo test --lib --manifest-path src-tauri/Cargo.toml；同一检查最多 3 次，仍失败则记录命令、输出、影响和下一步，继续不依赖该结果的任务。每项在 doc/evidence 写对应证据，更新 doc/06-开发进度.md 的唯一状态表，代码、自动化、原生实机和用户验收分开记录，实机与用户验收记 PENDING，不得写成 PASS；实现与章程或技术设计不一致时同步修改，并按 01→05 的顺序更新相关文档；完成后更新 README 的使用说明与已知技术风险。不提交、不推送。全部完成后给出改动路径、各项检查结果、新增依赖与许可、定稿的上限数值、降级或未完成项，以及需要用户实机测试的清单（含如何配置密钥）。
+```
+
+## G74–G77 试用后调整
+
+2026-11-11 按用户试用 T61–T73 后的要求建立，G74–G77 分别对应 T74–T77，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。范围见[产品方案 §3.10](01-产品方案.md)，设计见[技术设计 §21](02-技术设计.md)。四项互不依赖，用一条 Goal 执行；2026-11-11 代码已完成，下面的命令供复核或重做时使用。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G74 | T74 | T62 | 夜间风格调整 |
+| G75 | T75 | T61 | 编辑器代码块外观 |
+| G76 | T76 | T70、T71 | AI 设置：两家密钥与模型选择 |
+| G77 | T77 | T58 | 大文档快速打开 |
+
+- G74 夜间风格调整：完成条件见 T74。
+- G75 编辑器代码块外观：完成条件见 T75。
+- G76 AI 设置：两家密钥与模型选择：完成条件见 T76。
+- G77 大文档快速打开：完成条件见 T77。
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中完成或复核 T74、T75、T76、T77。先读 CLAUDE.md、doc/01-产品方案.md §3.10、doc/02-技术设计.md §21、doc/03-开发计划.md 的 T74–T77、doc/05-验收与发布.md §8G、doc/06-开发进度.md 和 doc/evidence/T74–T77 各证据文件，并遵守 doc/04-Goal命令列表.md 的通用约束；以实际代码为准，已有实现先核对，不重复开发。T74：移除纯黑，夜间风格为淡黑、深灰、中灰、青灰、暖灰，共 12 种风格，black 与 ink 迁移到 charcoal，前端与 settings.rs 两张映射表一致。T75：编辑器代码块的行号栏、行号和按钮随纸面取色，补齐选项、属性键名和内置命令的高亮，编辑器与预览、导出共用一份定义。T76：设置中为 DeepSeek 和 OpenAI 分别保存密钥，模型可自由填写或从 ai_list_models 取回的列表中选，模型按服务商记住。T77：不少于 200,000 字符且以阅读模式打开的文件进入快速阅读，先显示开头再换成整篇，开始编辑时才加载编辑器；分析 worker 必须能在 WebKit 中启动。红线：只改呈现的任务不改文档内容；不削弱路径授权、符号链接拒绝、原子保存与冲突检测、草稿恢复、HTML 净化和输入法保护；请求只由 Rust 发出，webview 的 CSP 与 capabilities 不放宽；不使用真实密钥，密钥不进入代码、日志、测试和文档。每项完成后运行 npm run typecheck、npm run test、npm run build，涉及 Rust 时加 cargo test --lib --manifest-path src-tauri/Cargo.toml，结束时用 npm run tauri -- build --bundles app 打包一次；同一检查最多 3 次。在 doc/evidence 写证据，更新 doc/06-开发进度.md 的唯一状态表，实机与用户验收记 PENDING。不运行 ./install.sh，不提交、不推送。
+```
+
 ## 连续开发总 Goal（逐项读取列表）
 
 此命令只负责开发阶段。每轮读取 G01–G29 的当前任务，依据代码依赖推进；已实现的任务先复核，不重复开发。最终原生验收层级与 Gate 留待集中测试，不能虚报 PASS。单项命令和本总 Goal 共用进度表，不创建嵌套 Goal。

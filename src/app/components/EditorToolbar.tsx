@@ -1,6 +1,6 @@
 import { TableSizePicker } from '../TableSizePicker'
 import { errorText, type DocumentWorkspace } from '../useDocumentWorkspace'
-import { BookOpen, Bold, Code2, IndentDecrease, IndentIncrease, Italic, Link2, List, ListChecks, ListOrdered, ListTree, Minus, MoreHorizontal, Pencil, Quote, Redo2, RemoveFormatting, Strikethrough, Table2, Undo2, type LucideIcon, Image as ImageIcon } from 'lucide-react'
+import { Bold, Code2, IndentDecrease, IndentIncrease, Italic, Link2, List, ListChecks, ListOrdered, Minus, MoreHorizontal, Pencil, Quote, Redo2, RemoveFormatting, Strikethrough, Table2, Undo2, type LucideIcon, Image as ImageIcon } from 'lucide-react'
 import type { EditorCommand } from '../../features/editor/EditorAdapter'
 
 const toolbarItems: { command: EditorCommand; label: string; icon: LucideIcon; primary?: boolean }[] = [
@@ -22,25 +22,15 @@ const toolbarItems: { command: EditorCommand; label: string; icon: LucideIcon; p
 ]
 
 export function EditorToolbar({ workspace: w }: { workspace: DocumentWorkspace }) {
-  const { reading, setReading, tablePicker, setTablePicker, adapter, applyLink, document, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, openTablePickerFromToolbar, previewHtml, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setSettings, setSourceView, setStatus, settings, sourceView, t, toolbar } = w
+  const { reading, tablePicker, setTablePicker, adapter, applyLink, document, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, openTablePickerFromToolbar, previewHtml, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setSourceView, setStatus, sourceView, t, toolbar } = w
   function renderToolbarButton(item: (typeof toolbarItems)[number], inMenu = false) {
     const active = ({ bold: 'strong', italic: 'emphasis', strike: 'strike_through', inlineCode: 'inlineCode', bullet: 'bullet_list', ordered: 'ordered_list', task: 'task_list', quote: 'blockquote', codeBlock: 'code_block' } as Record<string, string>)[item.command]
     const pressed = active ? (['bullet', 'ordered', 'task', 'quote', 'codeBlock'].includes(item.command) ? toolbar.block === active : toolbar.marks.includes(active)) : undefined
     const Icon = item.icon
     return <button key={item.command} type="button" className={inMenu ? 'menu-command' : 'icon-button'} title={t(item.label)} aria-label={t(item.label)} aria-pressed={pressed} disabled={!toolbar.ready || toolbar.composing || item.command === 'undo' && !toolbar.canUndo || item.command === 'redo' && !toolbar.canRedo || (item.command === 'indent' || item.command === 'outdent') && !toolbar.inList} onClick={() => adapter.current?.runCommand(item.command)}><Icon aria-hidden="true" />{inMenu && <span>{t(item.label)}</span>}</button>
   }
-  const widthSwitch = <div className="editor-width-switch" role="group" aria-label={t('正文显示模式')}>
-    <button type="button" aria-pressed={settings.editorWidth === 'centered'} onClick={() => setSettings((current) => ({ ...current, editorWidth: 'centered' }))}>{t('页面')}</button>
-    <button type="button" aria-pressed={settings.editorWidth === 'wide'} onClick={() => setSettings((current) => ({ ...current, editorWidth: 'wide' }))}>{t('宽屏')}</button>
-  </div>
-  const outlineButton = <button type="button" className="icon-button" aria-pressed={settings.showOutline} title={settings.showOutline ? t('隐藏大纲') : t('显示大纲')} aria-label={settings.showOutline ? t('隐藏大纲') : t('显示大纲')} onClick={() => setSettings((current) => ({ ...current, showOutline: !current.showOutline }))}><ListTree aria-hidden="true" /></button>
-  if (reading) return <div className="editor-toolbar reading-toolbar" role="toolbar" aria-label={t('阅读工具栏')}>
-    <span className="reading-label"><BookOpen aria-hidden="true" />{t('阅读模式')}</span>
-    <span className="toolbar-spacer" />
-    {outlineButton}
-    {widthSwitch}
-    <button type="button" className="control-button reading-edit" title={t('开始编辑 (⌘⇧R)')} onClick={() => setReading(false)}><Pencil aria-hidden="true" />{t('编辑')}</button>
-  </div>
+  // Reading mode shows the page alone (T64); the floating buttons hold what a reader needs.
+  if (reading) return null
   return <>
           <div className="editor-toolbar" role="toolbar" aria-label={t('编辑工具栏')} onMouseDown={(event) => { if ((event.target as HTMLElement).closest('button')) event.preventDefault() }}>
             {document.mode === 'visual' && <>
@@ -68,10 +58,6 @@ export function EditorToolbar({ workspace: w }: { workspace: DocumentWorkspace }
             </div>}
             <span className="toolbar-spacer" />
             {document.mode === 'visual' && <div className="toolbar-group">{toolbarItems.filter((item) => item.command === 'undo' || item.command === 'redo').map((item) => renderToolbarButton(item))}</div>}
-            <span className="toolbar-divider" aria-hidden="true" />
-            {outlineButton}
-            {widthSwitch}
-            <button type="button" className="control-button reading-edit" title={t('阅读模式 (⌘⇧R)')} disabled={toolbar.composing} onClick={() => setReading(true)}><BookOpen aria-hidden="true" />{t('阅读')}</button>
           </div>
           {linkOpen && <div className="editor-popover" role="dialog" aria-label={t('编辑链接')}>
             <label>{t('链接地址')} <input autoFocus value={linkHref} onChange={(event) => setLinkHref(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') applyLink(); if (event.key === 'Escape') { setLinkOpen(false); adapter.current?.focus() } }} /></label>

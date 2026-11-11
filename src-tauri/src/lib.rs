@@ -11,6 +11,8 @@ mod staging;
 mod windows;
 mod native_menu;
 mod app_assets;
+mod ai;
+mod system_fonts;
 
 use tauri::{Emitter, Manager};
 use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
@@ -40,6 +42,7 @@ pub fn run() {
         .manage(open_intents::IntentStore::default())
         .manage(windows::TransferStore::default())
         .manage(windows::ActiveWindow::default())
+        .manage(ai::AiState::default())
         .setup(|app| {
             let handle = app.handle();
             native_menu::set_language(handle, &settings::initial_language(handle));
@@ -222,6 +225,14 @@ pub fn run() {
             windows::open_external,
             windows::take_window_transfer,
             windows::close_workspace_window,
+            system_fonts::list_system_fonts,
+            ai::ai_get_config,
+            ai::ai_set_config,
+            ai::ai_set_key,
+            ai::ai_clear_key,
+            ai::ai_list_models,
+            ai::ai_chat,
+            ai::ai_cancel,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build Mino")

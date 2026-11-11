@@ -54,7 +54,13 @@ package	version	license	status
 @floating-ui/core	1.8.0	MIT	installed
 @floating-ui/dom	1.8.0	MIT	installed
 @floating-ui/utils	0.2.12	MIT	installed
+@fontsource-variable/eb-garamond	5.3.0	OFL-1.1	installed
+@fontsource-variable/inter	5.3.0	OFL-1.1	installed
+@fontsource-variable/jetbrains-mono	5.3.0	OFL-1.1	installed
+@fontsource-variable/literata	5.3.0	OFL-1.1	installed
+@fontsource-variable/source-serif-4	5.3.1	OFL-1.1	installed
 @fontsource/lxgw-wenkai	5.3.0	OFL-1.1	installed
+@fontsource/noto-sans-sc	5.3.1	OFL-1.1	installed
 @fontsource/noto-serif-sc	5.3.1	OFL-1.1	installed
 @jridgewell/gen-mapping	0.3.13	MIT	installed
 @jridgewell/remapping	2.3.5	MIT	installed

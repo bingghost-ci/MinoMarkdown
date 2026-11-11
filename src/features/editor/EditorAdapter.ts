@@ -1,6 +1,6 @@
 import { Crepe, CrepeFeature } from '@milkdown/crepe'
 import { insertImageCommand } from '@milkdown/kit/preset/commonmark'
-import { callCommand } from '@milkdown/kit/utils'
+import { callCommand, insert } from '@milkdown/kit/utils'
 import { commandsCtx, editorViewCtx, inputRulesCtx, prosePluginsCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import { closeHistory, undoDepth, redoDepth } from '@milkdown/kit/prose/history'
 import { toggleStrongCommand, toggleEmphasisCommand, toggleInlineCodeCommand, wrapInHeadingCommand, turnIntoTextCommand, wrapInBulletListCommand, wrapInOrderedListCommand, wrapInBlockquoteCommand, insertHrCommand, createCodeBlockCommand, clearTextInCurrentBlockCommand, wrapInBlockTypeCommand, listItemSchema, sinkListItemCommand, liftListItemCommand } from '@milkdown/kit/preset/commonmark'
@@ -388,6 +388,36 @@ export class EditorAdapter {
     const decoded = await createImageBitmap(file)
     try { if (decoded.width * decoded.height > 40_000_000 || !decoded.width || !decoded.height) throw new Error('图片像素超过 4000 万或尺寸无效') }
     finally { decoded.close() }
+  }
+
+  /**
+   * Inserts Markdown as rich content (T72): `replace` puts it in place of the selection, `after` leaves
+   * the selection and adds it behind. Closing the history first makes the insertion its own undo step.
+   */
+  insertMarkdown(markdown: string, placement: 'replace' | 'after'): void {
+    if (this.readOnly) throw new Error('READING_MODE')
+    if (!this.created || this.composing) throw new Error('EDITOR_NOT_READY')
+    this.crepe.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx)
+      let tr = closeHistory(view.state.tr)
+      if (placement === 'after') tr = tr.setSelection(TextSelection.near(tr.doc.resolve(view.state.selection.to), 1))
+      view.dispatch(tr)
+    })
+    this.crepe.editor.action(insert(markdown))
+    this.crepe.editor.action((ctx) => ctx.get(editorViewCtx).focus())
+    this.emitToolbarState()
+  }
+
+  /** The selected text with the text just before and after it; null when nothing is selected. */
+  selectionContext(span = 1500): { selection: string; before: string; after: string } | null {
+    let result: { selection: string; before: string; after: string } | null = null
+    if (this.created) this.crepe.editor.action((ctx) => {
+      const { doc, selection } = ctx.get(editorViewCtx).state
+      if (selection.empty) return
+      const text = (from: number, to: number) => doc.textBetween(Math.max(0, from), Math.min(doc.content.size, to), '\n', ' ')
+      result = { selection: text(selection.from, selection.to), before: text(selection.from - span, selection.from), after: text(selection.to, selection.to + span) }
+    })
+    return result
   }
 
   insertFile(file: File): void {

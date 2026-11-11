@@ -1,0 +1,3 @@
+source	package	version	license-expression	file	sha256	status
+font	chill-huosong	1.000	OFL-1.1	src/assets/fonts/chill-huosong/LICENSE.txt	c7c669131e820b4bd6d9915a4b56c95676bcff8dddef3716e228ef06254e6d3f	present
+font	zhuque-fangsong	0.212	OFL-1.1	src/assets/fonts/zhuque-fangsong/LICENSE.txt	66cc01ad4df62fca6936431a426104cb32a52ce8da49de9a7d643e02d7659043	present
