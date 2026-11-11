@@ -21,6 +21,8 @@ fn default_auto_save_seconds() -> u32 { 30 }
 fn legacy_day_theme() -> String { "white".into() }
 fn legacy_night_theme() -> String { "dark".into() }
 fn default_font() -> String { "auto".into() }
+fn default_outline_width() -> u32 { 240 }
+fn default_ai_width() -> u32 { 400 }
 fn default_paragraph_spacing() -> String { "standard".into() }
 fn legacy_measure() -> String { "unlimited".into() }
 fn default_text_align() -> String { "left".into() }
@@ -49,14 +51,15 @@ fn is_font_choice(value: &str) -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     schema_version: u32, theme: String, sidebar_width: u32, window_width: u32, window_height: u32,
+    #[serde(default = "default_outline_width")] outline_width: u32, #[serde(default = "default_ai_width")] ai_width: u32,
     #[serde(default)] show_file_toolbar: bool, #[serde(default = "default_editor_width")] editor_width: String, #[serde(default = "default_language")] language: String, #[serde(default = "default_editor_font_size")] editor_font_size: u32, #[serde(default = "default_editor_line_height")] editor_line_height: String, #[serde(default = "default_show_sidebar")] show_sidebar: bool, #[serde(default)] show_outline: bool, #[serde(default)] auto_save: bool, #[serde(default = "default_auto_save_seconds")] auto_save_seconds: u32, #[serde(default)] restore_session: bool,
     #[serde(default = "legacy_day_theme")] day_theme: String, #[serde(default = "legacy_night_theme")] night_theme: String, #[serde(default = "default_font")] cjk_font: String, #[serde(default = "default_font")] latin_font: String, #[serde(default = "default_paragraph_spacing")] paragraph_spacing: String, #[serde(default = "legacy_measure")] measure: String, #[serde(default = "default_text_align")] text_align: String, #[serde(default)] first_line_indent: bool, #[serde(default = "default_table_style")] table_style: String, #[serde(default = "default_texture_strength")] texture_strength: u32, #[serde(default = "default_latin_layout")] latin_layout: String, #[serde(default = "default_true")] image_captions: bool, #[serde(default = "default_true")] image_dimming: bool, #[serde(default = "default_true")] open_in_reading_mode: bool, #[serde(default = "default_export_style")] export_style: String, #[serde(default = "default_pdf_mode")] pdf_mode: String, #[serde(default = "default_page_size")] page_size: String, #[serde(default = "default_page_margin")] page_margin: String,
 }
 impl Default for Settings {
-    fn default() -> Self { Self { schema_version: 1, theme: "system".into(), sidebar_width: 230, window_width: 1100, window_height: 760, show_file_toolbar: false, editor_width: default_editor_width(), language: default_language(), editor_font_size: 16, editor_line_height: default_editor_line_height(), show_sidebar: default_show_sidebar(), show_outline: false, auto_save: false, auto_save_seconds: default_auto_save_seconds(), restore_session: false, day_theme: "white".into(), night_theme: "dark".into(), cjk_font: default_font(), latin_font: default_font(), paragraph_spacing: default_paragraph_spacing(), measure: "36".into(), text_align: default_text_align(), first_line_indent: false, table_style: default_table_style(), texture_strength: default_texture_strength(), latin_layout: default_latin_layout(), image_captions: true, image_dimming: true, open_in_reading_mode: true, export_style: default_export_style(), pdf_mode: default_pdf_mode(), page_size: default_page_size(), page_margin: default_page_margin() } }
+    fn default() -> Self { Self { schema_version: 1, theme: "system".into(), sidebar_width: 230, outline_width: default_outline_width(), ai_width: default_ai_width(), window_width: 1100, window_height: 760, show_file_toolbar: false, editor_width: default_editor_width(), language: default_language(), editor_font_size: 16, editor_line_height: default_editor_line_height(), show_sidebar: default_show_sidebar(), show_outline: false, auto_save: false, auto_save_seconds: default_auto_save_seconds(), restore_session: false, day_theme: "white".into(), night_theme: "dark".into(), cjk_font: default_font(), latin_font: default_font(), paragraph_spacing: default_paragraph_spacing(), measure: "36".into(), text_align: default_text_align(), first_line_indent: false, table_style: default_table_style(), texture_strength: default_texture_strength(), latin_layout: default_latin_layout(), image_captions: true, image_dimming: true, open_in_reading_mode: true, export_style: default_export_style(), pdf_mode: default_pdf_mode(), page_size: default_page_size(), page_margin: default_page_margin() } }
 }
 fn valid(settings: &Settings) -> bool {
-    settings.schema_version == 1 && matches!(settings.auto_save_seconds, 15 | 30 | 60 | 120 | 300) && (settings.theme == "system" || is_style(&settings.theme)) && is_style(&settings.day_theme) && is_style(&settings.night_theme) && matches!(settings.editor_width.as_str(), "centered" | "wide") && matches!(settings.language.as_str(), "zh-CN" | "en-US") && matches!(settings.editor_line_height.as_str(), "compact" | "comfortable" | "relaxed") && (13..=22).contains(&settings.editor_font_size) && (170..=420).contains(&settings.sidebar_width) && (720..=3000).contains(&settings.window_width) && (520..=2000).contains(&settings.window_height)
+    settings.schema_version == 1 && matches!(settings.auto_save_seconds, 15 | 30 | 60 | 120 | 300) && (settings.theme == "system" || is_style(&settings.theme)) && is_style(&settings.day_theme) && is_style(&settings.night_theme) && matches!(settings.editor_width.as_str(), "centered" | "wide") && matches!(settings.language.as_str(), "zh-CN" | "en-US") && matches!(settings.editor_line_height.as_str(), "compact" | "comfortable" | "relaxed") && (13..=22).contains(&settings.editor_font_size) && (170..=520).contains(&settings.sidebar_width) && (180..=520).contains(&settings.outline_width) && (300..=640).contains(&settings.ai_width) && (720..=3000).contains(&settings.window_width) && (520..=2000).contains(&settings.window_height)
         && is_font_choice(&settings.cjk_font) && is_font_choice(&settings.latin_font) && settings.texture_strength <= 100 && matches!(settings.latin_layout.as_str(), "auto" | "off")
         && matches!(settings.paragraph_spacing.as_str(), "compact" | "standard" | "relaxed") && matches!(settings.measure.as_str(), "30" | "36" | "42" | "unlimited") && matches!(settings.text_align.as_str(), "left" | "justify") && matches!(settings.table_style.as_str(), "three-line" | "grid") && matches!(settings.export_style.as_str(), "current" | "plain") && matches!(settings.pdf_mode.as_str(), "print" | "screen") && matches!(settings.page_size.as_str(), "a4" | "letter") && matches!(settings.page_margin.as_str(), "narrow" | "standard" | "wide")
 }
@@ -95,7 +98,7 @@ fn read_at(path: &Path) -> Settings {
     if value.get("schemaVersion").and_then(|v| v.as_u64()) == Some(0) {
         let mut settings = Settings::default();
         if let Some(theme) = value.get("theme").and_then(|v| v.as_str()) { if theme == "system" || is_style(theme) { settings.theme = theme.into(); settings.day_theme = legacy_day_theme(); settings.night_theme = legacy_night_theme(); settings.measure = legacy_measure(); } }
-        if let Some(width) = value.get("sidebarWidth").and_then(|v| v.as_u64()) { if (170..=420).contains(&width) { settings.sidebar_width = width as u32; } }
+        if let Some(width) = value.get("sidebarWidth").and_then(|v| v.as_u64()) { if (170..=520).contains(&width) { settings.sidebar_width = width as u32; } }
         return settings;
     }
     Settings::default()
@@ -219,6 +222,25 @@ mod tests {
         assert_eq!((fonts.cjk_font.as_str(), fonts.latin_font.as_str()), ("sys:方正书宋 GBK", "source-serif"));
         assert!(merged(&Settings::default(), serde_json::json!({"textureStrength": 300}).as_object().unwrap().clone()).is_err());
     }
+    /// T78: pane widths default for a file written before they existed, are kept in range, and a width out of range is not accepted.
+    #[test]
+    fn pane_widths_default_and_are_range_checked() {
+        let dir = std::env::temp_dir().join(format!("mino-settings-panes-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap(); let file = dir.join("settings.json");
+        let write = |extra: &str| fs::write(&file, format!(r#"{{"schemaVersion":1,"theme":"dark","sidebarWidth":300,"windowWidth":1100,"windowHeight":760{extra}}}"#)).unwrap();
+        write("");
+        let read = read_at(&file);
+        assert_eq!((read.sidebar_width, read.outline_width, read.ai_width, read.theme.as_str()), (300, 240, 400, "dark"));
+        write(r#","sidebarWidth":520,"outlineWidth":520,"aiWidth":640"#);
+        let read = read_at(&file);
+        assert_eq!((read.sidebar_width, read.outline_width, read.ai_width), (520, 520, 640));
+        for bad in [r#","outlineWidth":179"#, r#","outlineWidth":521"#, r#","aiWidth":299"#, r#","aiWidth":641"#] {
+            write(bad);
+            assert_eq!(read_at(&file), Settings::default(), "{bad}");
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     /// T62 and T68: a settings file of any earlier version keeps its other values and a matching look.
     #[test]
     fn older_style_ids_and_font_settings_are_migrated_on_read() {

@@ -50,13 +50,13 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .more-actions-menu button svg, .tree-action-popup button svg, .toolbar-more-menu .menu-command svg { color: var(--secondary); }
 .menu-separator { height: 1px; margin: 4px 6px; background: var(--line); }
 .workspace-layout { display: flex; flex: 1; min-height: 0; }
-.document-sidebar { display: flex; flex-direction: column; flex: none; min-width: 220px; max-width: 420px; height: 100%; padding: 0; border-right: 1px solid var(--line); background: var(--sidebar); resize: horizontal; overflow: hidden; }
+.document-sidebar { display: flex; flex-direction: column; flex: none; position: relative; min-width: 170px; max-width: 520px; height: 100%; padding: 0; border-right: 1px solid var(--line); background: var(--sidebar); overflow: hidden; }
 .mermaid-preview { display: flex; justify-content: center; overflow-x: auto; padding: 8px 0; }
 .mermaid-preview svg { max-width: 100%; height: auto; }
 .mermaid-error { display: block; color: var(--text); }
 .mermaid-error p { margin: 0 0 8px; color: #c2413a; font-size: 13px; }
 .mermaid-error pre { margin: 0; white-space: pre-wrap; font-size: 13px; }
-.outline-panel { display: flex; flex-direction: column; flex: none; width: 240px; height: 100%; border-left: 1px solid var(--line); background: var(--sidebar); overflow: hidden; }
+.outline-panel { position: relative; display: flex; flex-direction: column; flex: none; width: 240px; min-width: 180px; max-width: 520px; height: 100%; border-left: 1px solid var(--line); background: var(--sidebar); overflow: hidden; }
 .outline-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 16px; }
 .outline-list button { display: block; width: 100%; padding: 5px 10px; border: 0; border-radius: 5px; background: none; color: var(--text); font-size: 13px; line-height: 1.4; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .outline-list button:hover { background: var(--raised); }
@@ -394,7 +394,7 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .font-system-bar input { height: 30px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; background: var(--raised); color: var(--ui-text); font-size: 12px; }
 
 /* The AI drawer (T71–T73). */
-.ai-drawer { display: flex; flex-direction: column; flex: none; width: min(400px, 46vw); height: 100%; border-left: 1px solid var(--line); overflow: hidden; font-size: 13px; }
+.ai-drawer { position: relative; display: flex; flex-direction: column; flex: none; width: 400px; max-width: 60vw; height: 100%; border-left: 1px solid var(--line); overflow: hidden; font-size: 13px; }
 .ai-header { display: flex; align-items: center; gap: 4px; padding: 12px 10px 6px 16px; }
 .ai-header > div { flex: 1; min-width: 0; }
 .ai-header h2 { margin: 0; font-size: 14px; font-weight: 600; }
@@ -435,3 +435,25 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .ai-send { display: flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; border: 0; border-radius: 50%; background: var(--accent); color: var(--accent-ink); }
 .ai-send svg { width: 15px; height: 15px; }
 @media (max-width: 900px) { .float-controls { right: 10px; gap: 8px; } .float-button { width: 38px; height: 38px; } .appearance-panel { right: 48px; width: min(340px, calc(100vw - 80px)); } .ai-drawer { position: absolute; z-index: 40; right: 0; top: 0; width: min(380px, 100vw); box-shadow: -8px 0 30px #0003; } .workspace-layout { position: relative; } }
+
+/* T78: side panes are resized by dragging their inner edge. */
+.pane-resizer { position: absolute; z-index: 5; top: 0; bottom: 0; width: 7px; cursor: col-resize; touch-action: none; }
+.pane-resizer[data-edge="right"] { right: -1px; }
+.pane-resizer[data-edge="left"] { left: -1px; }
+.pane-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: repeating-linear-gradient(to bottom, color-mix(in srgb, var(--ui-text) 30%, transparent) 0 4px, transparent 4px 8px); opacity: 0; transition: opacity 0.15s; }
+.pane-resizer:is(:hover, :focus-visible)::after { opacity: 0.7; }
+.pane-resizer[data-dragging]::after { opacity: 1; }
+.pane-resizer:focus-visible { outline: none; }
+.sidebar-open { padding: 6px 12px; }
+.sidebar-open button { width: 100%; height: 30px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--ui-secondary); font-size: 12px; cursor: pointer; }
+.sidebar-open button:hover:not(:disabled) { background: var(--hover); color: var(--ui-text); }
+.document-tabbar .sidebar-show { flex: none; margin: 0 4px 0 6px; }
+.outline-list button[data-depth="0"] { font-weight: 600; }
+.outline-list button:not([data-depth="0"]):not([data-depth="1"]) { color: var(--ui-secondary); font-size: 12.5px; }
+.ai-empty small { display: block; margin-top: 8px; color: var(--ui-muted); font-size: 12px; }
+
+/* Scrollbars: a thin, pale, rounded thumb on a clear track, a little stronger under the pointer. */
+.app-shell ::-webkit-scrollbar { width: 10px; height: 10px; }
+.app-shell ::-webkit-scrollbar-track, .app-shell ::-webkit-scrollbar-corner { background: transparent; }
+.app-shell ::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 6px; background: color-mix(in srgb, var(--ui-text) 16%, transparent); background-clip: padding-box; }
+.app-shell ::-webkit-scrollbar-thumb:hover { border-width: 2px; background-color: color-mix(in srgb, var(--ui-text) 34%, transparent); }

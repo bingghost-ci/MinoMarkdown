@@ -77,8 +77,8 @@ type SnapshotOut = { markdown: string; title: string; assets: StagedAsset[]; gen
 type RestoredSession = { documents: OpenResult[]; active: number | null; missing: number }
 type OpenIntent = { token: string; name: string; kind: 'markdown' | 'image' | 'folder' }
 type NativeImageIntent = { name: string; mime: string; staged: string }
-export type Settings = ReadingSettings & { schemaVersion: number; sidebarWidth: number; windowWidth: number; windowHeight: number; showFileToolbar: boolean; showSidebar: boolean; showOutline: boolean; autoSave: boolean; autoSaveSeconds: number; restoreSession: boolean; editorWidth: 'centered' | 'wide'; language: Language }
-const defaultSettings: Settings = { ...defaultReadingSettings, schemaVersion: 1, sidebarWidth: 230, windowWidth: 1100, windowHeight: 760, showFileToolbar: false, showSidebar: true, showOutline: false, autoSave: false, autoSaveSeconds: 30, restoreSession: false, editorWidth: 'centered', language: 'zh-CN' }
+export type Settings = ReadingSettings & { schemaVersion: number; sidebarWidth: number; outlineWidth: number; aiWidth: number; windowWidth: number; windowHeight: number; showFileToolbar: boolean; showSidebar: boolean; showOutline: boolean; autoSave: boolean; autoSaveSeconds: number; restoreSession: boolean; editorWidth: 'centered' | 'wide'; language: Language }
+const defaultSettings: Settings = { ...defaultReadingSettings, schemaVersion: 1, sidebarWidth: 230, outlineWidth: 240, aiWidth: 400, windowWidth: 1100, windowHeight: 760, showFileToolbar: false, showSidebar: true, showOutline: false, autoSave: false, autoSaveSeconds: 30, restoreSession: false, editorWidth: 'centered', language: 'zh-CN' }
 export type SettingsTab = 'appearance' | 'typography' | 'reading' | 'workspace' | 'ai'
 export type FloatingPanel = 'appearance' | null
 type TabItem = { key: string; document: DocumentState; session: DocumentSession }
@@ -798,20 +798,6 @@ export function useDocumentWorkspace() {
     return () => { window.clearTimeout(timer); window.removeEventListener('resize', onResize) }
   }, [desktop, settingsLoaded])
 
-  useEffect(() => {
-    const element = sidebarRoot.current
-    if (!element || !settingsLoaded) return
-    let timer: number | undefined
-    const observer = new ResizeObserver(() => {
-      window.clearTimeout(timer)
-      timer = window.setTimeout(() => {
-        const width = Math.round(element.getBoundingClientRect().width)
-        if (width >= 170 && width <= 420) setSettings((current) => current.sidebarWidth === width ? current : { ...current, sidebarWidth: width })
-      }, 200)
-    })
-    observer.observe(element)
-    return () => { window.clearTimeout(timer); observer.disconnect() }
-  }, [sidebarOpen, settingsLoaded])
 
   async function rememberDocument(token: string): Promise<void> {
     await invoke('remember_recent_document', { token })

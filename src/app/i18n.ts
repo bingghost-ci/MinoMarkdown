@@ -142,7 +142,7 @@ const english: Record<string, string> = {
   '打开 Markdown 文件': 'Open Markdown File', '从 Finder 拖入': 'Drag from Finder:', '.md / .markdown 文件': '.md / .markdown files',
   '或文件夹到窗口任意位置': ' or folders from Finder anywhere into this window',
   'Markdown 编辑区域': 'Markdown Editor', '打开的文档': 'Open Documents', '未保存': 'Unsaved', '源码保护': 'Source Protection',
-  '可视化编辑': 'Visual Editor', '快速阅读': 'Quick Reading', '正在加载余下内容…': 'Loading the rest…', '编辑工具栏': 'Editor Toolbar', '段落样式': 'Paragraph Style', '正文': 'Paragraph', '标题': 'Heading',
+  '可视化编辑': 'Visual Editor', '为了节省用量，文档只在你提问时随问题一起发送；打开这个面板不会发送任何内容。': 'To save tokens, the document is sent only together with your question; opening this panel sends nothing.', '调整文件栏宽度': 'Resize the file sidebar', '调整大纲宽度': 'Resize the outline', '调整 AI 栏宽度': 'Resize the AI panel', '快速阅读': 'Quick Reading', '正在加载余下内容…': 'Loading the rest…', '编辑工具栏': 'Editor Toolbar', '段落样式': 'Paragraph Style', '正文': 'Paragraph', '标题': 'Heading',
   '插入链接': 'Insert Link', '插入图片': 'Insert Image', '更多编辑工具': 'More Editor Tools', '插入表格': 'Insert Table',
   '选择表格列数和行数': 'Choose table columns and rows', '移动鼠标选择大小，松开创建': 'Drag to select a size, release to insert',
   '加行': 'Add Row', '加列': 'Add Column', '删行': 'Delete Row', '删列': 'Delete Column',

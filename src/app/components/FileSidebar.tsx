@@ -1,5 +1,7 @@
 import type { DocumentWorkspace } from '../useDocumentWorkspace'
-import { ChevronDown, ChevronRight, FilePlus2, FileText, Folder, FolderOpen, FolderPlus, MoreHorizontal, Pencil, RefreshCw, Trash2, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, FilePlus2, FileText, Folder, FolderPlus, MoreHorizontal, Pencil, RefreshCw, Trash2, X, PanelLeftClose } from 'lucide-react'
+import { PaneResizer } from './PaneResizer'
+import { PANE_MAX, SIDEBAR_MIN } from '../readingSettings'
 import type { WorkspaceEntry } from '../useDocumentWorkspace'
 import { translateStatus } from '../i18n'
 
@@ -36,8 +38,9 @@ export function FileSidebar({ workspace: w }: { workspace: DocumentWorkspace }) 
 
   return <>
         {sidebarOpen && <aside id="document-sidebar" ref={sidebarRoot} className="document-sidebar" aria-label={t('文件浏览器')} style={{ width: settings.sidebarWidth }}>
-          <div className="sidebar-heading"><h2>{t('文件')}</h2><button type="button" className="icon-button" title={t('打开文件夹')} aria-label={t('打开文件夹')} onClick={() => void chooseWorkspace()} disabled={!desktop}><FolderOpen aria-hidden="true" /></button></div>
-          {!workspace && <div className="sidebar-empty"><FolderOpen className="sidebar-empty-icon" aria-hidden="true" /><p>{t('尚未打开文件夹')}</p><span>{t('拖入文件夹或使用上方按钮；已打开的文档显示在右侧标签栏')}</span></div>}
+          <PaneResizer edge="right" width={settings.sidebarWidth} min={SIDEBAR_MIN} max={PANE_MAX} fallback={230} label={t('调整文件栏宽度')} onCommit={(sidebarWidth) => w.setSettings((current) => ({ ...current, sidebarWidth }))} />
+          <div className="sidebar-heading"><h2>{t('文件')}</h2><button type="button" className="icon-button" title={t('隐藏文件栏')} aria-label={t('隐藏文件栏')} onClick={() => w.setSettings((current) => ({ ...current, showSidebar: false }))}><PanelLeftClose aria-hidden="true" /></button></div>
+          {!workspace && <div className="sidebar-open"><button type="button" onClick={() => void chooseWorkspace()} disabled={!desktop}>{t('打开文件夹')}</button></div>}
           {workspace && <>
             <div className="tree-header"><ChevronDown aria-hidden="true" /><strong title={workspace.name}>{workspace.name}</strong><button type="button" className="icon-button" onClick={() => void loadChildren(workspace.token)} title={t('刷新目录')} aria-label={t('刷新目录')}><RefreshCw aria-hidden="true" /></button></div>
             <div className="workspace-search" role="search"><input type="search" aria-label={t('搜索文件夹')} placeholder={t('搜索文件夹')} value={searchQuery}

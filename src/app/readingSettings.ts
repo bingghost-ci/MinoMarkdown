@@ -97,3 +97,10 @@ export function pickedStyle(style: ReadingStyle, settings: Pick<ReadingSettings,
 export function opensInReadingMode(openInReadingMode: boolean, hasFile: boolean, dirty: boolean): boolean {
   return openInReadingMode && hasFile && !dirty
 }
+
+/** Side pane widths (T78): the file sidebar, the outline and the AI drawer are resized by dragging their inner edge. `settings.rs` checks the same ranges. */
+export const SIDEBAR_MIN = 170
+export const PANE_MIN = 180
+export const PANE_MAX = 520
+export const AI_MIN = 300
+export const AI_MAX = 640

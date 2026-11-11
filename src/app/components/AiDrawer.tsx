@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, Copy, CornerDownLeft, Eraser, RefreshCw, Replace, Square, X } from 'lucide-react'
+import { PaneResizer } from './PaneResizer'
+import { AI_MAX, AI_MIN } from '../readingSettings'
 import type { DocumentWorkspace } from '../useDocumentWorkspace'
 import type { AiTurn } from '../aiAssistant'
 import { providerLabels } from '../../features/ai/client'
@@ -41,7 +43,8 @@ export function AiDrawer({ workspace: w }: { workspace: DocumentWorkspace }) {
   useEffect(() => { list.current?.scrollTo({ top: list.current.scrollHeight }) }, [ai.turns.length, last?.text, last?.html])
   if (!ai.open || !ai.config.enabled) return null
   const send = () => { const text = draft.trim(); if (!text || ai.busy) return; setDraft(''); void ai.ask(text) }
-  return <aside className="ai-drawer" aria-label={t('AI 问书')}>
+  return <aside className="ai-drawer" aria-label={t('AI 问书')} style={{ width: w.settings.aiWidth }}>
+    <PaneResizer edge="left" width={w.settings.aiWidth} min={AI_MIN} max={AI_MAX} fallback={400} label={t('调整 AI 栏宽度')} onCommit={(aiWidth) => w.setSettings((current) => ({ ...current, aiWidth }))} />
     <header className="ai-header">
       <div><h2>{t('AI 问书')}</h2><p title={document.name}>{document.name}</p></div>
       <button type="button" className="icon-button" title={t('清空对话')} aria-label={t('清空对话')} disabled={ai.turns.length === 0} onClick={ai.clear}><Eraser aria-hidden="true" /></button>
@@ -49,7 +52,7 @@ export function AiDrawer({ workspace: w }: { workspace: DocumentWorkspace }) {
     </header>
     <p className="ai-destination">{t('提问时，文档内容会发送到')} <strong>{t(providerLabels[ai.config.provider])}</strong> · <span className="ai-model" title={t('回答使用的模型，可在设置的“AI”页更换')}>{ai.config.model}</span> · {host(ai.config.baseUrl)}{!ai.config.hasKey && <em> · {t('尚未填写密钥')}</em>}</p>
     <div ref={list} className="ai-turns" aria-live="polite">
-      {ai.turns.length === 0 && <p className="ai-empty">{t('可以让 AI 概括这篇文档、解释选中的文字，或回答你的问题。')}</p>}
+      {ai.turns.length === 0 && <p className="ai-empty">{t('可以让 AI 概括这篇文档、解释选中的文字，或回答你的问题。')}<small>{t('为了节省用量，文档只在你提问时随问题一起发送；打开这个面板不会发送任何内容。')}</small></p>}
       {ai.turns.map((turn) => turn.role === 'user' ? <div key={turn.id} className="ai-turn ai-question">{t(turn.text)}</div> : <Answer key={turn.id} turn={turn} workspace={w} />)}
     </div>
     <footer className="ai-footer">
