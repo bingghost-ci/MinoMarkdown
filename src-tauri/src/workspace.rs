@@ -195,9 +195,12 @@ pub async fn choose_workspace(app: AppHandle, window: WebviewWindow, store: Stat
 pub(crate) fn register_workspace(store: &WorkspaceStore, path: PathBuf) -> Result<WorkspaceRoot, String> {
     let path = fs::canonicalize(path).map_err(|_| "NOT_FOUND")?;
     if !fs::metadata(&path).map_err(|_| "NOT_FOUND")?.is_dir() { return Err("INVALID_PATH".into()); }
-    let token = format!("workspace-{}", NEXT_ENTRY.fetch_add(1, Ordering::Relaxed));
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
-    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), EntryGrant { workspace: token.clone(), root: path.clone(), path, directory: true });
+    let mut map = store.0.lock().map_err(|_| "IO_ERROR")?;
+    // Several folders can be open at once (T79); opening one again returns its existing grant.
+    if let Some(token) = map.iter().find(|(token, entry)| entry.workspace == **token && entry.path == path).map(|(token, _)| token.clone()) { return Ok(WorkspaceRoot { token, name }); }
+    let token = format!("workspace-{}", NEXT_ENTRY.fetch_add(1, Ordering::Relaxed));
+    map.insert(token.clone(), EntryGrant { workspace: token.clone(), root: path.clone(), path, directory: true });
     Ok(WorkspaceRoot { token, name })
 }
 
@@ -546,6 +549,24 @@ mod tests {
         assert!(!grants.contains_key(&nested.token));
         drop(grants);
         fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn several_folders_are_open_at_once_and_each_is_released_alone() {
+        let (a, b) = (temp(), temp());
+        fs::write(a.join("a.md"), "a").unwrap(); fs::write(b.join("b.md"), "b").unwrap();
+        let store = WorkspaceStore::default();
+        let first = register_workspace(&store, a.clone()).unwrap();
+        let second = register_workspace(&store, b.clone()).unwrap();
+        assert_ne!(first.token, second.token);
+        assert_eq!(register_workspace(&store, a.clone()).unwrap().token, first.token, "the same folder is not granted twice");
+        let in_a = list_at(&store, &first.token, 0).unwrap().entries; let in_b = list_at(&store, &second.token, 0).unwrap().entries;
+        assert_eq!((in_a[0].name.as_str(), in_b[0].name.as_str()), ("a.md", "b.md"));
+        store.0.lock().unwrap().retain(|_, entry| entry.workspace != first.token);
+        assert_eq!(list_at(&store, &first.token, 0).err().as_deref(), Some("OUT_OF_SCOPE"));
+        assert_eq!(list_at(&store, &in_a[0].token, 0).err().as_deref(), Some("OUT_OF_SCOPE"));
+        assert_eq!(list_at(&store, &second.token, 0).unwrap().entries.len(), 1);
+        assert!(workspace_path(&store, &second.token).is_ok());
+        fs::remove_dir_all(a).unwrap(); fs::remove_dir_all(b).unwrap();
     }
     #[test]
     fn invalid_names_are_rejected() {

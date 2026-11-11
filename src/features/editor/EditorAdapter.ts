@@ -8,6 +8,7 @@ import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
 import { undoCommand, redoCommand } from '@milkdown/kit/plugin/history'
 import { TextSelection, NodeSelection, type Command, type EditorState, type Transaction } from '@milkdown/kit/prose/state'
 import { keymap as proseKeymap } from '@milkdown/kit/prose/keymap'
+import type { Node as ProseNode } from '@milkdown/kit/prose/model'
 import { Prec } from '@codemirror/state'
 import { keymap as codeKeymap } from '@codemirror/view'
 import { deleteRow, deleteColumn } from '@milkdown/kit/prose/tables'
@@ -43,6 +44,9 @@ export class EditorAdapter {
   private readOnly = false
   private creation: Promise<void> | null = null
   private composing = false
+  /** The document as the editor left it after loading, before any edit; see the `updated` listener. */
+  private loadedDoc: ProseNode | null = null
+  private edited = false
   private savedSelection: { from: number; to: number; node: boolean } | null = null
   private savedLinkHref: string | null = null
   private lastToolbarState = ''
@@ -112,7 +116,15 @@ export class EditorAdapter {
     })
     this.crepe.on((listener) => {
       // `updated` avoids the full Markdown serialization `markdownUpdated` performs on every change.
-      listener.updated(() => { onChange?.(); this.emitToolbarState() })
+      listener.updated((_ctx, doc) => {
+        // The editor changes the document by itself while it loads: heading IDs, and an empty paragraph after a
+        // closing code block, list or table. Those are not edits, and neither is anything in reading mode, where
+        // every writing path is closed; reporting them marked an untouched document as modified.
+        if (!this.edited && (this.readOnly || (this.loadedDoc !== null && doc.eq(this.loadedDoc)))) { this.emitToolbarState(); return }
+        this.edited = true
+        onChange?.()
+        this.emitToolbarState()
+      })
       listener.selectionUpdated(() => { this.emitToolbarState(); this.onSelectionChange?.() })
     })
   }
@@ -149,6 +161,7 @@ export class EditorAdapter {
     this.root.addEventListener('compositionstart', this.onCompositionStart, true)
     this.root.addEventListener('compositionend', this.onCompositionEnd, true)
     this.root.addEventListener('keydown', this.onBackslashShortcut, true)
+    this.crepe.editor.action((ctx) => { this.loadedDoc = ctx.get(editorViewCtx).state.doc })
     this.created = true
     this.emitToolbarState()
   }

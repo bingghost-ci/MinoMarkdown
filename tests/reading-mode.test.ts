@@ -51,4 +51,29 @@ describe('reading mode', () => {
     expect(editor.getMarkdown()).toBe(before)
     await editor.destroy()
   })
+
+  it('does not report the changes the editor makes while loading, in reading or editing mode, and reports the first real edit', async () => {
+    // A closing list (or code block, or table) makes the editor append an empty paragraph, and every heading gets an ID: neither is an edit.
+    const closing = source
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 450))
+    for (const reading of [true, false]) {
+      const root = document.createElement('div')
+      document.body.append(root)
+      let changes = 0
+      const editor = new EditorAdapter(root, closing, () => { changes++ })
+      editor.setReadonly(reading)
+      await editor.create()
+      if (reading) editor.setReadonly(true)
+      await settle()
+      expect(changes, `after load, reading=${reading}`).toBe(0)
+      editor.setReadonly(false)
+      await settle()
+      expect(changes, `after leaving reading mode, reading=${reading}`).toBe(0)
+      editor.runCommand('rule')
+      await settle()
+      expect(changes, `after an edit, reading=${reading}`).toBeGreaterThan(0)
+      await editor.destroy()
+      root.remove()
+    }
+  })
 })

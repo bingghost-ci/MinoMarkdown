@@ -71,8 +71,9 @@ type DraftContent = DraftSummary & { markdown: string; assets: StagedAsset[]; as
 type WorkspaceRoot = { token: string; name: string }
 export type WorkspaceEntry = { token: string; name: string; directory: boolean }
 type ChildrenPage = { entries: WorkspaceEntry[]; nextOffset: number | null }
-export type SearchHit = { token: string; name: string; path: string; line: number; snippet: string; occurrence: number }
+export type SearchHit = { token: string; name: string; path: string; line: number; snippet: string; occurrence: number; /** The open folder the hit is in; shown when several are open. */ root?: string }
 type SearchResults = { hits: SearchHit[]; truncated: boolean; skipped: number }
+const SEARCH_HIT_LIMIT = 500
 type SnapshotOut = { markdown: string; title: string; assets: StagedAsset[]; generation: number; revision: number }
 type RestoredSession = { documents: OpenResult[]; active: number | null; missing: number }
 type OpenIntent = { token: string; name: string; kind: 'markdown' | 'image' | 'folder' }
@@ -104,6 +105,7 @@ function previewSettings(): Settings {
 }
 export const uiPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('ui-preview') === 'editor'
 const previewTree: Record<string, TreeState> = {
+  'preview-notes': { entries: [{ token: 'preview-notes-a', name: '读书笔记.md', directory: false }, { token: 'preview-notes-b', name: '草稿', directory: true }], nextOffset: null, expanded: true, loading: false, error: null },
   'preview-root': { entries: [{ token: 'preview-docs', name: 'doc', directory: true }, { token: 'preview-readme', name: 'README.md', directory: false }], nextOffset: null, expanded: true, loading: false, error: null },
   'preview-docs': { entries: [{ token: 'preview-plan', name: '设计方案', directory: true }, { token: 'preview-file', name: '产品笔记.md', directory: false }], nextOffset: null, expanded: true, loading: false, error: null },
   'preview-plan': { entries: [{ token: 'preview-spec', name: '编辑器需求.md', directory: false }], nextOffset: null, expanded: true, loading: false, error: null },
@@ -239,7 +241,10 @@ export function useDocumentWorkspace() {
   const [linkHref, setLinkHref] = useState('')
   const [imageAltOpen, setImageAltOpen] = useState(false)
   const [imageAltText, setImageAltText] = useState('')
-  const [workspace, setWorkspace] = useState<WorkspaceRoot | null>(uiPreview ? { token: 'preview-root', name: 'Mino' } : null)
+  /** The folders open in the sidebar (T79). Each has its own grant in Rust; closing one releases only that grant. */
+  const [workspaces, setWorkspaces] = useState<WorkspaceRoot[]>(uiPreview ? [{ token: 'preview-root', name: 'Mino' }, ...(new URLSearchParams(window.location.search).get('ui-folders') === '2' ? [{ token: 'preview-notes', name: 'Notes' }] : [])] : [])
+  const workspacesRef = useRef(workspaces)
+  workspacesRef.current = workspaces
   const [settings, setSettings] = useState<Settings>(() => uiPreview ? previewSettings() : defaultSettings)
   const sidebarOpen = settings.showSidebar
   const t = (value: string) => translate(value, settings.language)
@@ -1270,9 +1275,8 @@ export function useDocumentWorkspace() {
 
   async function activateWorkspace(chosen: WorkspaceRoot) {
     resetWorkspaceSearch()
-    if (workspace) await invoke('release_workspace', { token: workspace.token })
-    setWorkspace(chosen)
-    setTree({})
+    // Rust returns the existing grant for a folder that is already open, so it is not listed twice.
+    setWorkspaces((current) => current.some((root) => root.token === chosen.token) ? current : [...current, chosen])
     setSelectedDirectory(chosen.token)
     setSelectedEntry(null)
     setSettings((current) => ({ ...current, showSidebar: true }))
@@ -1301,17 +1305,31 @@ export function useDocumentWorkspace() {
   function runWorkspaceSearch(query: string) {
     window.clearTimeout(searchTimer.current)
     const sequence = ++searchSequence.current
-    const root = workspace?.token
-    if (!root || !query.trim()) {
+    const roots = workspacesRef.current
+    if (roots.length === 0 || !query.trim()) {
       setSearchState({ results: null, searching: false, error: null })
-      if (root && desktop) void invoke('search_workspace', { rootToken: root, query: '' }).catch(() => undefined)
+      if (roots.length > 0 && desktop) void invoke('search_workspace', { rootToken: roots[0].token, query: '' }).catch(() => undefined)
       return
     }
     setSearchState((current) => ({ ...current, searching: true, error: null }))
     searchTimer.current = window.setTimeout(() => {
-      invoke<SearchResults>('search_workspace', { rootToken: root, query })
-        .then((results) => { if (sequence === searchSequence.current) setSearchState({ results, searching: false, error: null }) })
-        .catch((error: unknown) => { if (sequence === searchSequence.current && String(error) !== 'SEARCH_CANCELED') setSearchState({ results: null, searching: false, error: errorText(error) }) })
+      // One folder after another: Rust keeps a single search per window and a new call stops the one before it.
+      void (async () => {
+        const merged: SearchResults = { hits: [], truncated: false, skipped: 0 }
+        try {
+          for (const root of roots) {
+            const results = await invoke<SearchResults>('search_workspace', { rootToken: root.token, query })
+            if (sequence !== searchSequence.current) return
+            merged.hits.push(...results.hits.map((hit) => ({ ...hit, root: root.name })))
+            merged.truncated ||= results.truncated
+            merged.skipped += results.skipped
+            if (merged.hits.length >= SEARCH_HIT_LIMIT) { merged.hits.length = SEARCH_HIT_LIMIT; merged.truncated = true; break }
+          }
+          setSearchState({ results: merged, searching: false, error: null })
+        } catch (error) {
+          if (sequence === searchSequence.current && String(error) !== 'SEARCH_CANCELED') setSearchState({ results: null, searching: false, error: errorText(error) })
+        }
+      })()
     }, 250)
   }
 
@@ -1340,11 +1358,20 @@ export function useDocumentWorkspace() {
     for (let step = 0; step < hit.occurrence; step++) findStepRef.current(1)
   }
 
-  async function closeWorkspace() {
-    if (!workspace) return
+  /** Closes one open folder, or all of them. Documents already open from it stay open: each holds its own grant. */
+  async function closeWorkspace(token?: string) {
+    const closing = workspacesRef.current.filter((root) => token === undefined || root.token === token)
+    if (closing.length === 0) return
     resetWorkspaceSearch()
-    try { await invoke('release_workspace', { token: workspace.token }); setWorkspace(null); setTree({}); setSelectedDirectory(null); setSelectedEntry(null) }
-    catch (error) { setStatus(errorText(error)) }
+    try {
+      for (const root of closing) await invoke('release_workspace', { token: root.token })
+      const rest = workspacesRef.current.filter((root) => !closing.includes(root))
+      setWorkspaces(rest)
+      setTree((current) => rest.length === 0 ? {} : Object.fromEntries(Object.entries(current).filter(([key]) => !closing.some((root) => root.token === key))))
+      setSelectedDirectory(rest[0]?.token ?? null)
+      setSelectedEntry(null)
+      setStatus(closing.length === 1 ? `已关闭文件夹 ${closing[0].name}` : '已关闭全部文件夹')
+    } catch (error) { setStatus(errorText(error)) }
   }
 
   function toggleDirectory(token: string) {
@@ -1963,7 +1990,7 @@ export function useDocumentWorkspace() {
     onStatus: setStatus,
   })
   const sourceDark = style.dark
-  return { previewPartial, ai, panel, setPanel, systemFonts, loadSystemFonts, pickStyle, toggleDayNight, systemDark, latinLayout, style, sourceDark, reading, setReading, lightbox, setLightbox, openImageFromClick, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, preview, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettings, setSettingsOpen, setSettingsTab, setSourceView, setStatus, setTabMenu, settings, settingsOpen, settingsTab, sidebarOpen, sidebarRoot, sourceEditor, sourceView, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabMenu, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspace }
+  return { selectedDirectory, previewPartial, ai, panel, setPanel, systemFonts, loadSystemFonts, pickStyle, toggleDayNight, systemDark, latinLayout, style, sourceDark, reading, setReading, lightbox, setLightbox, openImageFromClick, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, preview, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettings, setSettingsOpen, setSettingsTab, setSourceView, setStatus, setTabMenu, settings, settingsOpen, settingsTab, sidebarOpen, sidebarRoot, sourceEditor, sourceView, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabMenu, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspaces }
 }
 
 export type DocumentWorkspace = ReturnType<typeof useDocumentWorkspace>

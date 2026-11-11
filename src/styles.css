@@ -457,3 +457,15 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .app-shell ::-webkit-scrollbar-track, .app-shell ::-webkit-scrollbar-corner { background: transparent; }
 .app-shell ::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 6px; background: color-mix(in srgb, var(--ui-text) 16%, transparent); background-clip: padding-box; }
 .app-shell ::-webkit-scrollbar-thumb:hover { border-width: 2px; background-color: color-mix(in srgb, var(--ui-text) 34%, transparent); }
+
+/* T79: several open folders, each a collapsible section with its own refresh and close buttons. */
+.file-tree .tree-header { position: sticky; top: 0; z-index: 1; gap: 2px; height: 30px; min-height: 30px; padding: 0 6px 0 8px; border: 0; background: var(--sidebar); }
+.tree-root-name { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; height: 26px; border: 0; border-radius: 5px; padding: 0 6px; background: none; color: var(--ui-text); text-align: left; cursor: pointer; }
+.tree-root-name:hover, .tree-header[data-selected] .tree-root-name { background: var(--hover); }
+.tree-root-name svg { width: 14px; height: 14px; flex: none; color: var(--ui-muted); }
+.tree-root-name strong { flex: 1; min-width: 0; overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.file-tree .tree-header .icon-button { width: 24px; height: 24px; padding: 0; opacity: 0; }
+.file-tree .tree-header:is(:hover, :focus-within) .icon-button { opacity: 1; }
+.file-tree .tree-header .icon-button svg { width: 14px; height: 14px; }
+.tree-root + .tree-root { margin-top: 6px; }
+.sidebar-heading h2 { flex: 1; }
