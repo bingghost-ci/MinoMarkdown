@@ -17,6 +17,7 @@ import { rewriteImageUrls } from '../export/snapshot'
 import { safeTextHandler } from './markdownStringify'
 import { renderMermaidPreview } from '../diagrams/mermaid'
 import { remarkDemoteCurrencyPlugin } from './mathEditor'
+import { numericColumnsPlugin } from './numericColumns'
 import { CREPE_INLINE_MATH_RULE, STRICT_INLINE_MATH_RULE } from '../../core/markdown/math'
 import { isAssetUrl, relativeFromAssetUrl } from './assetUrl'
 import { findKey, findPlugin, replacementFor, setFind, type FindOptions } from './find'
@@ -24,6 +25,7 @@ import { duplicateBlock, moveBlock } from './blockCommands'
 import { textTransformTransaction, type TextTransform } from './textTransform'
 import { linkPasteTransaction, parseTabularText, pastedLinkHref, tablePasteTransaction } from './smartPaste'
 import { outlineFromDoc, type OutlineItem } from '../outline/outline'
+import { readingCodeTheme } from './codeTheme'
 
 export type PendingAsset = { url: string; bytes: Uint8Array<ArrayBuffer>; mime: string }
 type PendingImage = { file: File; validation: Promise<void>; error: string | null }
@@ -37,6 +39,8 @@ export class EditorAdapter {
   private readonly pending = new Map<string, PendingImage>()
   private readonly persisted = new Map<string, string>()
   private created = false
+  /** Reading mode: the view is not editable, and every path this adapter adds that writes is closed too. */
+  private readOnly = false
   private creation: Promise<void> | null = null
   private composing = false
   private savedSelection: { from: number; to: number; node: boolean } | null = null
@@ -69,6 +73,7 @@ export class EditorAdapter {
       },
       featureConfigs: {
         [CrepeFeature.CodeMirror]: {
+          theme: readingCodeTheme,
           renderPreview: renderMermaidPreview,
           // Inside a code block these keys would otherwise never reach the document.
           extensions: [Prec.high(codeKeymap.of([
@@ -99,7 +104,7 @@ export class EditorAdapter {
       },
     })
     this.crepe.editor.use(remarkDemoteCurrencyPlugin).config((ctx) => {
-      ctx.update(prosePluginsCtx, (plugins) => plugins.concat(findPlugin, proseKeymap({ 'Alt-ArrowUp': moveBlock(-1), 'Alt-ArrowDown': moveBlock(1), 'Mod-Shift-d': duplicateBlock })))
+      ctx.update(prosePluginsCtx, (plugins) => plugins.concat(findPlugin, numericColumnsPlugin, proseKeymap({ 'Alt-ArrowUp': moveBlock(-1), 'Alt-ArrowDown': moveBlock(1), 'Mod-Shift-d': duplicateBlock })))
       ctx.update(remarkStringifyOptionsCtx, (options) => ({
         ...options,
         handlers: { ...options.handlers, text: safeTextHandler },
@@ -151,7 +156,7 @@ export class EditorAdapter {
   private onCompositionStart = () => { this.composing = true; this.emitToolbarState() }
   private onCompositionEnd = () => { this.composing = false; this.emitToolbarState() }
   private onBackslashShortcut = (event: KeyboardEvent) => {
-    if (event.key !== '\\' || event.metaKey || event.ctrlKey || event.altKey || this.composing || !this.created) return
+    if (event.key !== '\\' || event.metaKey || event.ctrlKey || event.altKey || this.composing || !this.created || this.readOnly) return
     this.crepe.editor.action((ctx) => {
       const view = ctx.get(editorViewCtx)
       const { selection } = view.state
@@ -215,6 +220,15 @@ export class EditorAdapter {
     return focused
   }
 
+  /** Switches reading mode without rebuilding Crepe, so undo history, selection and dirty state are kept. */
+  setReadonly(value: boolean): void {
+    if (this.readOnly === value && this.created) return
+    this.readOnly = value
+    this.crepe.setReadonly(value)
+  }
+
+  isReadonly(): boolean { return this.readOnly }
+
   focus(): void {
     if (this.created) this.crepe.editor.action((ctx) => ctx.get(editorViewCtx).focus())
   }
@@ -233,7 +247,7 @@ export class EditorAdapter {
   }
 
   setLink(href: string): void {
-    if (!this.created || this.composing) return
+    if (!this.created || this.composing || this.readOnly) return
     const wasLinked = this.savedLinkHref !== null
     this.restoreSelection()
     this.savedLinkHref = null
@@ -243,7 +257,7 @@ export class EditorAdapter {
   }
 
   setImageAlt(alt: string): void {
-    if (!this.created || this.composing) return
+    if (!this.created || this.composing || this.readOnly) return
     this.restoreSelection()
     this.crepe.editor.action(callCommand(updateImageCommand.key, { alt }))
     this.focus()
@@ -251,7 +265,7 @@ export class EditorAdapter {
   }
 
   runTableCommand(command: TableCommand, rows = 3, columns = 3): void {
-    if (!this.created || this.composing) return
+    if (!this.created || this.composing || this.readOnly) return
     if (command === 'insert') this.restoreSelection()
     const milkdown = {
       insert: () => callCommand(insertTableCommand.key, { row: rows, col: columns }),
@@ -273,7 +287,7 @@ export class EditorAdapter {
   }
 
   runCommand(command: EditorCommand): void {
-    if (!this.created || this.composing) return
+    if (!this.created || this.composing || this.readOnly) return
     if (command === 'task') { this.toggleTaskList(); this.emitToolbarState(); return }
     const commands = {
       paragraph: turnIntoTextCommand,
@@ -335,7 +349,7 @@ export class EditorAdapter {
   }
 
   runTextTransform(kind: TextTransform): void {
-    if (!this.created || this.composing) return
+    if (!this.created || this.composing || this.readOnly) return
     this.crepe.editor.action((ctx) => {
       const view = ctx.get(editorViewCtx)
       const tr = textTransformTransaction(view.state, kind)
@@ -377,12 +391,14 @@ export class EditorAdapter {
   }
 
   insertFile(file: File): void {
+    if (this.readOnly) throw new Error('READING_MODE')
     if (!this.created || this.composing) throw new Error('EDITOR_NOT_READY')
     const url = this.registerImage(file)
     this.crepe.editor.action(callCommand(insertImageCommand.key, { src: url, alt: file.name || '图片' }))
   }
 
   replaceSelectedImage(file: File): void {
+    if (this.readOnly) throw new Error('READING_MODE')
     if (!this.created || this.composing) throw new Error('EDITOR_NOT_READY')
     this.restoreSelection()
     const url = this.registerImage(file)
@@ -408,7 +424,7 @@ export class EditorAdapter {
   }
 
   private onPaste = (event: ClipboardEvent): void => {
-    if (!this.created) return
+    if (!this.created || this.readOnly) return
     const text = event.clipboardData?.getData('text/plain') ?? ''
     // Spreadsheets also offer a picture of the cells, so regular tabular text wins over that image.
     if (this.applyPaste(event, (state) => { const rows = parseTabularText(text); return rows && tablePasteTransaction(state, rows) })) return
@@ -450,13 +466,14 @@ export class EditorAdapter {
     if (anchor) {
       event.preventDefault()
       event.stopPropagation()
-      if (event.metaKey) this.onLinkOpen?.(anchor.getAttribute('href') ?? '')
+      // While reading, a plain click follows the link as in a book viewer; while editing it takes ⌘.
+      if (event.metaKey || this.readOnly) this.onLinkOpen?.(anchor.getAttribute('href') ?? '')
     }
   }
 
   private onDrop = (event: DragEvent): void => {
     const file = Array.from(event.dataTransfer?.files ?? []).find((item) => item.type.startsWith('image/'))
-    if (!file || !this.created) return
+    if (!file || !this.created || this.readOnly) return
     event.preventDefault()
     event.stopPropagation()
     this.crepe.editor.action((ctx) => {
@@ -486,7 +503,7 @@ export class EditorAdapter {
   }
 
   replaceCurrent(text: string): { current: number; total: number } {
-    if (this.composing) return this.findCounts()
+    if (this.composing || this.readOnly) return this.findCounts()
     return this.updateFind((tr, find) => {
       const match = find?.matches[find.index]
       if (!match) return tr
@@ -496,7 +513,7 @@ export class EditorAdapter {
   }
 
   replaceAll(text: string): { current: number; total: number } {
-    if (this.composing) return this.findCounts()
+    if (this.composing || this.readOnly) return this.findCounts()
     return this.updateFind((tr, find) => {
       for (const match of [...(find?.matches ?? [])].reverse()) {
         const replacement = replacementFor(match, text)

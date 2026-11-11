@@ -47,9 +47,9 @@ async function inspect() {
       JSON.stringify(payloadFiles) !== JSON.stringify([executable, plist, icon].sort())) {
     throw new Error('Bundle regular-file list differs from the ZIP or expected payload')
   }
-  const archivedBinary = execFileSync('unzip', ['-p', zipFile, `Mino.app/${executable}`], { maxBuffer: 32 * 1024 * 1024 })
-  const archivedPlist = execFileSync('unzip', ['-p', zipFile, `Mino.app/${plist}`], { maxBuffer: 32 * 1024 * 1024 })
-  const archivedIcon = execFileSync('unzip', ['-p', zipFile, `Mino.app/${icon}`], { maxBuffer: 32 * 1024 * 1024 })
+  const archivedBinary = execFileSync('unzip', ['-p', zipFile, `Mino.app/${executable}`], { maxBuffer: binaryBytes.length + 1024 * 1024 })
+  const archivedPlist = execFileSync('unzip', ['-p', zipFile, `Mino.app/${plist}`], { maxBuffer: plistBytes.length + 1024 * 1024 })
+  const archivedIcon = execFileSync('unzip', ['-p', zipFile, `Mino.app/${icon}`], { maxBuffer: iconBytes.length + 1024 * 1024 })
   if (architecture !== 'arm64' || minimumSystemVersion !== '12.0' || version !== expectedVersion || iconName !== 'icon.icns') {
     throw new Error('Bundle identity, architecture or declared minimum macOS version differs from the release plan')
   }

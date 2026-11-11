@@ -16,7 +16,7 @@ export function EditorBody({ workspace: w }: { workspace: DocumentWorkspace }) {
             ? null
             : previewPending ? <div key={document.id} className="editor-root markdown-preview" role="status">{t('正在生成预览…')}</div>
             : !sourceView && previewHtml !== null
-              ? <div key={document.id} ref={previewRoot} className="editor-root markdown-preview" aria-label={t('Markdown 预览')} onClick={onPreviewClick}><article className="markdown-preview-content" dangerouslySetInnerHTML={{ __html: previewHtml }} /></div>
+              ? <div key={document.id} ref={previewRoot} className="editor-root markdown-preview" aria-label={t('Markdown 预览')} onClick={onPreviewClick}><article className="markdown-preview-content mino-doc" dangerouslySetInnerHTML={{ __html: previewHtml }} /></div>
               : <Suspense key={document.id} fallback={<div className="source-editor" />}><SourceEditorView editorRef={sourceEditor} text={document.sourceText} label={t('源码保护编辑区域')} dark={sourceDark} onSelect={scheduleDerivedRefresh} onChange={() => {
               if (sessionRef.current.generation === document.id) updateSession(editSession(sessionRef.current))
             }} /></Suspense>}

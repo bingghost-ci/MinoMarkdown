@@ -54,6 +54,8 @@ npm	@esbuild/darwin-arm64	0.27.7	MIT			missing
 npm	@floating-ui/core	1.8.0	MIT	LICENSE	0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce	present
 npm	@floating-ui/dom	1.8.0	MIT	LICENSE	0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce	present
 npm	@floating-ui/utils	0.2.12	MIT	LICENSE	0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce	present
+npm	@fontsource/lxgw-wenkai	5.3.0	OFL-1.1	LICENSE	a4654e013454eb0ea7b4b35689d235de2452a13737805e2a172761ae110b6905	present
+npm	@fontsource/noto-serif-sc	5.3.1	OFL-1.1	LICENSE	18aabf190848725e2576eefb5c29ba06aac1029d02132252a7f312eac2e50cf3	present
 npm	@jridgewell/gen-mapping	0.3.13	MIT	LICENSE	769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c	present
 npm	@jridgewell/remapping	2.3.5	MIT	LICENSE	769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c	present
 npm	@jridgewell/resolve-uri	3.1.2	MIT	LICENSE	b8778b155bfde5a28b023a558753c0fa058a52bb9de35c343c250be1bbcdedab	present

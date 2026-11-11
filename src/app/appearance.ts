@@ -1,16 +1,18 @@
-export const themeOptions = [
-  { id: 'system', label: '跟随系统' },
-  { id: 'light', label: '浅色' },
-  { id: 'mint', label: '护眼绿' },
-  { id: 'butter', label: '护眼黄' },
-  { id: 'paper', label: '暖纸' },
-  { id: 'eink', label: '水墨屏' },
-  { id: 'blueprint', label: '科技蓝白' },
-  { id: 'dark', label: '深色' },
-  { id: 'graphite', label: '夜间护眼' },
-] as const
+import { readingStyles, type FontPresetId, type StyleId } from '../features/reading/styles'
 
-export type ThemeId = (typeof themeOptions)[number]['id']
+export type { ThemeId } from '../features/reading/styles'
+
+/** Theme menu entries: following the system first, then every reading style in catalog order. */
+export const themeOptions: readonly { id: 'system' | StyleId; label: string }[] = [{ id: 'system', label: '跟随系统' }, ...readingStyles.map((style) => ({ id: style.id, label: style.name }))]
+
+export type FontPreset = FontPresetId | 'auto' | 'system'
+export const fontPresetOptions: readonly { id: FontPreset; label: string; note: string }[] = [
+  { id: 'auto', label: '随风格', note: '使用当前阅读风格推荐的字体' },
+  { id: 'song', label: '书宋', note: '思源宋体，适合长文与书稿' },
+  { id: 'kai', label: '文楷', note: '霞鹜文楷，适合笔记与随笔' },
+  { id: 'hei', label: '黑体', note: '苹方，适合技术文档' },
+  { id: 'system', label: '系统字体', note: '从下方选择本机字体' },
+]
 
 export const fontOptions = [
   { id: 'system', label: '系统字体', note: '中英混排的稳妥选择', recommended: false },

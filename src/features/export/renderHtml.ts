@@ -9,11 +9,15 @@ import { unified } from 'unified'
 import { remarkDemoteCurrency } from '../../core/markdown/math'
 import { rehypeRenderMath, withMathClasses } from '../../core/markdown/renderMath'
 import { rehypeEmbedDiagrams } from '../../core/markdown/diagrams'
+import { rehypeFigures } from '../../core/markdown/figures'
+import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
+import { loadCodeParsers, rehypeHighlightCode } from '../../core/markdown/highlight'
 
 export type ResolvedImage = { bytes: Uint8Array; mime: string }
 export type ImageResolver = (url: string) => Promise<ResolvedImage | null>
 
-const stylesheet = `
+/** Used when no reading style is passed in; the app always passes the stylesheet from src/features/reading/css.ts. */
+const fallbackStylesheet = `
   :root { color-scheme: light; font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; color: #242824; }
   body { max-width: 760px; margin: 0 auto; padding: 40px 28px 72px; }
   h1,h2,h3,h4,h5,h6 { line-height: 1.3; break-after: avoid; }
@@ -101,8 +105,15 @@ function countRawHtml(report: { omittedHtml: number }) {
 
 export type RenderedExport = { html: string; omittedHtml: number; hasMath: boolean; failedDiagrams: number }
 
+/**
+ * The page around the body. `stylesheet` is built on the main thread by `exportStylesheet`, so this
+ * renderer (which also runs in the worker) never loads fonts or textures. `fontsEmbedded` opens the
+ * page CSP to `font-src data:` and nothing else.
+ */
+export type ExportPageOptions = { stylesheet?: string; fontsEmbedded?: boolean; captions?: boolean }
+
 /** Renders a page and reports how many raw HTML fragments sanitizing left out. */
-export async function renderExport(markdown: string, title: string, resolveImage: ImageResolver, diagrams: ReadonlyMap<string, string> = new Map()): Promise<RenderedExport> {
+export async function renderExport(markdown: string, title: string, resolveImage: ImageResolver, diagrams: ReadonlyMap<string, string> = new Map(), page: ExportPageOptions = {}): Promise<RenderedExport> {
   const report = { omittedHtml: 0, hasMath: false, failedDiagrams: 0 }
   const processor = unified()
     .use(remarkParse)
@@ -115,9 +126,14 @@ export async function renderExport(markdown: string, title: string, resolveImage
     .use(rehypeSanitize, withMathClasses({ ...defaultSchema, protocols: { ...defaultSchema.protocols, src: ['data'] } }))
     .use(rehypeRenderMath, report)
     .use(rehypeEmbedDiagrams, { diagrams, report })
+    .use(rehypeHighlightCode, { parsers: await loadCodeParsers(markdown) })
+    .use(rehypeNumericColumns)
+    .use(rehypeFigures, { captions: page.captions ?? true })
     .use(rehypeStringify, { allowDangerousHtml: true })
   const body = String(await processor.process(exportBody(markdown)))
-  const html = `<!doctype html>\n<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'"><title>${escapeHtml(title)}</title><style>${stylesheet}</style></head><body><article>${body}</article></body></html>`
+  // `</style` cannot occur in generated CSS, but escape it anyway so the stylesheet can never end early.
+  const css = (page.stylesheet ?? fallbackStylesheet).replace(/<\/style/gi, '<\\/style')
+  const html = `<!doctype html>\n<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src ${page.fontsEmbedded ? 'data:' : "'none'"}"><title>${escapeHtml(title)}</title><style>${css}</style></head><body><main class="mino-page"><article class="mino-doc">${body}</article></main></body></html>`
   return { html, omittedHtml: report.omittedHtml, hasMath: report.hasMath, failedDiagrams: report.failedDiagrams }
 }
 

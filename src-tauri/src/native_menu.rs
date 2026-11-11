@@ -53,11 +53,66 @@ pub fn label(id: &str, english: bool) -> &'static str {
         ("open-recent", true) => "Open Recent", ("open-recent", false) => "打开最近使用",
         ("no-recent", true) => "No Recent Items", ("no-recent", false) => "没有最近使用的项目",
         ("export-text", true) => "Export Text-only Markdown…", ("export-text", false) => "导出仅正文 Markdown…",
+        ("toggle-reading", true) => "Reading Mode", ("toggle-reading", false) => "阅读模式",
         ("toggle-source", true) => "Switch Source / Visual Mode", ("toggle-source", false) => "切换源码 / 可视化模式",
         ("find", true) => "Find and Replace…", ("find", false) => "查找和替换…",
         ("quit", true) => "Quit Mino", ("quit", false) => "退出 Mino",
         _ => "",
     }
+}
+
+/// Keyboard shortcuts of the menu items `lib.rs` builds, in menu order. Kept here so tests can check them.
+pub const MENU_ITEMS: &[(&str, Option<&str>)] = &[
+    ("new", Some("Cmd+N")),
+    ("new-window", Some("Cmd+Shift+N")),
+    ("open", Some("Cmd+O")),
+    ("open-folder", Some("Cmd+Shift+O")),
+    ("save", Some("Cmd+S")),
+    ("save-as", Some("Cmd+Shift+S")),
+    ("recover-drafts", None),
+    ("close-tab", Some("Cmd+W")),
+    ("export-md", None),
+    ("export-text", None),
+    ("export-html", None),
+    ("print", Some("Cmd+P")),
+    ("find", Some("Cmd+F")),
+    ("toggle-reading", Some("Cmd+Shift+R")),
+    ("toggle-source", None),
+    ("view-toolbar", None),
+    ("view-sidebar", None),
+    ("view-outline", None),
+    ("zoom-in", Some("Cmd+=")),
+    ("zoom-out", Some("Cmd+-")),
+    ("zoom-reset", Some("Cmd+0")),
+    ("preferences", Some("Cmd+,")),
+    ("quit", Some("Cmd+Q")),
+    ("format-paragraph", Some("Cmd+Alt+0")),
+    ("format-heading1", Some("Cmd+Alt+1")),
+    ("format-heading2", Some("Cmd+Alt+2")),
+    ("format-heading3", Some("Cmd+Alt+3")),
+    ("format-heading4", Some("Cmd+Alt+4")),
+    ("format-heading5", Some("Cmd+Alt+5")),
+    ("format-heading6", Some("Cmd+Alt+6")),
+    ("format-bold", Some("Cmd+B")),
+    ("format-italic", Some("Cmd+I")),
+    ("format-strike", Some("Cmd+Alt+X")),
+    ("format-inline-code", Some("Cmd+E")),
+    ("format-bullet", Some("Cmd+Alt+8")),
+    ("format-ordered", Some("Cmd+Alt+7")),
+    ("format-task", None),
+    ("format-quote", Some("Cmd+Shift+B")),
+    ("format-code-block", Some("Cmd+Alt+C")),
+    ("format-link", Some("Cmd+K")),
+    ("transform-upper", None),
+    ("transform-lower", None),
+    ("transform-title", None),
+    ("transform-cjk-spacing", None),
+    ("transform-full-punct", None),
+    ("transform-half-punct", None),
+];
+
+pub fn accelerator(id: &str) -> Option<&'static str> {
+    MENU_ITEMS.iter().find(|(item, _)| *item == id).and_then(|(_, shortcut)| *shortcut)
 }
 
 pub fn set_language(app: &AppHandle, language: &str) {
@@ -140,4 +195,31 @@ extern "C" fn should_terminate(_: *mut objc2::runtime::AnyObject, _: objc2::runt
         }
     }
     1 // NSTerminateNow
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn reading_mode_has_its_shortcut_and_both_labels() {
+        assert_eq!(accelerator("toggle-reading"), Some("Cmd+Shift+R"));
+        assert_eq!(label("toggle-reading", false), "阅读模式");
+        assert_eq!(label("toggle-reading", true), "Reading Mode");
+        // ⌘E stays with inline code (doc/08 §8).
+        assert_eq!(accelerator("format-inline-code"), Some("Cmd+E"));
+    }
+
+    #[test]
+    fn every_menu_item_is_labeled_in_both_languages_and_shortcuts_do_not_collide() {
+        let mut seen = HashSet::new();
+        for (id, shortcut) in MENU_ITEMS {
+            assert!(!label(id, false).is_empty() && !label(id, true).is_empty(), "{id}");
+            if let Some(shortcut) = shortcut { assert!(seen.insert(*shortcut), "{id} reuses {shortcut}"); }
+        }
+        let ids: HashSet<_> = MENU_ITEMS.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids.len(), MENU_ITEMS.len());
+        assert!(ids.contains("toggle-reading"));
+    }
 }

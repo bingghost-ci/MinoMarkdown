@@ -1,6 +1,7 @@
 export type Language = 'zh-CN' | 'en-US'
 
 const english: Record<string, string> = {
+  '素白': 'White', '书页': 'Book Page', '宣纸': 'Xuan Paper', '牛皮纸': 'Kraft', '羊皮卷': 'Parchment', '再生纸': 'Recycled Paper', '豆沙绿': 'Soft Green', '暖黄': 'Warm Yellow', '低蓝光': 'Low Blue Light', '夜读': 'Night Reading', '墨黑': 'Ink Black', '纸张': 'Paper', '护眼': 'Eye Care', '夜间': 'Night', '其他': 'Other', '白天': 'Day', '跟随系统外观': 'Follow System Appearance', '白天和夜间各用一种风格，随 macOS 外观切换': 'Use one style by day and one by night, switching with the macOS appearance.', '文': '文', '读书是一件安静的事': 'Reading is a quiet pleasure', '链接': 'Link', '排版': 'Typography', '阅读与导出': 'Reading & Export', '字体': 'Font', '书宋与文楷随应用提供，离线可用': 'Book Serif and WenKai ship with the app and work offline.', '随风格': 'Follow Style', '使用当前阅读风格推荐的字体': 'The font recommended by the current reading style', '书宋': 'Book Serif', '思源宋体，适合长文与书稿': 'Noto Serif SC, for long reads and manuscripts', '文楷': 'WenKai', '霞鹜文楷，适合笔记与随笔': 'LXGW WenKai, for notes and essays', '黑体': 'Sans', '苹方，适合技术文档': 'PingFang, for technical documents', '从下方选择本机字体': 'Choose an installed font below', '本机字体': 'Installed Font', '使用 macOS 已安装的字体': 'Uses a font installed on this Mac', '段间距': 'Paragraph Spacing', '标准': 'Standard', '行宽': 'Line Length', '页面视图中每行大约容纳的汉字数': 'About how many Chinese characters fit on a line in page view', '30 字': '30 chars', '36 字': '36 chars', '42 字': '42 chars', '不限': 'Unlimited', '对齐': 'Alignment', '两端对齐': 'Justified', '首行缩进': 'First-line Indent', '表格': 'Tables', '只含数字的列自动右对齐，不改动文档': 'Number-only columns align right without changing the document', '三线表': 'Three-line', '全框线': 'Grid', '只作用于正文段落': 'Body paragraphs only', '无': 'None', '2 字': '2 chars', '清晰的文字和合适的间距，让注意力留在内容上。好的排版让眼睛在行与行之间自然移动，读长文也不觉得累。': 'Clear type and good spacing keep attention on the content. Good typesetting lets the eye move from line to line, so long reads stay easy.', 'English words mix in with 中文 naturally.': 'English words mix in with 中文 naturally.', '阅读': 'Read', '打开文件时进入阅读模式': 'Open Files in Reading Mode', '新建、从草稿恢复和有未保存修改的文档直接编辑；⌘⇧R 切换': 'New, draft-recovered and unsaved documents open for editing. ⌘⇧R switches.', '页面像一张纸，宽屏铺满窗口': 'Page looks like a sheet of paper; wide fills the window', '显示图注': 'Show Image Captions', '在图片下方显示标题或替代文本，不改动文档': 'Shows the title or alt text below images without changing the document', '夜间降低图片亮度': 'Dim Images at Night', '夜间风格下图片亮度降到 90%': 'Images show at 90% brightness in night styles', '导出 HTML 与 PDF': 'HTML and PDF Export', '导出风格': 'Export Style', '当前风格': 'Current Style', '简洁白底': 'Plain White', 'PDF 底色': 'PDF Background', '打印时页边距总是白色；与屏幕一致只给正文区域铺纸色': 'Print margins are always white; Match Screen colors only the text area.', '打印友好': 'Print Friendly', '与屏幕一致': 'Match Screen', '纸型': 'Paper Size', '页边距': 'Margins', '窄': 'Narrow', '宽': 'Wide', '阅读模式': 'Reading Mode', '阅读工具栏': 'Reading Toolbar', '开始编辑 (⌘⇧R)': 'Start Editing (⌘⇧R)', '编辑': 'Edit', '阅读模式 (⌘⇧R)': 'Reading Mode (⌘⇧R)', '查看图片': 'View Image',
   '查找和替换': 'Find and Replace', '查找': 'Find', '替换为': 'Replace with', '替换': 'Replace', '全部替换': 'Replace All', '上一个': 'Previous', '下一个': 'Next', '关闭查找': 'Close Find', '查看差异': 'View Differences', '使用磁盘版本': 'Use Disk Version', '关闭提示': 'Dismiss', '查看草稿': 'View Drafts', '正在生成预览…': 'Generating preview…', '关闭': 'Close', '与磁盘版本的差异': 'Differences from Disk Version', '差异过大，无法在此显示。': 'Too many differences to show here.', '内容相同。': 'The contents match.', '“-”为磁盘版本，“+”为当前编辑内容。': '“-” is the disk version and “+” is your current text.', '磁盘上的文件已被其他程序修改，你的未保存内容仍保留在这里。': 'Another app changed this file on disk. Your unsaved text is still here.',
   '自动保存': 'Autosave', '定时把已有文件的修改写回磁盘，新建文档仍需手动保存': 'Writes changes to existing files on a timer. New documents still need a manual save.', '不自动保存': 'Off', '秒': 's', '分钟': 'min',
   '搜索文件夹': 'Search Folder', '搜索结果': 'Search Results', '正在搜索…': 'Searching…', '没有找到匹配内容': 'No matches', '结果过多，只显示前 500 条': 'Too many results. Showing the first 500.', '部分文件因过大、编码或权限被跳过': 'Some files were skipped because of size, encoding or permissions.',
@@ -32,7 +33,7 @@ const english: Record<string, string> = {
   '左对齐': 'Align Left', '居中': 'Center', '右对齐': 'Align Right', '图片说明': 'Image Description', '替换图片': 'Replace Image',
   '正文显示模式': 'Editor Width', '宽屏': 'Wide', '编辑链接': 'Edit Link', '链接地址': 'Link Address',
   '编辑图片说明': 'Edit Image Description', '替代文本': 'Alternative Text', '源码保护编辑区域': 'Source Protection Editor',
-  '准备就绪': 'Ready', '外观': 'Appearance', '外观主题': 'Theme', '跟随系统': 'Follow System', '浅色': 'Light', '深色': 'Dark',
+  '准备就绪': 'Ready', '外观': 'Appearance', '外观主题': 'Theme', '跟随系统': 'Follow System', '深色': 'Dark',
   '移到新窗口': 'Move to New Window', '关闭当前': 'Close', '关闭右边': 'Close Tabs to the Right', '关闭所有文档': 'Close All Documents',
   '恢复草稿': 'Recover Drafts', '关闭恢复草稿': 'Close Recover Drafts', '没有可恢复的草稿': 'No drafts to recover',
   ' · 原文件已变化': ' · Original file changed', ' · 原文件已删除': ' · Original file deleted',
@@ -41,10 +42,10 @@ const english: Record<string, string> = {
   '打开、新建、保存等按钮；也可从菜单栏使用这些功能': 'Buttons for open, new, and save. These actions are also in the menu bar.',
   '界面语言': 'Interface Language', '中文': 'Chinese', '英文': 'English',
   '自定义阅读、写作和工作区': 'Make reading, writing, and the workspace your own',
-  '科技蓝白': 'Blue and White', '护眼绿': 'Eye Care Green', '护眼黄': 'Eye Care Sepia', '水墨屏': 'E-ink',
+  '科技蓝白': 'Blue and White', '水墨屏': 'E-ink',
   '设置分类': 'Settings Sections', '编辑器': 'Editor', '工作区': 'Workspace',
   '菜单、按钮和提示使用的语言': 'Language used for menus, buttons, and messages',
-  '选择适合当前环境的配色': 'Choose a palette for your space', '暖纸': 'Warm Paper', '夜间护眼': 'Night Reading', '页面': 'Page',
+  '选择适合当前环境的配色': 'Choose a palette for your space', '页面': 'Page',
   '正文字体': 'Body Font', '用于可视化编辑区': 'Used in the visual editor',
   '选择适合写作或阅读的字形': 'Choose a typeface for writing or reading', '推荐': 'Recommended',
   '苹方': 'PingFang SC', '宋体': 'Songti SC', '楷体': 'Kaiti SC', '微软雅黑': 'Microsoft YaHei',
@@ -78,6 +79,7 @@ const english: Record<string, string> = {
 }
 
 const statusEnglish: [string, string][] = [
+  [' · 阅读模式，按 ⌘⇧R 开始编辑', ' · Reading mode. Press ⌘⇧R to edit.'], ['阅读模式 · 按 ⌘⇧R 开始编辑', 'Reading mode · Press ⌘⇧R to edit'], ['编辑模式', 'Editing mode'], ['阅读模式下不能修改文档', 'The document cannot be changed in reading mode'],
   ['当前操作尚未完成，请稍后再试', 'Another action is still running. Try again shortly.'], ['正在保存，完成后会再保存一次', 'Saving. It will save once more when finished.'],
   ['正在打开文档…', 'Opening document…'], ['正在打开 ', 'Opening '], ['草稿保存失败：', 'Draft could not be saved: '], ['保存失败：', 'Save failed: '], ['无法加载磁盘版本：', 'Could not load the disk version: '],
   ['已加载磁盘最新版本；未保存修改已留在恢复草稿中', 'Loaded the disk version. Your unsaved changes are kept as a recovery draft.'], ['已加载磁盘最新版本', 'Loaded the disk version'],

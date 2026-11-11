@@ -10,6 +10,7 @@ mod settings;
 mod staging;
 mod windows;
 mod native_menu;
+mod app_assets;
 
 use tauri::{Emitter, Manager};
 use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
@@ -58,43 +59,44 @@ pub fn run() {
                     let title = submenu.text()?;
                     if title == "File" || title == "文件" {
                         submenu.prepend_items(&[
-                            &MenuItem::with_id(app, "new", native_menu::label("new", english), true, Some("Cmd+N"))?,
-                            &MenuItem::with_id(app, "new-window", native_menu::label("new-window", english), true, Some("Cmd+Shift+N"))?,
-                            &MenuItem::with_id(app, "open", native_menu::label("open", english), true, Some("Cmd+O"))?,
-                            &MenuItem::with_id(app, "open-folder", native_menu::label("open-folder", english), true, Some("Cmd+Shift+O"))?,
+                            &MenuItem::with_id(app, "new", native_menu::label("new", english), true, native_menu::accelerator("new"))?,
+                            &MenuItem::with_id(app, "new-window", native_menu::label("new-window", english), true, native_menu::accelerator("new-window"))?,
+                            &MenuItem::with_id(app, "open", native_menu::label("open", english), true, native_menu::accelerator("open"))?,
+                            &MenuItem::with_id(app, "open-folder", native_menu::label("open-folder", english), true, native_menu::accelerator("open-folder"))?,
                             &recent_menu,
                             &PredefinedMenuItem::separator(app)?,
-                            &MenuItem::with_id(app, "save", native_menu::label("save", english), true, Some("Cmd+S"))?,
-                            &MenuItem::with_id(app, "save-as", native_menu::label("save-as", english), true, Some("Cmd+Shift+S"))?,
-                            &MenuItem::with_id(app, "recover-drafts", native_menu::label("recover-drafts", english), true, None::<&str>)?,
-                            &MenuItem::with_id(app, "close-tab", native_menu::label("close-tab", english), true, Some("Cmd+W"))?,
+                            &MenuItem::with_id(app, "save", native_menu::label("save", english), true, native_menu::accelerator("save"))?,
+                            &MenuItem::with_id(app, "save-as", native_menu::label("save-as", english), true, native_menu::accelerator("save-as"))?,
+                            &MenuItem::with_id(app, "recover-drafts", native_menu::label("recover-drafts", english), true, native_menu::accelerator("recover-drafts"))?,
+                            &MenuItem::with_id(app, "close-tab", native_menu::label("close-tab", english), true, native_menu::accelerator("close-tab"))?,
                             &PredefinedMenuItem::separator(app)?,
-                            &MenuItem::with_id(app, "export-md", native_menu::label("export-md", english), true, None::<&str>)?,
-                            &MenuItem::with_id(app, "export-text", native_menu::label("export-text", english), true, None::<&str>)?,
-                            &MenuItem::with_id(app, "export-html", native_menu::label("export-html", english), true, None::<&str>)?,
-                            &MenuItem::with_id(app, "print", native_menu::label("print", english), true, Some("Cmd+P"))?,
+                            &MenuItem::with_id(app, "export-md", native_menu::label("export-md", english), true, native_menu::accelerator("export-md"))?,
+                            &MenuItem::with_id(app, "export-text", native_menu::label("export-text", english), true, native_menu::accelerator("export-text"))?,
+                            &MenuItem::with_id(app, "export-html", native_menu::label("export-html", english), true, native_menu::accelerator("export-html"))?,
+                            &MenuItem::with_id(app, "print", native_menu::label("print", english), true, native_menu::accelerator("print"))?,
                             &PredefinedMenuItem::separator(app)?,
                         ])?;
                     } else if title == "Edit" || title == "编辑" {
                         submenu.append_items(&[
                             &PredefinedMenuItem::separator(app)?,
-                            &MenuItem::with_id(app, "find", native_menu::label("find", english), true, Some("Cmd+F"))?,
+                            &MenuItem::with_id(app, "find", native_menu::label("find", english), true, native_menu::accelerator("find"))?,
                         ])?;
                     } else if title == "View" || title == "视图" {
                         submenu.prepend_items(&[
-                            &MenuItem::with_id(app, "toggle-source", native_menu::label("toggle-source", english), true, None::<&str>)?,
-                            &MenuItem::with_id(app, "view-toolbar", native_menu::label("view-toolbar", english), true, None::<&str>)?,
-                            &MenuItem::with_id(app, "view-sidebar", native_menu::label("view-sidebar", english), true, None::<&str>)?,
-                            &MenuItem::with_id(app, "view-outline", native_menu::label("view-outline", english), true, None::<&str>)?,
+                            &MenuItem::with_id(app, "toggle-reading", native_menu::label("toggle-reading", english), true, native_menu::accelerator("toggle-reading"))?,
+                            &MenuItem::with_id(app, "toggle-source", native_menu::label("toggle-source", english), true, native_menu::accelerator("toggle-source"))?,
+                            &MenuItem::with_id(app, "view-toolbar", native_menu::label("view-toolbar", english), true, native_menu::accelerator("view-toolbar"))?,
+                            &MenuItem::with_id(app, "view-sidebar", native_menu::label("view-sidebar", english), true, native_menu::accelerator("view-sidebar"))?,
+                            &MenuItem::with_id(app, "view-outline", native_menu::label("view-outline", english), true, native_menu::accelerator("view-outline"))?,
                             &PredefinedMenuItem::separator(app)?,
-                            &MenuItem::with_id(app, "zoom-in", native_menu::label("zoom-in", english), true, Some("Cmd+="))?,
-                            &MenuItem::with_id(app, "zoom-out", native_menu::label("zoom-out", english), true, Some("Cmd+-"))?,
-                            &MenuItem::with_id(app, "zoom-reset", native_menu::label("zoom-reset", english), true, Some("Cmd+0"))?,
+                            &MenuItem::with_id(app, "zoom-in", native_menu::label("zoom-in", english), true, native_menu::accelerator("zoom-in"))?,
+                            &MenuItem::with_id(app, "zoom-out", native_menu::label("zoom-out", english), true, native_menu::accelerator("zoom-out"))?,
+                            &MenuItem::with_id(app, "zoom-reset", native_menu::label("zoom-reset", english), true, native_menu::accelerator("zoom-reset"))?,
                             &PredefinedMenuItem::separator(app)?,
                         ])?;
                     } else if title == app.package_info().name || title == "Mino" {
                         submenu.insert_items(&[
-                            &MenuItem::with_id(app, "preferences", native_menu::label("preferences", english), true, Some("Cmd+,"))?,
+                            &MenuItem::with_id(app, "preferences", native_menu::label("preferences", english), true, native_menu::accelerator("preferences"))?,
                             &PredefinedMenuItem::separator(app)?,
                         ], 2)?;
                         for existing in submenu.items()? {
@@ -105,40 +107,40 @@ pub fn run() {
                                 }
                             }
                         }
-                        submenu.append(&MenuItem::with_id(app, "quit", native_menu::label("quit", english), true, Some("Cmd+Q"))?)?;
+                        submenu.append(&MenuItem::with_id(app, "quit", native_menu::label("quit", english), true, native_menu::accelerator("quit"))?)?;
                     }
                 }
             }
             let format_position = menu.items()?.iter().position(|item| matches!(item, MenuItemKind::Submenu(submenu) if submenu.text().is_ok_and(|title| title == "Edit" || title == "编辑"))).map_or(0, |index| index + 1);
             let format_menu = Submenu::with_id_and_items(app, "format", native_menu::label("format", english), true, &[
-                &MenuItem::with_id(app, "format-paragraph", native_menu::label("format-paragraph", english), true, Some("Cmd+Alt+0"))?,
-                &MenuItem::with_id(app, "format-heading1", native_menu::label("format-heading1", english), true, Some("Cmd+Alt+1"))?,
-                &MenuItem::with_id(app, "format-heading2", native_menu::label("format-heading2", english), true, Some("Cmd+Alt+2"))?,
-                &MenuItem::with_id(app, "format-heading3", native_menu::label("format-heading3", english), true, Some("Cmd+Alt+3"))?,
-                &MenuItem::with_id(app, "format-heading4", native_menu::label("format-heading4", english), true, Some("Cmd+Alt+4"))?,
-                &MenuItem::with_id(app, "format-heading5", native_menu::label("format-heading5", english), true, Some("Cmd+Alt+5"))?,
-                &MenuItem::with_id(app, "format-heading6", native_menu::label("format-heading6", english), true, Some("Cmd+Alt+6"))?,
+                &MenuItem::with_id(app, "format-paragraph", native_menu::label("format-paragraph", english), true, native_menu::accelerator("format-paragraph"))?,
+                &MenuItem::with_id(app, "format-heading1", native_menu::label("format-heading1", english), true, native_menu::accelerator("format-heading1"))?,
+                &MenuItem::with_id(app, "format-heading2", native_menu::label("format-heading2", english), true, native_menu::accelerator("format-heading2"))?,
+                &MenuItem::with_id(app, "format-heading3", native_menu::label("format-heading3", english), true, native_menu::accelerator("format-heading3"))?,
+                &MenuItem::with_id(app, "format-heading4", native_menu::label("format-heading4", english), true, native_menu::accelerator("format-heading4"))?,
+                &MenuItem::with_id(app, "format-heading5", native_menu::label("format-heading5", english), true, native_menu::accelerator("format-heading5"))?,
+                &MenuItem::with_id(app, "format-heading6", native_menu::label("format-heading6", english), true, native_menu::accelerator("format-heading6"))?,
                 &PredefinedMenuItem::separator(app)?,
-                &MenuItem::with_id(app, "format-bold", native_menu::label("format-bold", english), true, Some("Cmd+B"))?,
-                &MenuItem::with_id(app, "format-italic", native_menu::label("format-italic", english), true, Some("Cmd+I"))?,
-                &MenuItem::with_id(app, "format-strike", native_menu::label("format-strike", english), true, Some("Cmd+Alt+X"))?,
-                &MenuItem::with_id(app, "format-inline-code", native_menu::label("format-inline-code", english), true, Some("Cmd+E"))?,
+                &MenuItem::with_id(app, "format-bold", native_menu::label("format-bold", english), true, native_menu::accelerator("format-bold"))?,
+                &MenuItem::with_id(app, "format-italic", native_menu::label("format-italic", english), true, native_menu::accelerator("format-italic"))?,
+                &MenuItem::with_id(app, "format-strike", native_menu::label("format-strike", english), true, native_menu::accelerator("format-strike"))?,
+                &MenuItem::with_id(app, "format-inline-code", native_menu::label("format-inline-code", english), true, native_menu::accelerator("format-inline-code"))?,
                 &PredefinedMenuItem::separator(app)?,
-                &MenuItem::with_id(app, "format-bullet", native_menu::label("format-bullet", english), true, Some("Cmd+Alt+8"))?,
-                &MenuItem::with_id(app, "format-ordered", native_menu::label("format-ordered", english), true, Some("Cmd+Alt+7"))?,
-                &MenuItem::with_id(app, "format-task", native_menu::label("format-task", english), true, None::<&str>)?,
-                &MenuItem::with_id(app, "format-quote", native_menu::label("format-quote", english), true, Some("Cmd+Shift+B"))?,
-                &MenuItem::with_id(app, "format-code-block", native_menu::label("format-code-block", english), true, Some("Cmd+Alt+C"))?,
+                &MenuItem::with_id(app, "format-bullet", native_menu::label("format-bullet", english), true, native_menu::accelerator("format-bullet"))?,
+                &MenuItem::with_id(app, "format-ordered", native_menu::label("format-ordered", english), true, native_menu::accelerator("format-ordered"))?,
+                &MenuItem::with_id(app, "format-task", native_menu::label("format-task", english), true, native_menu::accelerator("format-task"))?,
+                &MenuItem::with_id(app, "format-quote", native_menu::label("format-quote", english), true, native_menu::accelerator("format-quote"))?,
+                &MenuItem::with_id(app, "format-code-block", native_menu::label("format-code-block", english), true, native_menu::accelerator("format-code-block"))?,
                 &PredefinedMenuItem::separator(app)?,
-                &MenuItem::with_id(app, "format-link", native_menu::label("format-link", english), true, Some("Cmd+K"))?,
+                &MenuItem::with_id(app, "format-link", native_menu::label("format-link", english), true, native_menu::accelerator("format-link"))?,
                 &PredefinedMenuItem::separator(app)?,
                 &Submenu::with_id_and_items(app, "transform", native_menu::label("transform", english), true, &[
-                    &MenuItem::with_id(app, "transform-upper", native_menu::label("transform-upper", english), true, None::<&str>)?,
-                    &MenuItem::with_id(app, "transform-lower", native_menu::label("transform-lower", english), true, None::<&str>)?,
-                    &MenuItem::with_id(app, "transform-title", native_menu::label("transform-title", english), true, None::<&str>)?,
-                    &MenuItem::with_id(app, "transform-cjk-spacing", native_menu::label("transform-cjk-spacing", english), true, None::<&str>)?,
-                    &MenuItem::with_id(app, "transform-full-punct", native_menu::label("transform-full-punct", english), true, None::<&str>)?,
-                    &MenuItem::with_id(app, "transform-half-punct", native_menu::label("transform-half-punct", english), true, None::<&str>)?,
+                    &MenuItem::with_id(app, "transform-upper", native_menu::label("transform-upper", english), true, native_menu::accelerator("transform-upper"))?,
+                    &MenuItem::with_id(app, "transform-lower", native_menu::label("transform-lower", english), true, native_menu::accelerator("transform-lower"))?,
+                    &MenuItem::with_id(app, "transform-title", native_menu::label("transform-title", english), true, native_menu::accelerator("transform-title"))?,
+                    &MenuItem::with_id(app, "transform-cjk-spacing", native_menu::label("transform-cjk-spacing", english), true, native_menu::accelerator("transform-cjk-spacing"))?,
+                    &MenuItem::with_id(app, "transform-full-punct", native_menu::label("transform-full-punct", english), true, native_menu::accelerator("transform-full-punct"))?,
+                    &MenuItem::with_id(app, "transform-half-punct", native_menu::label("transform-half-punct", english), true, native_menu::accelerator("transform-half-punct"))?,
                 ])?,
             ])?;
             menu.insert(&format_menu, format_position)?;
@@ -169,6 +171,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            app_assets::read_app_asset,
             documents::open_document,
             documents::release_document,
             documents::choose_unsaved_action,

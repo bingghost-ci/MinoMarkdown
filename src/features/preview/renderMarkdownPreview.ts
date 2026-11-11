@@ -10,6 +10,9 @@ import { remarkDemoteCurrency } from '../../core/markdown/math'
 import { rehypeRenderMath, withMathClasses } from '../../core/markdown/renderMath'
 import { assetUrl } from '../editor/assetUrl'
 import { localAssetPath } from '../export/snapshot'
+import { rehypeFigures } from '../../core/markdown/figures'
+import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
+import { rehypeHighlightCode, type CodeParsers } from '../../core/markdown/highlight'
 
 // Only a standalone, empty anchor immediately before a heading is promoted to
 // a preview heading id. The source document is never changed by this renderer.
@@ -48,7 +51,8 @@ function blockImages(assetKey?: string) {
 
 const previewSchema = withMathClasses({ ...defaultSchema, protocols: { ...defaultSchema.protocols, src: [...(defaultSchema.protocols?.src ?? []), 'mino-asset'] } })
 
-export function renderMarkdownPreview(markdown: string, assetKey?: string): string {
+/** `parsers` come from `loadCodeParsers`; without them code blocks render as plain text. */
+export function renderMarkdownPreview(markdown: string, assetKey?: string, captions = true, parsers?: CodeParsers): string {
   return String(unified()
     .use(remarkParse)
     .use(remarkGfm)
@@ -59,6 +63,9 @@ export function renderMarkdownPreview(markdown: string, assetKey?: string): stri
     .use(remarkRehype)
     .use(rehypeSanitize, previewSchema)
     .use(rehypeRenderMath)
+    .use(rehypeHighlightCode, { parsers })
+    .use(rehypeNumericColumns)
+    .use(rehypeFigures, { captions })
     .use(rehypeStringify, { allowDangerousHtml: true })
     .processSync(markdown))
 }

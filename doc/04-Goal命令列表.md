@@ -409,11 +409,29 @@ G01–G29 分别对应 T01–T29，每项命令可独立复制到支持 Goals �
 
 ## G51–G60 阅读体验重塑
 
-2026-11-11 按用户要求建立的单条 Goal，分阶段对应 T51–T60，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。[阅读体验章程](08-阅读体验章程.md) §13 的决定已于同日确认。里程碑样张照常生成但不阻塞开发，由用户在全部完成后集中审阅。
+2026-11-11 按用户要求建立的单条 Goal，分阶段对应 T51–T60，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。[阅读体验章程](08-阅读体验章程.md) §13 的决定已于同日确认。里程碑样张照常生成但不阻塞开发，由用户在全部完成后集中审阅。2026-11-11 代码完成，章程升至 v0.3，实现差异见章程 §16；样张在 `doc/evidence/reading/`。
 
 ```text
 /goal 在 /Users/bobby/Code/software/MinoMarkdown 中按阅读体验章程完成 T51–T60 的全部开发，顺序为 M1（T51、T52）→ M2（T53、T54、T55）→ M3（T56、T57、T58）→ M4（T59、T60）。先读 CLAUDE.md、README.md 的“已知技术风险”、doc/08-阅读体验章程.md（v0.2，§13 的决定已确认）、doc/01-产品方案.md §3.7、doc/02-技术设计.md §18、doc/03-开发计划.md 的 T51–T60、doc/05-验收与发布.md §8E、doc/06-开发进度.md；技术设计是计划，以实际代码为准。工作区含未提交的 T49–T50 改动（页面视图与主题修订），在其基础上继续，T51 移除其中的运行时 SVG 纹理。红线：只改呈现，不改文档内容和 Markdown 导出；不加载远程资源；不放宽 HTML 净化，导出 CSP 只允许把 font-src 改为 data:；旧主题 ID 和旧设置文件必须继续可用；编辑器事务仍是正文唯一来源，React 不持有正文副本，切换风格和阅读模式不重建编辑器；不得削弱路径授权、符号链接拒绝、原子保存与冲突检测、草稿恢复和 IME 保护。依赖只新增 @fontsource/noto-serif-sc 5.3.1 与 @fontsource/lxgw-wenkai 5.3.0，只导入 400、700 字重，构建只保留 woff2，字体总量不超过 32 MiB 并加构建检查，版本写入锁文件，OFL 原文加入许可清单；纹理生成脚本只用 Node 内置模块；npm 安装不可用时记录原因，先完成不依赖字体的任务。遵守章程 §3 的预算，为对比度、风格完整性、纹理质量、字体体积、导出无外链、导出字体分片选择、设置校验与旧值兼容、阅读模式不改文档编写自动化测试。新增菜单项和界面文案同步 src-tauri/src/lib.rs、native_menu.rs 和 src/app/i18n.ts，设置字段同步 settings.rs 的白名单与默认值。把离屏 WKWebView 截图工具收入 scripts/，每个里程碑结束时按风格生成样张到 doc/evidence/ 并在证据中列出，供用户集中审阅；不因等待用户确认样张而停止，样张确认记为用户验收 PENDING。T52 用脚本在本机 macOS 27 验证：为 WKWebView 开启 shouldPrintBackgrounds 后用 NSPrintOperation 直接保存 PDF，不弹系统对话框，检查纸色满版、跨页边距和字体嵌入，把结论写回 README 的已知技术风险；不可行时 PDF 默认改为打印友好并记录。不得运行 ./start.sh、./build.sh 或 ./install.sh，不得结束或替换正在运行的 mino-markdown，不得修改 /Applications；需要验证打包时只用 npm run tauri -- build --bundles app，并记录应用体积变化。每项完成后运行 npm run typecheck、npm run test、npm run build，涉及 Rust 时运行 cargo test --lib --manifest-path src-tauri/Cargo.toml；同一检查最多 3 次，仍失败则记录命令、输出、影响和下一步，继续不依赖该结果的任务。每项在 doc/evidence 写对应证据，更新 doc/06-开发进度.md 的唯一状态表，代码、自动化、原生实机和用户验收分开记录，实机与用户验收记 PENDING，不得写成 PASS；实现与章程不一致时同步修改章程及相关文档；完成后更新 README 的使用说明。不提交、不推送。全部完成后给出改动路径、各项检查结果、样张位置、应用体积变化、降级或未完成项，以及需要用户实测和确认的清单。
 ```
+
+## G51–G60 收尾
+
+2026-11-11 用户要求生成一条 Goal，把 T51–T60 剩下的工作做完，结束后通知用户。范围限于章程 v0.3 §16 中未完成的项和代理能做的验证；Finder、中文输入法、系统打印对话框和用户验收仍由用户集中实测。
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中完成 T51–T60 的收尾工作，全部做完后用系统通知（PushNotification）喊我，并在最后一条消息里给出总结。先读 CLAUDE.md、README.md 的“已知技术风险”、doc/08-阅读体验章程.md v0.3（重点是 §16）、doc/06-开发进度.md 的 T51–T60 行、doc/evidence/T51–T60 各证据文件，核对当前未提交的源码。按顺序完成以下事项，每项做完立刻更新对应证据文件和 doc/06 状态行：
+1. 预览与导出的代码语法高亮：只用 package-lock.json 中已安装的包（如 @codemirror/language、@lezer/highlight 及已有语言包），复用编辑器的浅色、暖色、夜间三套 --syntax-* 配色；高亮在 worker 或导出流程中生成静态 span，不执行脚本，不放宽 HTML 净化；做不到时记录原因并跳过。若需把已安装的包声明为直接依赖，版本必须与锁文件一致，并记入许可证清单。
+2. 表格：设置中新增“表格样式：三线表 / 全框线”，并让只含数字的列在显示时右对齐。只改呈现，不改 Markdown；settings.rs 白名单与旧文件默认值同步，并补测试。
+3. Mermaid：切换风格时重绘编辑器和预览中已绘制的图，不重建编辑器；补测试。
+4. 开发模式导出字体：让 npm run tauri -- dev 下导出也能内嵌字体，不放宽 read_app_asset 的范围（例如开发构建在前端读取同源字体），发布构建行为不变；做不到时记录原因。
+5. 原生菜单：为 toggle-reading 菜单项、快捷键和中英文标签补 Rust 测试。
+6. 代理能做的验证：用 scripts/style-samples.swift 和 scripts/html-to-pdf.swift（需要时启动自己的 Vite，端口不要用 1420）重新生成受影响的样张；用离屏 WKWebView 测一份 2 MiB 文档在书页风格下的首屏时间、滚动帧率和内存，结果写入 T53/T55 证据。这些只算自动化证据，不算实机验收。
+7. 结束时用 npm run tauri -- build --bundles app 打包一次，记录与 36.41 MiB 相比的体积变化。
+红线：只改呈现，不改文档内容或 Markdown 导出；不加载远程资源；不放宽 HTML 净化和导出 CSP；旧主题 ID 和旧设置文件继续有效；编辑器事务仍是正文唯一来源，切换风格或阅读模式不重建编辑器；不削弱路径授权、符号链接拒绝、原子保存与冲突检测、草稿恢复和输入法保护；不新增锁文件之外的依赖；不运行 ./start.sh、./build.sh、./install.sh，不结束或替换正在运行的 mino-markdown，不修改 /Applications；不提交、不推送。每项做完都运行 npm run typecheck、npm run test、npm run build，涉及 Rust 时加 cargo test --lib --manifest-path src-tauri/Cargo.toml；同一检查最多跑 3 次，仍失败就记录并继续下一项。实现与章程不一致时更新章程 §16 和相关文档，并按 01→05 的顺序同步。实机与用户验收保持 PENDING，不能写成 PASS。最终消息列出：改动路径、检查结果、样张位置、体积变化、仍未完成或降级的项，以及需要我实机测试和确认的清单。
+```
+
+2026-11-11 执行结果：第 1–7 项完成，记录在 T53、T55、T56、T58、T59、T60 证据和[开发进度](06-开发进度.md)。
 
 ## 连续开发总 Goal（逐项读取列表）
 

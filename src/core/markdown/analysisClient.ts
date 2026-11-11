@@ -1,6 +1,6 @@
 import { prepareMarkdown, type PreparedMarkdown } from './codec'
 import type { AnalysisRequest } from './analysis.worker'
-import type { RenderedExport, ResolvedImage } from '../../features/export/renderHtml'
+import type { ExportPageOptions, RenderedExport, ResolvedImage } from '../../features/export/renderHtml'
 import { countWords, WORD_COUNT_SYNC_LIMIT_CHARS } from '../../features/document/wordCount'
 
 type Pending = { resolve: (value: never) => void; reject: (error: Error) => void }
@@ -31,7 +31,7 @@ function analysisWorker(): Worker | null {
   return worker
 }
 
-function run<T>(kind: AnalysisRequest['kind'], source: string, assetKey?: string, extra: Pick<AnalysisRequest, 'title' | 'images' | 'diagrams'> = {}): Promise<T> {
+function run<T>(kind: AnalysisRequest['kind'], source: string, assetKey?: string, extra: Pick<AnalysisRequest, 'title' | 'images' | 'diagrams' | 'page' | 'captions'> = {}): Promise<T> {
   const target = analysisWorker()
   if (!target) return Promise.reject(new Error('WORKER_UNAVAILABLE'))
   const id = nextId++
@@ -48,9 +48,9 @@ export async function prepareMarkdownAsync(source: string): Promise<PreparedMark
   catch { return prepareMarkdown(source) }
 }
 
-export async function renderPreviewAsync(source: string, assetKey?: string): Promise<string> {
-  try { return await run<string>('preview', source, assetKey) }
-  catch { return (await import('../../features/preview/renderMarkdownPreview')).renderMarkdownPreview(source, assetKey) }
+export async function renderPreviewAsync(source: string, assetKey?: string, captions = true): Promise<string> {
+  try { return await run<string>('preview', source, assetKey, { captions }) }
+  catch { return (await import('../../features/preview/renderMarkdownPreview')).renderMarkdownPreview(source, assetKey, captions) }
 }
 
 /** Only a missing worker falls back to the main thread; a real render error must reach the caller. */
@@ -63,10 +63,10 @@ async function workerOr<T>(job: () => Promise<T>, fallback: () => Promise<T>): P
 }
 
 /** Source-protected documents can reach 20 MiB, so export rendering stays off the main thread. */
-export function renderExportAsync(markdown: string, title: string, images: Map<string, ResolvedImage>, diagrams: Map<string, string>): Promise<RenderedExport> {
+export function renderExportAsync(markdown: string, title: string, images: Map<string, ResolvedImage>, diagrams: Map<string, string>, page: ExportPageOptions = {}): Promise<RenderedExport> {
   return workerOr(
-    () => run<RenderedExport>('export', markdown, undefined, { title, images, diagrams }),
-    async () => (await import('../../features/export/renderHtml')).renderExport(markdown, title, async (url) => images.get(url) ?? null, diagrams),
+    () => run<RenderedExport>('export', markdown, undefined, { title, images, diagrams, page }),
+    async () => (await import('../../features/export/renderHtml')).renderExport(markdown, title, async (url) => images.get(url) ?? null, diagrams, page),
   )
 }
 
