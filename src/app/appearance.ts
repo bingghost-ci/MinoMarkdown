@@ -1,13 +1,13 @@
 export const themeOptions = [
   { id: 'system', label: '跟随系统' },
   { id: 'light', label: '浅色' },
-  { id: 'dark', label: '深色' },
+  { id: 'mint', label: '护眼绿' },
+  { id: 'butter', label: '护眼黄' },
   { id: 'paper', label: '暖纸' },
-  { id: 'graphite', label: '石墨' },
-  { id: 'blueprint', label: '科技蓝白' },
-  { id: 'mint', label: '淡绿色' },
-  { id: 'butter', label: '淡黄色' },
   { id: 'eink', label: '水墨屏' },
+  { id: 'blueprint', label: '科技蓝白' },
+  { id: 'dark', label: '深色' },
+  { id: 'graphite', label: '夜间护眼' },
 ] as const
 
 export type ThemeId = (typeof themeOptions)[number]['id']

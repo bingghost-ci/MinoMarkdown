@@ -59,7 +59,7 @@ export function EditorToolbar({ workspace: w }: { workspace: DocumentWorkspace }
             <span className="toolbar-divider" aria-hidden="true" />
             <button type="button" className="icon-button" aria-pressed={settings.showOutline} title={settings.showOutline ? t('隐藏大纲') : t('显示大纲')} aria-label={settings.showOutline ? t('隐藏大纲') : t('显示大纲')} onClick={() => setSettings((current) => ({ ...current, showOutline: !current.showOutline }))}><ListTree aria-hidden="true" /></button>
             <div className="editor-width-switch" role="group" aria-label={t('正文显示模式')}>
-              <button type="button" aria-pressed={settings.editorWidth === 'centered'} onClick={() => setSettings((current) => ({ ...current, editorWidth: 'centered' }))}>{t('居中')}</button>
+              <button type="button" aria-pressed={settings.editorWidth === 'centered'} onClick={() => setSettings((current) => ({ ...current, editorWidth: 'centered' }))}>{t('页面')}</button>
               <button type="button" aria-pressed={settings.editorWidth === 'wide'} onClick={() => setSettings((current) => ({ ...current, editorWidth: 'wide' }))}>{t('宽屏')}</button>
             </div>
           </div>
