@@ -66,12 +66,13 @@ export function documentTypography(settings: ReadingSettings, style: ReadingStyl
     lineHeight,
     paragraphSpacing: settings.paragraphSpacing,
     measure: latin ? latinMeasures[settings.measure] : settings.measure,
-    textAlign: latin ? 'justify' : settings.textAlign,
+    // Western text is justified only when the user asks for it: forced justification tore lines with long inline code apart.
+    textAlign: settings.textAlign,
     firstLineIndent: latin ? false : settings.firstLineIndent,
     imageDimming: settings.imageDimming,
     tableStyle: settings.tableStyle === 'grid' ? 'grid' : 'three-line',
     textureStrength: settings.textureStrength,
-    hyphens: latin,
+    hyphens: latin && settings.textAlign === 'justify',
   }
 }
 

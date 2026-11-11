@@ -74,7 +74,10 @@ describe('dominant script', () => {
 
   it('feeds the layout: a Western document gets Western typography', () => {
     const style = readingStyle('paper')
-    expect(documentTypography(defaultReadingSettings, style, dominantScript(english)).hyphens).toBe(true)
-    expect(documentTypography(defaultReadingSettings, style, dominantScript(chinese)).hyphens).toBe(false)
+    expect(documentTypography(defaultReadingSettings, style, dominantScript(english)).measure).toBe('32')
+    expect(documentTypography(defaultReadingSettings, style, dominantScript(chinese)).measure).toBe('36')
+    // Hyphenation comes with justified text only.
+    expect(documentTypography(defaultReadingSettings, style, dominantScript(english)).hyphens).toBe(false)
+    expect(documentTypography({ ...defaultReadingSettings, textAlign: 'justify' }, style, dominantScript(english)).hyphens).toBe(true)
   })
 })

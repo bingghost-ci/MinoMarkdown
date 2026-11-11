@@ -254,10 +254,14 @@ describe('reading styles', () => {
     expect(cjk).toMatchObject({ measure: '36', textAlign: 'left', firstLineIndent: true, hyphens: false, lineHeight: lineHeights.comfortable })
     expect(documentTypography(settings, style, 'cjk')).toEqual(cjk)
     const latin = documentTypography(settings, style, 'latin')
-    expect(latin).toMatchObject({ measure: '32', textAlign: 'justify', firstLineIndent: false, hyphens: true, lineHeight: latinLineHeights.comfortable })
+    expect(latin).toMatchObject({ measure: '32', textAlign: 'left', firstLineIndent: false, hyphens: false, lineHeight: latinLineHeights.comfortable })
+    // Western text is justified and hyphenated only when the user chose justified text.
+    const justified = documentTypography({ ...settings, textAlign: 'justify' }, style, 'latin')
+    expect(justified).toMatchObject({ textAlign: 'justify', hyphens: true })
+    expect(typographyVariables(justified, style)).toMatchObject({ '--doc-align': 'justify', '--doc-hyphens': 'auto', '--doc-justify': 'auto' })
     expect(latin.lineHeight).toBeLessThan(cjk.lineHeight)
     expect(latin.fontFamily).toBe(cjk.fontFamily)
-    expect(typographyVariables(latin, style)).toMatchObject({ '--doc-measure': '32em', '--doc-align': 'justify', '--doc-indent': '0', '--doc-hyphens': 'auto', '--doc-justify': 'auto', '--doc-line-height': String(latinLineHeights.comfortable) })
+    expect(typographyVariables(latin, style)).toMatchObject({ '--doc-measure': '32em', '--doc-align': 'left', '--doc-indent': '0', '--doc-hyphens': 'manual', '--doc-line-height': String(latinLineHeights.comfortable) })
     expect(latinMeasures).toEqual({ '30': '28', '36': '32', '42': '36', unlimited: 'unlimited' })
     for (const height of ['compact', 'comfortable', 'relaxed'] as const) {
       expect(latinLineHeights[height]).toBeLessThan(lineHeights[height])

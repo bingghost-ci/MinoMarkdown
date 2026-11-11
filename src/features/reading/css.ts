@@ -125,7 +125,9 @@ export function documentElementCss(root: string): string {
     `${r} li p{margin:.15em 0}${r} th p,${r} td p{margin:0}${r} blockquote p:last-child{margin-bottom:0}`,
     `${r} input[type="checkbox"]{accent-color:var(--link)}`,
     `${r} ul.contains-task-list{list-style:none;padding-left:.2em}${r} .task-list-item > input[type="checkbox"]{margin:0 .55em 0 0;vertical-align:-.1em}`,
-    `${r} :not(pre) > code{border-radius:3px;padding:.1em .35em;background:var(--code-bg);color:var(--code-ink);font:.88em var(--code-font);text-indent:0;-webkit-hyphens:manual;hyphens:manual}`,
+    `${r} :not(pre) > code{border-radius:3px;padding:.1em .35em;background:var(--code-bg);color:var(--code-ink);font:.88em var(--code-font);text-indent:0;overflow-wrap:anywhere;-webkit-hyphens:manual;hyphens:manual}`,
+    // A list item is short and often holds commands; justifying it leaves wide gaps between words.
+    `${r} li{text-align:left}`,
     `${r} pre{margin:1.1em 0;padding:14px 16px;border-radius:8px;background:var(--code-bg);color:var(--text);font:.88em/1.6 var(--code-font);text-align:left;text-indent:0;white-space:pre-wrap;overflow-wrap:anywhere;-webkit-hyphens:manual;hyphens:manual}`,
     `${r} pre code{background:none;padding:0;color:inherit;font:inherit}`,
     syntaxRoles.map((role) => `${r} pre .${tokenClass(role)}{color:var(--syntax-${role})}`).join(''),

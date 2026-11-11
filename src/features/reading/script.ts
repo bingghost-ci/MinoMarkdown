@@ -1,6 +1,6 @@
 /**
  * Which script a document is mostly written in (T68). A document that is mostly Western text gets Western
- * layout: justified lines, hyphenation, a tighter line height and a measure counted in letters.
+ * layout: no first-line indent, a tighter line height (and hyphenation when the user justifies text) and a measure counted in letters.
  */
 export type DocumentScript = 'cjk' | 'latin'
 

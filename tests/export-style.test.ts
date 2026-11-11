@@ -181,7 +181,7 @@ describe('export style', () => {
     expect(paper).toContain(`--title:${readingStyle('paper').link};`)
     expect(paper).toContain(`--code-font:'${MONO_FAMILY}', ui-monospace`)
     const style = readingStyle('paper')
-    const western = (await buildExportStyle(input({ typography: documentTypography(defaultReadingSettings, style, 'latin') }).value)).stylesheet
+    const western = (await buildExportStyle(input({ typography: documentTypography({ ...defaultReadingSettings, textAlign: 'justify' }, style, 'latin') }).value)).stylesheet
     expect(western).toContain('--doc-hyphens:auto;')
     expect(western).toContain('--doc-justify:auto;')
     expect(western).toContain('--doc-measure:32em;')
