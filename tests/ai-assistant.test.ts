@@ -111,6 +111,7 @@ async function mount(transport: AiTransport | null, overrides: Partial<AiAssista
     getSelection: () => state.selection,
     renderMarkdown: async (markdown) => { rendered.push(markdown); if (state.renderFails) throw new Error('RENDER'); return `<p>${markdown}</p>` },
     insertMarkdown: (markdown, placement) => { if (state.insertError) throw state.insertError; inserted.push([markdown, placement]) },
+    saveNote: async () => null,
     onStatus: (message) => { status.push(message) },
     ...overrides,
   }
@@ -602,8 +603,54 @@ describe('AI assistant', () => {
     act(() => backend.emit('ai-config-changed', { ...enabled, enabled: false }))
     expect(ai().config.enabled).toBe(false)
     expect(ai().open).toBe(false)
+    // The button stays while AI is off: it leads to the notice, and only agreement switches AI on and opens the drawer.
     act(() => ai().toggleOpen())
     expect(ai().open).toBe(false)
+    expect(ai().consentOpen).toBe(true)
+    expect(backend.calls.filter((call) => call.command === 'ai_chat')).toHaveLength(0)
+    await act(async () => { await ai().confirmConsent() })
+    expect(ai().consentOpen).toBe(false)
+    expect(ai().config.enabled).toBe(true)
+    expect(ai().open).toBe(true)
+  })
+
+  it('switching AI on from the settings page does not open the drawer', async () => {
+    const backend = fakeBackend({ ...enabled, enabled: false, consented: false })
+    const { ai } = await mount(backend.transport)
+    act(() => ai().setEnabled(true))
+    expect(ai().consentOpen).toBe(true)
+    await act(async () => { await ai().confirmConsent() })
+    expect(ai().config.enabled).toBe(true)
+    expect(ai().open).toBe(false)
+  })
+
+  it('saves a finished answer as a note named after the document, with the question and the model', async () => {
+    const backend = fakeBackend()
+    const saved: [string, string][] = []
+    let outcome: string | null | Error = '春日读书记-AI总结.md'
+    const { ai, status } = await mount(backend.transport, { saveNote: async (name, markdown) => { saved.push([name, markdown]); if (outcome instanceof Error) throw outcome; return outcome } })
+    backend.replies.push('讲的是**读书**。')
+    await run(() => ai().ask('这篇讲了什么？'))
+    const answer = ai().turns.find((turn) => turn.role === 'assistant')!
+    await act(async () => { await ai().saveNote(answer) })
+    expect(saved).toHaveLength(1)
+    expect(saved[0][0]).toBe('春日读书记-AI总结.md')
+    expect(saved[0][1]).toContain('# 《春日读书记》AI 总结')
+    expect(saved[0][1]).toContain('**问题：** 这篇讲了什么？')
+    expect(saved[0][1]).toContain('deepseek · deepseek-chat')
+    expect(saved[0][1].trimEnd().endsWith('讲的是**读书**。')).toBe(true)
+    expect(status.at(-1)).toBe('已保存 春日读书记-AI总结.md')
+    // A cancelled dialog says nothing; an existing file and other failures are reported.
+    const before = status.length
+    outcome = null
+    await act(async () => { await ai().saveNote(answer) })
+    expect(status.length).toBe(before)
+    outcome = new Error('TARGET_EXISTS')
+    await act(async () => { await ai().saveNote(answer) })
+    expect(status.at(-1)).toBe('同名文件已存在，请换一个名字。')
+    outcome = new Error('IO_ERROR')
+    await act(async () => { await ai().saveNote(answer) })
+    expect(status.at(-1)).toBe('保存失败，请重试。')
   })
 
   it('stops a running request when AI is switched off', async () => {

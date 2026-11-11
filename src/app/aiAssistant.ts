@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AiClient, disabledConfig, type AiConfig, type AiProvider, type AiTransport } from '../features/ai/client'
-import { aiErrorText, answerReplacesSelection, askMessages, combinedSummaryMessages, CONTEXT_BUDGET, documentContext, insertableMarkdown, localSuggestions, parseSuggestions, partSummaryMessages, presets, selectionActions, selectionMessages, suggestionPrompt, summaryParts, type AiLanguage, type AiPresetId, type AiSelectionAction, type ChatMessage } from '../features/ai/prompts'
+import { aiErrorText, answerReplacesSelection, askMessages, combinedSummaryMessages, CONTEXT_BUDGET, documentContext, insertableMarkdown, localSuggestions, noteFileName, noteMarkdown, parseSuggestions, partSummaryMessages, presets, selectionActions, selectionMessages, suggestionPrompt, summaryParts, type AiLanguage, type AiPresetId, type AiSelectionAction, type ChatMessage } from '../features/ai/prompts'
 
 export type AiTurn = {
   id: number
@@ -33,6 +33,8 @@ export type AiAssistantInput = {
   /** Renders an answer with the preview pipeline, so it is sanitized the same way. */
   renderMarkdown: (markdown: string) => Promise<string | null>
   insertMarkdown: (markdown: string, placement: InsertPlacement) => void
+  /** Saves a note through a save dialog that starts beside the document; resolves to the file name, or null when cancelled. */
+  saveNote: (name: string, markdown: string) => Promise<string | null>
   onStatus: (message: string) => void
 }
 
@@ -46,6 +48,7 @@ export function useAiAssistant(input: AiAssistantInput) {
   const client = useMemo(() => transport ? new AiClient(transport) : null, [transport])
   const [config, setConfig] = useState<AiConfig>(disabledConfig)
   const [open, setOpen] = useState(false)
+  const openAfterConsent = useRef(false)
   const [consentOpen, setConsentOpen] = useState(false)
   const [conversations, setConversations] = useState<Map<number, AiTurn[]>>(() => new Map())
   const [suggested, setSuggested] = useState<Map<number, string[]>>(() => new Map())
@@ -255,17 +258,34 @@ export function useAiAssistant(input: AiAssistantInput) {
     }
   }
   /** Switching AI on always passes through the notice about what is sent and where. */
-  const setEnabled = (enabled: boolean) => { if (enabled) setConsentOpen(true); else void saveConfig({ enabled: false }) }
-  const confirmConsent = async () => { if (await saveConfig({ enabled: true, consented: true })) setConsentOpen(false) }
+  const setEnabled = (enabled: boolean) => { openAfterConsent.current = false; if (enabled) setConsentOpen(true); else void saveConfig({ enabled: false }) }
+  const confirmConsent = async () => {
+    if (!await saveConfig({ enabled: true, consented: true })) return
+    setConsentOpen(false)
+    if (openAfterConsent.current) { openAfterConsent.current = false; setOpen(true) }
+  }
+  /** The AI button is always there. While AI is off it leads to the notice about what is sent, and on agreement to the drawer. */
   const toggleOpen = () => {
-    if (!config.enabled) return
-    if (!config.consented) { setConsentOpen(true); return }
+    if (!config.enabled || !config.consented) { openAfterConsent.current = true; setConsentOpen(true); return }
     setOpen((current) => !current)
+  }
+
+  /** Saves an answer as a Markdown note; the save dialog starts in the document's folder with a suggested name. */
+  async function saveNote(turn: AiTurn) {
+    const answer = insertableMarkdown(turn.text)
+    if (!answer) return
+    const { title } = inputRef.current.getDocument()
+    const index = turns.findIndex((item) => item.id === turn.id)
+    const question = index > 0 && turns[index - 1].role === 'user' ? turns[index - 1].text : ''
+    try {
+      const saved = await inputRef.current.saveNote(noteFileName(title), noteMarkdown({ title, question, answer, source: `${config.provider} · ${config.model}`, date: new Date(), language: inputRef.current.language }))
+      if (saved) inputRef.current.onStatus(`已保存 ${saved}`)
+    } catch (error) { inputRef.current.onStatus(error instanceof Error && error.message === 'TARGET_EXISTS' ? '同名文件已存在，请换一个名字。' : '保存失败，请重试。') }
   }
 
   // Heading-based questions are only worked out while the empty drawer shows them.
   const suggestions = !open || turns.length > 0 ? [] : suggested.get(documentId) ?? localSuggestions(input.getHeadings(), input.language)
-  return { available: transport !== null, config, open, setOpen, toggleOpen, consentOpen, setConsentOpen, confirmConsent, setEnabled, saveConfig, setKey, clearKey, pickModel, fetchModels, fetchedModels: listed?.source === modelSource ? listed.ids : null, modelsBusy, modelsError: modelsFailure?.source === modelSource ? modelsFailure.text : null, turns, busy, ask, runPreset, runSelection, stop, clear, insertAnswer, suggestions, refreshSuggestions, canReplace: answerReplacesSelection }
+  return { saveNote, available: transport !== null, config, open, setOpen, toggleOpen, consentOpen, setConsentOpen, confirmConsent, setEnabled, saveConfig, setKey, clearKey, pickModel, fetchModels, fetchedModels: listed?.source === modelSource ? listed.ids : null, modelsBusy, modelsError: modelsFailure?.source === modelSource ? modelsFailure.text : null, turns, busy, ask, runPreset, runSelection, stop, clear, insertAnswer, suggestions, refreshSuggestions, canReplace: answerReplacesSelection }
 }
 
 export type AiAssistant = ReturnType<typeof useAiAssistant>

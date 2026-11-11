@@ -188,6 +188,7 @@ pub fn run() {
             staging::read_staged,
             documents::export_html,
             documents::export_source_markdown,
+            documents::save_note_beside,
             drafts::write_draft,
             drafts::list_drafts,
             drafts::read_draft,

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Copy, CornerDownLeft, Eraser, RefreshCw, Replace, Square, X } from 'lucide-react'
+import { ArrowUp, Copy, CornerDownLeft, Eraser, RefreshCw, Replace, Square, X, FilePlus2 } from 'lucide-react'
 import { PaneResizer } from './PaneResizer'
 import { AI_MAX, AI_MIN } from '../readingSettings'
 import type { DocumentWorkspace } from '../useDocumentWorkspace'
@@ -28,6 +28,7 @@ function Answer({ turn, workspace: w }: { turn: AiTurn; workspace: DocumentWorks
     {finished && turn.text && <div className="ai-actions">
       <button type="button" onClick={() => { void navigator.clipboard?.writeText(turn.text).then(() => setStatus('已复制回答'), () => setStatus('复制失败')) }}><Copy aria-hidden="true" />{t('复制')}</button>
       <button type="button" disabled={reading} title={reading ? t('阅读模式下不能修改文档') : undefined} onClick={() => ai.insertAnswer(turn, 'after')}><CornerDownLeft aria-hidden="true" />{t('插入文档')}</button>
+      <button type="button" title={t('保存为单独的文档，默认放在当前文档旁边')} onClick={() => void ai.saveNote(turn)}><FilePlus2 aria-hidden="true" />{t('存为文档')}</button>
       {turn.selectionAction && ai.canReplace(turn.selectionAction) && <button type="button" disabled={reading} title={reading ? t('阅读模式下不能修改文档') : undefined} onClick={() => ai.insertAnswer(turn, 'replace')}><Replace aria-hidden="true" />{t('替换选区')}</button>}
     </div>}
   </div>
@@ -50,7 +51,7 @@ export function AiDrawer({ workspace: w }: { workspace: DocumentWorkspace }) {
       <button type="button" className="icon-button" title={t('清空对话')} aria-label={t('清空对话')} disabled={ai.turns.length === 0} onClick={ai.clear}><Eraser aria-hidden="true" /></button>
       <button type="button" className="icon-button" title={t('关闭')} aria-label={t('关闭')} onClick={() => ai.setOpen(false)}><X aria-hidden="true" /></button>
     </header>
-    <p className="ai-destination">{t('提问时，文档内容会发送到')} <strong>{t(providerLabels[ai.config.provider])}</strong> · <span className="ai-model" title={t('回答使用的模型，可在设置的“AI”页更换')}>{ai.config.model}</span> · {host(ai.config.baseUrl)}{!ai.config.hasKey && <em> · {t('尚未填写密钥')}</em>}</p>
+    <p className="ai-destination">{t('提问时，文档内容会发送到')} <strong>{t(providerLabels[ai.config.provider])}</strong> · <span className="ai-model" title={t('回答使用的模型，可在设置的“AI”页更换')}>{ai.config.model}</span> · {host(ai.config.baseUrl)}{!ai.config.hasKey && <> · <button type="button" className="ai-key-missing" onClick={() => { w.setSettingsTab('ai'); w.setSettingsOpen(true) }}>{t('尚未填写密钥，去设置')}</button></>}</p>
     <div ref={list} className="ai-turns" aria-live="polite">
       {ai.turns.length === 0 && <p className="ai-empty">{t('可以让 AI 概括这篇文档、解释选中的文字，或回答你的问题。')}<small>{t('为了节省用量，文档只在你提问时随问题一起发送；打开这个面板不会发送任何内容。')}</small></p>}
       {ai.turns.map((turn) => turn.role === 'user' ? <div key={turn.id} className="ai-turn ai-question">{t(turn.text)}</div> : <Answer key={turn.id} turn={turn} workspace={w} />)}

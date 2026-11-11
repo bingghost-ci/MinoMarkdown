@@ -1987,6 +1987,7 @@ export function useDocumentWorkspace() {
     // Answers go through the preview renderer: sanitized, and images are never fetched from the network.
     renderMarkdown: (markdown) => renderPreviewAsync(markdown, undefined, false).then((html) => html, () => null),
     insertMarkdown: insertAiMarkdown,
+    saveNote: (name, markdown) => invoke<string | null>('save_note_beside', { token: documentRef.current.token || null, name, markdown }).catch((error: unknown) => { throw new Error(String(error)) }),
     onStatus: setStatus,
   })
   const sourceDark = style.dark

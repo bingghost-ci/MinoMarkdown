@@ -469,3 +469,4 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .file-tree .tree-header .icon-button svg { width: 14px; height: 14px; }
 .tree-root + .tree-root { margin-top: 6px; }
 .sidebar-heading h2 { flex: 1; }
+.ai-key-missing { border: 0; padding: 0; background: none; color: var(--danger); font: inherit; text-decoration: underline; cursor: pointer; }

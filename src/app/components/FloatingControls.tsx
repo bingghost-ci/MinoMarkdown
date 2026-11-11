@@ -12,7 +12,7 @@ export function FloatingControls({ workspace: w }: { workspace: DocumentWorkspac
   return <div className="float-controls" role="toolbar" aria-orientation="vertical" aria-label={t('阅读控制')}>
     {button(settings.showOutline ? t('隐藏大纲') : t('显示大纲'), settings.showOutline, () => setSettings((current) => ({ ...current, showOutline: !current.showOutline })), <ListTree aria-hidden="true" />)}
     {button(t('字体与风格'), panel === 'appearance', () => setPanel(panel === 'appearance' ? null : 'appearance'), <Type aria-hidden="true" />)}
-    {ai.config.enabled && button(t('AI 问书'), ai.open, ai.toggleOpen, <Sparkles aria-hidden="true" />)}
+    {ai.available && button(t('AI 问书'), ai.open, ai.toggleOpen, <Sparkles aria-hidden="true" />)}
     {button(style.dark ? t('切换到浅色') : t('切换到深色'), undefined, toggleDayNight, style.dark ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />)}
     {button(reading ? t('开始编辑 (⌘⇧R)') : t('阅读模式 (⌘⇧R)'), undefined, () => setReading(!reading), reading ? <Pencil aria-hidden="true" /> : <BookOpen aria-hidden="true" />, toolbar.composing)}
     {panel === 'appearance' && <AppearancePanel workspace={w} />}

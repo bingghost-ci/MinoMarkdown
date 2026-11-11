@@ -598,9 +598,42 @@ pub async fn export_source_markdown(app: AppHandle, window: WebviewWindow, markd
     Ok(Some(filename(&path)))
 }
 
+/// A name the frontend may suggest for a note: one Markdown file name, no path.
+fn note_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().count() <= 120 && !name.starts_with('.') && name.to_ascii_lowercase().ends_with(".md")
+        && !name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':'))
+}
+
+/// Saves a note (an AI answer) through a save dialog that starts in the folder of the document it is about,
+/// with a suggested name (T80). The user confirms or changes the place, so the path is still one a system
+/// dialog granted; an existing file is never replaced.
+#[tauri::command]
+pub async fn save_note_beside(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, token: Option<String>, name: String, markdown: String) -> Result<Option<String>, String> {
+    main_window(&window)?;
+    if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
+    if !note_name(&name) { return Err("INVALID_NAME".into()); }
+    let mut dialog = app.dialog().file().add_filter("Markdown", &["md"]).set_file_name(&name);
+    if let Some(parent) = token.and_then(|token| store.grant(&token).ok()).and_then(|grant| grant.path.parent().map(Path::to_path_buf)) { dialog = dialog.set_directory(parent); }
+    let Some(selected) = dialog.blocking_save_file() else { return Ok(None); };
+    let path = selected.into_path().map_err(|_| "INVALID_PATH")?;
+    if !markdown_path(&path) { return Err("UNSUPPORTED_FILE_TYPE".into()); }
+    let parent = fs::canonicalize(path.parent().ok_or("INVALID_PATH")?).map_err(|_| "INVALID_PATH")?;
+    let path = parent.join(path.file_name().ok_or("INVALID_PATH")?);
+    if path.exists() { return Err("TARGET_EXISTS".into()); }
+    atomic_write::commit(&path, markdown.as_bytes(), None)?;
+    Ok(Some(filename(&path)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn note_names_are_single_markdown_file_names() {
+        for good in ["读书笔记-AI总结.md", "README-AI总结.MD", "a b.md"] { assert!(note_name(good), "{good}"); }
+        for bad in ["", ".hidden.md", "a/b.md", "..\\b.md", "a:b.md", "note.txt", "a\nb.md"] { assert!(!note_name(bad), "{bad:?}"); }
+        assert!(!note_name(&format!("{}.md", "长".repeat(120))));
+    }
 
     fn sample_dir() -> PathBuf {
         let dir = std::env::temp_dir().join(format!("mino-doc-test-{}-{}", std::process::id(), NEXT_ID.fetch_add(1, Ordering::Relaxed)));
