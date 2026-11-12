@@ -30,9 +30,6 @@ export function AppearancePanel({ workspace: w }: { workspace: DocumentWorkspace
   }, [])
   const update = updateSettings
   return <div ref={root} className="appearance-panel" role="dialog" aria-label={t('字体与风格')}>
-    <section><h3>{t('字号')}<output>{settings.editorFontSize}</output></h3>
-      <Slider label={t('字号')} value={settings.editorFontSize} min={MIN_EDITOR_FONT_SIZE} max={MAX_EDITOR_FONT_SIZE} step={1} onChange={(value) => update({ editorFontSize: value })} small="A" large="A" />
-    </section>
     <section><h3>{t('风格')}</h3>
       <StyleSwatches workspace={w} />
       {style.texture && <><h4>{t('纸张纹理')}<output>{settings.textureStrength}%</output></h4>
@@ -42,6 +39,10 @@ export function AppearancePanel({ workspace: w }: { workspace: DocumentWorkspace
       <div className="panel-row"><span>{t('行距')}</span><div className="panel-segmented">{([['compact', '紧凑'], ['comfortable', '舒适'], ['relaxed', '宽松']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={settings.editorLineHeight === id} onClick={() => update({ editorLineHeight: id })}>{t(label)}</button>)}</div></div>
       <div className="panel-row"><span>{t('显示')}</span><div className="panel-segmented">{([['centered', '页面'], ['wide', '宽屏']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={settings.editorWidth === id} onClick={() => update({ editorWidth: id })}>{t(label)}</button>)}</div></div>
     </section>
-    <section><h3>{t('字体')}</h3><FontPicker workspace={w} /></section>
+    <section><h3>{t('字体')}</h3>
+      <h4 className="panel-font-size">{t('字号')}<output>{settings.editorFontSize}</output></h4>
+      <Slider label={t('字号')} value={settings.editorFontSize} min={MIN_EDITOR_FONT_SIZE} max={MAX_EDITOR_FONT_SIZE} step={1} onChange={(value) => update({ editorFontSize: value })} small="A" large="A" />
+      <FontPicker workspace={w} />
+    </section>
   </div>
 }

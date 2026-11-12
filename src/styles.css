@@ -336,6 +336,8 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 /* The appearance popover (T65). */
 .appearance-panel { position: absolute; right: 58px; top: 50%; transform: translateY(-50%); width: 372px; max-height: min(680px, calc(100vh - 110px)); overflow-y: auto; border: 1px solid var(--line); border-radius: 18px; padding: 6px 20px 20px; background: var(--chrome); color: var(--ui-text); box-shadow: 0 18px 50px #00000026; }
 .appearance-panel section { padding-top: 16px; }
+.appearance-panel h4.panel-font-size { margin-top: 0; }
+.appearance-panel .panel-font-size + .panel-slider { margin-bottom: 14px; }
 .appearance-panel h3, .appearance-panel h4 { display: flex; align-items: baseline; justify-content: space-between; margin: 0 0 10px; font-size: 13px; font-weight: 600; }
 .appearance-panel h4 { margin-top: 14px; font-weight: 500; color: var(--ui-secondary); font-size: 12px; }
 .appearance-panel output { color: var(--ui-muted); font-size: 11px; font-weight: 400; font-variant-numeric: tabular-nums; }
