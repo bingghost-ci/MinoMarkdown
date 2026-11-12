@@ -2,11 +2,18 @@ import { FocusTrap } from './FocusTrap'
 import { errorText, type DocumentWorkspace } from '../useDocumentWorkspace'
 import { X } from 'lucide-react'
 
-export function TabContextMenu({ workspace: w }: { workspace: DocumentWorkspace }) {
-  const { closeTabs, detachTab, t, tabMenu, tabs } = w
-  return <>
-      {tabMenu && <div className="tab-context-menu" role="menu" style={{ left: Math.min(tabMenu.x, window.innerWidth - 180), top: Math.min(tabMenu.y, window.innerHeight - 120) }} onClick={(event) => event.stopPropagation()}><button type="button" role="menuitem" onClick={() => void detachTab(tabMenu.key)}>{t('移到新窗口')}</button><button type="button" role="menuitem" onClick={() => void closeTabs([tabMenu.key])}>{t('关闭当前')}</button><button type="button" role="menuitem" onClick={() => void closeTabs(tabs.slice(tabs.findIndex((tab) => tab.key === tabMenu.key) + 1).map((tab) => tab.key))} disabled={tabs.findIndex((tab) => tab.key === tabMenu.key) === tabs.length - 1}>{t('关闭右边')}</button><button type="button" role="menuitem" onClick={() => void closeTabs(tabs.map((tab) => tab.key))}>{t('关闭所有文档')}</button></div>}
-  </>
+/** Renames an open document's file, from its tab or the body's right-click menu (T105). */
+export function DocumentRenameDialog({ workspace: w }: { workspace: DocumentWorkspace }) {
+  const { confirmDocumentRename, documentRename, setDocumentRename, t } = w
+  if (!documentRename) return null
+  const close = () => setDocumentRename(null)
+  return <FocusTrap><div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}>
+    <section className="drafts-dialog rename-dialog" role="dialog" aria-modal="true" aria-label={t('重命名文档')}>
+      <div className="settings-title"><h2>{t('重命名文档')}</h2><button type="button" aria-label={t('取消')} onClick={close}><X aria-hidden="true" /></button></div>
+      <label className="rename-field">{t('新名称')}<input autoFocus value={documentRename.name} spellCheck={false} onFocus={(event) => { const dot = event.target.value.lastIndexOf('.'); event.target.setSelectionRange(0, dot > 0 ? dot : event.target.value.length) }} onChange={(event) => setDocumentRename({ ...documentRename, name: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) void confirmDocumentRename(); if (event.key === 'Escape') close() }} /></label>
+      <div className="settings-actions"><button type="button" onClick={close}>{t('取消')}</button><button type="button" disabled={!documentRename.name.trim()} onClick={() => void confirmDocumentRename()}>{t('确定')}</button></div>
+    </section>
+  </div></FocusTrap>
 }
 
 export function DraftsDialog({ workspace: w }: { workspace: DocumentWorkspace }) {

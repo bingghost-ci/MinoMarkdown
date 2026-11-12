@@ -44,7 +44,7 @@ fn valid_name(name: &str, directory: bool) -> bool {
 }
 /// A file keeps its kind when renamed, so a document that is open stays what it was opened as. A PDF may be
 /// renamed, though one cannot be created.
-fn valid_rename(current: &Path, name: &str, directory: bool) -> bool {
+pub(crate) fn valid_rename(current: &Path, name: &str, directory: bool) -> bool {
     if directory { return valid_name(name, true); }
     let kind = DocumentKind::of(Path::new(name));
     if kind.is_none() || kind != DocumentKind::of(current) { return false; }
@@ -105,7 +105,7 @@ fn create_entry_at(parent: &Path, name: &str, directory: bool) -> Result<(), Str
 fn create_entry_at(_parent: &Path, _name: &str, _directory: bool) -> Result<(), String> { Err("UNSUPPORTED_PLATFORM".into()) }
 
 #[cfg(target_os = "macos")]
-fn rename_entry_at(source: &Path, new_name: &str, directory: bool) -> Result<PathBuf, String> {
+pub(crate) fn rename_entry_at(source: &Path, new_name: &str, directory: bool) -> Result<PathBuf, String> {
     use std::os::fd::AsRawFd;
     let parent = source.parent().ok_or("INVALID_PATH")?;
     let held = directory_handle(parent)?;
@@ -141,7 +141,7 @@ fn rename_entry_at(source: &Path, new_name: &str, directory: bool) -> Result<Pat
 }
 
 #[cfg(not(target_os = "macos"))]
-fn rename_entry_at(_source: &Path, _new_name: &str, _directory: bool) -> Result<PathBuf, String> { Err("UNSUPPORTED_PLATFORM".into()) }
+pub(crate) fn rename_entry_at(_source: &Path, _new_name: &str, _directory: bool) -> Result<PathBuf, String> { Err("UNSUPPORTED_PLATFORM".into()) }
 fn checked_path(grant: &EntryGrant) -> Result<PathBuf, String> {
     let meta = fs::symlink_metadata(&grant.path).map_err(|_| "NOT_FOUND")?;
     if meta.file_type().is_symlink() || (grant.directory && !meta.is_dir()) || (!grant.directory && !meta.is_file()) { return Err("OUT_OF_SCOPE".into()); }
@@ -215,6 +215,23 @@ pub(crate) fn register_workspace(store: &WorkspaceStore, path: PathBuf) -> Resul
     Ok(WorkspaceRoot { token, name })
 }
 
+/// The checked path of any sidebar entry, file or folder, and whether it is a folder (T105).
+pub(crate) fn entry_path(store: &WorkspaceStore, token: &str) -> Result<(PathBuf, bool), String> {
+    let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(token).cloned().ok_or("OUT_OF_SCOPE")?;
+    Ok((checked_path(&grant)?, grant.directory))
+}
+
+/// Sidebar entries follow a document renamed from its tab, so their tokens keep working.
+pub(crate) fn relocate_entries(store: &WorkspaceStore, old: &Path, new: &Path) -> Result<(), String> {
+    for entry in store.0.lock().map_err(|_| "IO_ERROR")?.values_mut() { if entry.path == old { entry.path = new.to_path_buf(); } }
+    Ok(())
+}
+
+pub(crate) fn forget_entries(store: &WorkspaceStore, path: &Path) -> Result<(), String> {
+    store.0.lock().map_err(|_| "IO_ERROR")?.retain(|_, entry| entry.directory || entry.path != path);
+    Ok(())
+}
+
 pub(crate) fn workspace_path(store: &WorkspaceStore, token: &str) -> Result<PathBuf, String> {
     let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(token).cloned().ok_or("OUT_OF_SCOPE")?;
     if grant.workspace != token { return Err("OUT_OF_SCOPE".into()); }
@@ -270,7 +287,7 @@ pub fn rename_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceS
 }
 
 #[cfg(target_os = "macos")]
-fn move_to_trash(path: &Path) -> Result<(), String> {
+pub(crate) fn move_to_trash(path: &Path) -> Result<(), String> {
     use objc2_foundation::{NSFileManager, NSString, NSURL};
     use std::os::unix::fs::MetadataExt;
     let before = fs::symlink_metadata(path).map_err(|_| "NOT_FOUND")?;
@@ -288,7 +305,7 @@ fn move_to_trash(path: &Path) -> Result<(), String> {
     NSFileManager::defaultManager().trashItemAtURL_resultingItemURL_error(&reference, None).map_err(|_| "TRASH_FAILED".into())
 }
 #[cfg(not(target_os = "macos"))]
-fn move_to_trash(_path: &Path) -> Result<(), String> { Err("UNSUPPORTED_PLATFORM".into()) }
+pub(crate) fn move_to_trash(_path: &Path) -> Result<(), String> { Err("UNSUPPORTED_PLATFORM".into()) }
 
 #[tauri::command(async)]
 pub fn trash_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String) -> Result<(), String> {

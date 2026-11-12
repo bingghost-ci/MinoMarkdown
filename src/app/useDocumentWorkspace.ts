@@ -16,7 +16,7 @@ import type { EditorAdapter as EditorInstance, PendingAsset, ToolbarState } from
 import { EditorPool } from '../features/editor/editorPool'
 import { safeLinkHref } from '../features/editor/linkSafety'
 import { isAssetUrl, relativeFromAssetUrl } from '../features/editor/assetUrl'
-import { beginSave, clearExternalConflict, createSession, editSession, externalConflict, isDirty, saveCanceled, saveFailed, saveSucceeded, type DocumentSession } from '../features/document/session'
+import { beginSave, clearExternalConflict, createSession, discardChanges, editSession, externalConflict, isDirty, saveCanceled, saveFailed, saveSucceeded, type DocumentSession } from '../features/document/session'
 import { mayLeaveDocument, type UnsavedAction } from '../features/document/lifecycle'
 import { createDraftScheduler, type DraftScheduler } from '../features/document/draftScheduler'
 import { autosaveDecision } from '../features/document/autosave'
@@ -38,6 +38,8 @@ import { isZoomAction, zoomedFontSize } from './textZoom'
 import { formatMenuCommands, transformMenuActions } from './formatActions'
 import type { SourceEditor } from '../features/source/SourceEditor'
 import { applyRemoteSettings, settingsPatch } from './settingsSync'
+import { bodyMenu, entryMenu, tabMenu as tabMenuItems, type BodyView, type MenuEntry } from './contextMenu'
+import type { AiSelectionAction } from '../features/ai/prompts'
 import { blobUrl, readStaged, stageAssets, type StagedAsset } from './binary'
 // Listed individually so unused Crepe features add no styles.
 import '@milkdown/crepe/theme/common/prosemirror.css'
@@ -111,6 +113,12 @@ export type FloatingPanel = 'appearance' | null
 type TabItem = { key: string; document: DocumentState; session: DocumentSession }
 type DetachedAsset = { url: string; staged: string; mime: string }
 type DetachedTransfer = { name: string; kind?: DocumentKind; encoding?: string; size?: number; token: string; assetKey: string; retiredTokens: string[]; revision: string; markdown: string; originalMarkdown: string; sourceText: string; mode: DocumentState['mode']; draftId: string; session: DocumentSession; assets: DetachedAsset[]; imageUrls: [string, string][] }
+/** What a right-click menu was opened on (T105); its chosen item acts on this. */
+type ContextTarget =
+  | { area: 'body'; tabKey: string; view: BodyView; link: string | null; text: string }
+  | { area: 'tab'; tabKey: string }
+  | { area: 'entry'; entry: WorkspaceEntry & { parentToken: string } }
+  | { area: 'root'; token: string }
 type TreeState = { entries: WorkspaceEntry[]; nextOffset: number | null; expanded: boolean; loading: boolean; error: string | null }
 let nextDocumentId = 1
 /** The thin bar above the document shows how far the reader has scrolled; it is drawn without React. */
@@ -253,7 +261,8 @@ export function useDocumentWorkspace() {
   const tabsRef = useRef(tabs)
   const [activeTabKey, setActiveTabKey] = useState<string>(initialTabKey.current)
   const activeTabKeyRef = useRef<string>(activeTabKey)
-  const [tabMenu, setTabMenu] = useState<{ key: string; x: number; y: number } | null>(null)
+  const contextTarget = useRef<ContextTarget | null>(null)
+  const [documentRename, setDocumentRename] = useState<{ tabKey: string; name: string } | null>(null)
   const tabDragRef = useRef<{ key: string; x: number; y: number } | null>(null)
   const closingTabsRef = useRef(false)
   const closingWindowRef = useRef(false)
@@ -479,7 +488,6 @@ export function useDocumentWorkspace() {
     updateSession(tab.session)
     documentRef.current = tab.document
     setDocument(tab.document)
-    setTabMenu(null)
   }
 
   const scrollPositions = useRef(new Map<number, number>())
@@ -714,7 +722,6 @@ export function useDocumentWorkspace() {
       forgetDocument(closing.document)
       setStatus(`已关闭 ${closing.document.name}`)
     }
-    setTabMenu(null)
     return true
     } finally { closingTabsRef.current = false }
   }
@@ -1580,15 +1587,16 @@ export function useDocumentWorkspace() {
     } catch (error) { setStatus(errorText(error)) }
   }
 
-  async function trashEntry() {
-    if (!selectedEntry || !window.confirm(settings.language === 'en-US' ? `Move “${selectedEntry.name}” to the Trash?` : `将“${selectedEntry.name}”移到废纸篓？`)) return
-    const affected = tabsRef.current.filter((tab) => tab.document.entryToken === selectedEntry.token).map((tab) => tab.key)
+  async function trashEntry(entry?: WorkspaceEntry & { parentToken: string }) {
+    const target = entry ?? selectedEntry
+    if (!target || !window.confirm(settings.language === 'en-US' ? `Move “${target.name}” to the Trash?` : `将“${target.name}”移到废纸篓？`)) return
+    const affected = tabsRef.current.filter((tab) => tab.document.entryToken === target.token).map((tab) => tab.key)
     if (affected.length && !await closeTabs(affected)) return
     try {
-      await invoke('trash_workspace_entry', { entryToken: selectedEntry.token })
-      await loadChildren(selectedEntry.parentToken)
-      setStatus(`已移到废纸篓：${selectedEntry.name}`)
-      setSelectedEntry(null)
+      await invoke('trash_workspace_entry', { entryToken: target.token })
+      await loadChildren(target.parentToken)
+      setStatus(`已移到废纸篓：${target.name}`)
+      if (selectedEntry?.token === target.token) setSelectedEntry(null)
     } catch (error) { setStatus(errorText(error)) }
   }
 
@@ -1752,9 +1760,10 @@ export function useDocumentWorkspace() {
     }
   }
 
-  function runFormatAction(action: string) {
+  /** `fromContextMenu`: chosen in the body's right-click menu, which leaves focus where it was. */
+  function runFormatAction(action: string, fromContextMenu = false) {
     const editor = adapter.current
-    if (documentRef.current.mode !== 'visual' || !editor?.hasEditorFocus()) return
+    if (documentRef.current.mode !== 'visual' || !editor || !(fromContextMenu || editor.hasEditorFocus())) return
     if (action === 'format-link') { setLinkHref(editor.captureSelection() ?? ''); setLinkOpen(true); return }
     const command = formatMenuCommands[action]
     if (command) editor.runCommand(command)
@@ -1804,7 +1813,6 @@ export function useDocumentWorkspace() {
       if (event.key === 'Escape') {
         setPanel(null)
         setLightbox(null)
-        setTabMenu(null)
         setSettingsOpen(false)
         setDraftsOpen(false)
         setDiskDiff(null)
@@ -2017,6 +2025,215 @@ export function useDocumentWorkspace() {
     const sibling = siblings?.find((entry) => !entry.directory && entry.name === name)
     if (sibling) void openWorkspaceEntry(sibling.token)
   }
+
+  // Right-click menus (T105). The menu is described here, shown natively by Rust, and the chosen id comes
+  // back as `context-action`; `contextTarget` remembers what the menu was opened on.
+  const rightClickSelection = useRef<string | null>(null)
+  function showContextMenu(target: ContextTarget, items: MenuEntry[]) {
+    if (!desktop || items.length === 0) return
+    contextTarget.current = target
+    void invoke('show_context_menu', { items }).catch((error: unknown) => setStatus(errorText(error)))
+  }
+
+  function tabDocument(key: string): DocumentState | null {
+    if (key === activeTabKeyRef.current) return documentRef.current
+    return tabsRef.current.find((tab) => tab.key === key)?.document ?? null
+  }
+
+  function openBodyMenu(event: MouseEvent<HTMLElement>) {
+    if (!desktop) return
+    const element = event.target as HTMLElement
+    const area = element.closest<HTMLElement>('.editor-host, .markdown-preview, .source-editor, .pdf-view')
+    if (!area) return
+    event.preventDefault()
+    const current = documentRef.current
+    // A code block in the visual editor is its own CodeMirror view: it is offered what a source editor is.
+    const inCode = area.classList.contains('editor-host') && Boolean(element.closest('.cm-editor'))
+    const view: BodyView = area.classList.contains('editor-host') ? (inCode ? 'source' : 'visual') : area.classList.contains('pdf-view') ? 'pdf' : area.classList.contains('source-editor') ? 'source' : 'preview'
+    let text = ''
+    const visualReadonly = view === 'visual' && (!adapter.current || adapter.current.isReadonly())
+    if (view === 'visual' && !visualReadonly) { if (adapter.current?.prepareContextMenu(event.clientX, event.clientY)) text = adapter.current.plainText().selected ?? '' }
+    else if (view === 'source' && !inCode && sourceEditor.current) {
+      const editor = sourceEditor.current
+      if (editor.prepareContextMenu(event.clientX, event.clientY)) text = editor.value.slice(editor.selectionStart, editor.selectionEnd)
+    } else {
+      // WebKit selects the word under a right click before this event. Only a selection the user made counts:
+      // one that was there at the mouse press and is unchanged now. The editors above read their own state, which
+      // has not taken in WebKit's word yet.
+      const before = rightClickSelection.current
+      const now = window.getSelection()?.toString() ?? ''
+      if (before && now === before) text = now
+      else if (now && !inCode) window.getSelection()?.removeAllRanges()
+    }
+    rightClickSelection.current = null
+    const link = element.closest('a[href]')?.getAttribute('href') ?? null
+    const editable = !current.reading && current.kind !== 'pdf' && (view === 'visual' ? !visualReadonly : view === 'source')
+    showContextMenu({ area: 'body', tabKey: activeTabKeyRef.current, view, link, text }, bodyMenu({
+      view, kind: current.kind, editable, selection: text.trim().length > 0, link, saved: Boolean(current.token),
+      ai: ai.config.enabled && !inCode, folders: workspacesRef.current.length > 0,
+    }))
+  }
+
+  function openTabMenu(key: string, event: MouseEvent<HTMLElement>) {
+    event.preventDefault()
+    const index = tabsRef.current.findIndex((tab) => tab.key === key)
+    const note = tabDocument(key)
+    if (index < 0 || !note) return
+    showContextMenu({ area: 'tab', tabKey: key }, tabMenuItems({ index, count: tabsRef.current.length, saved: Boolean(note.token), active: key === activeTabKeyRef.current, kind: note.kind }))
+  }
+
+  function openEntryMenu(entry: WorkspaceEntry, parentToken: string, event: MouseEvent<HTMLElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    setSelectedEntry({ ...entry, parentToken })
+    setSelectedDirectory(entry.directory ? entry.token : parentToken)
+    showContextMenu({ area: 'entry', entry: { ...entry, parentToken } }, entryMenu({ directory: entry.directory, root: false, roots: workspacesRef.current.length }))
+  }
+
+  function openRootMenu(token: string, event: MouseEvent<HTMLElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    setSelectedEntry(null)
+    setSelectedDirectory(token)
+    showContextMenu({ area: 'root', token }, entryMenu({ directory: true, root: true, roots: workspacesRef.current.length }))
+  }
+
+  function writeClipboard(text: string) {
+    return invoke('write_clipboard_text', { text }).then(() => setStatus(text.length > 60 ? `已拷贝 ${text.length} 个字符` : '已拷贝'))
+  }
+
+  /** The document or sidebar entry a file action is about, as the argument Rust resolves to a path. */
+  function fileTarget(target: ContextTarget): { documentToken: string } | { entryToken: string } | null {
+    if (target.area === 'entry') return { entryToken: target.entry.token }
+    if (target.area === 'root') return { entryToken: target.token }
+    const token = tabDocument(target.tabKey)?.token
+    return token ? { documentToken: token } : null
+  }
+
+  function renameOpenDocument(token: string, entryToken: string | undefined, name: string) {
+    updateTabs(tabsRef.current.map((tab) => tab.document.token === token ? { ...tab, document: { ...tab.document, name } } : tab))
+    if (documentRef.current.token === token) setDocument((current) => ({ ...current, name }))
+    if (entryToken) setTree((old) => Object.fromEntries(Object.entries(old).map(([key, state]) => [key, { ...state, entries: state.entries.map((entry) => entry.token === entryToken ? { ...entry, name } : entry) }])))
+  }
+
+  async function confirmDocumentRename() {
+    const pending = documentRename
+    const note = pending ? tabDocument(pending.tabKey) : null
+    const name = pending?.name.trim() ?? ''
+    if (!note?.token || !name) return
+    if (name === note.name) { setDocumentRename(null); return }
+    try {
+      const renamed = await invoke<string>('rename_document', { token: note.token, newName: name })
+      renameOpenDocument(note.token, note.entryToken, renamed)
+      setDocumentRename(null)
+      setStatus(`已重命名为 ${renamed}`)
+    } catch (error) { setStatus(errorText(error)) }
+  }
+
+  /** Moves an open document's file to the Trash and closes its tab; unsaved edits go with it after a warning. */
+  async function trashDocument(key: string) {
+    const note = tabDocument(key)
+    if (!note?.token) return
+    if (busyRef.current) { noteBusy(); return }
+    const active = key === activeTabKeyRef.current
+    const session = active ? sessionRef.current : tabsRef.current.find((tab) => tab.key === key)?.session
+    const dirty = session ? isDirty(session) : false
+    const question = settings.language === 'en-US'
+      ? `Move “${note.name}” to the Trash?${dirty ? ' Its unsaved changes will be discarded.' : ''}`
+      : `将“${note.name}”移到废纸篓？${dirty ? '未保存的修改会一并丢弃。' : ''}`
+    if (!window.confirm(question)) return
+    try { await invoke('trash_document', { token: note.token }) }
+    catch (error) { setStatus(errorText(error)); return }
+    if (active) updateSession(discardChanges(sessionRef.current))
+    else updateTabs(tabsRef.current.map((tab) => tab.key === key ? { ...tab, session: discardChanges(tab.session) } : tab))
+    if (note.entryToken) setTree((old) => Object.fromEntries(Object.entries(old).map(([dir, state]) => [dir, { ...state, entries: state.entries.filter((entry) => entry.token !== note.entryToken) }])))
+    await closeTabs([key])
+    await discardDraft(note.draftId).catch(() => undefined)
+    setStatus(`已移到废纸篓：${note.name}`)
+  }
+
+  async function runContextAction(id: string, clipboardText: string | null) {
+    const target = contextTarget.current
+    if (!target) return
+    const editor = adapter.current
+    const body = target.area === 'body' ? target : null
+    const tabKey = target.area === 'body' || target.area === 'tab' ? target.tabKey : null
+    const entry = target.area === 'entry' ? target.entry : null
+    const directory = target.area === 'root' ? target.token : entry?.directory ? entry.token : null
+    try {
+      if (id.startsWith('ai-') && id !== 'ai-ask') {
+        if (!ai.config.consented) { ai.toggleOpen(); return }
+        ai.setOpen(true)
+        await ai.runSelection(id.slice(3) as AiSelectionAction)
+        return
+      }
+      if (id.startsWith('format-') || id.startsWith('transform-')) {
+        if (id === 'format-clear') editor?.runCommand('clearFormat')
+        else runFormatAction(id, true)
+        return
+      }
+      switch (id) {
+        case 'paste-plain': if (clipboardText) { editor?.pastePlainText(clipboardText) } return
+        case 'copy-markdown': { const markdown = editor?.selectionMarkdown() || body?.text; if (markdown) await writeClipboard(markdown); return }
+        case 'copy-plain': if (body?.text) await writeClipboard(body.text); return
+        case 'find-selection': {
+          const query = body?.text.trim().split('\n', 1)[0] ?? ''
+          setFindQuery(query)
+          openFind()
+          queueFind(query)
+          return
+        }
+        case 'search-folder': {
+          const query = body?.text.trim().split('\n', 1)[0].slice(0, 256) ?? ''
+          updateSettings({ showSidebar: true })
+          setSearchQuery(query)
+          runWorkspaceSearch(query)
+          return
+        }
+        case 'ai-ask': if (!ai.open) ai.toggleOpen(); return
+        case 'insert-table': editor?.runTableCommand('insert', 3, 3); return
+        case 'insert-rule': editor?.runCommand('rule'); return
+        case 'open-link': if (body?.link) linkOpenRef.current(body.link); return
+        case 'copy-link': if (body?.link) await writeClipboard(body.link); return
+        case 'edit-link': runFormatAction('format-link', true); return
+        case 'reveal': { const args = fileTarget(target); if (args) await invoke('reveal_in_finder', args); return }
+        case 'copy-path': { const args = fileTarget(target); if (args) { await invoke('copy_file_path', args); setStatus('已拷贝文件路径') } return }
+        case 'rename':
+          if (entry) { setSelectedEntry(entry); setRenameName(entry.name); setNewEntryType(null); setRenaming(true) }
+          else if (tabKey) { const note = tabDocument(tabKey); if (note?.token) setDocumentRename({ tabKey, name: note.name }) }
+          return
+        case 'trash': if (entry) await trashEntry(entry); else if (tabKey) await trashDocument(tabKey); return
+        case 'close': case 'close-tab': if (tabKey) await closeTabs([tabKey]); return
+        case 'close-others': if (tabKey) await closeTabs(tabsRef.current.filter((tab) => tab.key !== tabKey).map((tab) => tab.key)); return
+        case 'close-right': if (tabKey) await closeTabs(tabsRef.current.slice(tabsRef.current.findIndex((tab) => tab.key === tabKey) + 1).map((tab) => tab.key)); return
+        case 'close-all': await closeTabs(tabsRef.current.map((tab) => tab.key)); return
+        case 'move-window': if (tabKey) await detachTab(tabKey); return
+        case 'open-entry': if (entry && !entry.directory) await openWorkspaceEntry(entry.token); return
+        case 'new-file': case 'new-folder':
+          if (directory) { setSelectedDirectory(directory); setRenaming(false); setNewEntryName(id === 'new-file' ? '新文档.md' : '新目录'); setNewEntryType(id === 'new-file' ? 'file' : 'directory') }
+          return
+        case 'refresh': if (directory) await loadChildren(directory); return
+        case 'close-folder': if (target.area === 'root') await closeWorkspace(target.token); return
+        case 'close-all-folders': await closeWorkspace(); return
+        default: runFileAction(id)
+      }
+    } catch (error) { setStatus(errorText(error)) }
+  }
+
+  const contextActionRef = useRef<(id: string, text: string | null) => void>(() => undefined)
+  contextActionRef.current = (id, text) => { void runContextAction(id, text) }
+  useEffect(() => {
+    if (!desktop) return
+    let stop: (() => void) | undefined
+    let canceled = false
+    void getCurrentWindow().listen<{ id: string; text: string | null }>('context-action', (event) => contextActionRef.current(event.payload.id, event.payload.text)).then((unlisten) => { if (canceled) unlisten(); else stop = unlisten })
+    // Elsewhere in the window WebKit's own menu (Reload, Inspect) has nothing for the user; text fields keep theirs.
+    const suppress = (event: globalThis.MouseEvent) => { if (!(event.target as HTMLElement | null)?.closest('input, textarea, [contenteditable="true"]')) event.preventDefault() }
+    const press = (event: globalThis.MouseEvent) => { if (event.button === 2 || (event.button === 0 && event.ctrlKey)) rightClickSelection.current = window.getSelection()?.toString() ?? '' }
+    window.addEventListener('contextmenu', suppress)
+    window.addEventListener('mousedown', press, true)
+    return () => { canceled = true; stop?.(); window.removeEventListener('contextmenu', suppress); window.removeEventListener('mousedown', press, true) }
+  }, [desktop])
 
   const menuActionRef = useRef<(action: string) => void>(() => undefined)
   menuActionRef.current = runFileAction
@@ -2292,7 +2509,7 @@ export function useDocumentWorkspace() {
     onStatus: setStatus,
   })
   const sourceDark = style.dark
-  return useStableFunctions({ updateSettings, activeEntryToken: document.entryToken, findCapped, queueFind, plain, isPdf, tableView, setTableView, pdfBridge, pdfPages: pdfPages?.id === document.id ? pdfPages.pages : null, selectedDirectory, previewPartial, ai, panel, setPanel, systemFonts, loadSystemFonts, pickStyle, toggleDayNight, latinLayout, style, sourceDark, reading, setReading, lightbox, setLightbox, openImageFromClick, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettingsOpen, setSettingsTab, setSourceView, setStatus, setTabMenu, settings, settingsOpen, settingsTab, sidebarOpen, sourceEditor, sourceView: sourceShown, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabMenu, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspaces }, STABLE_EXCEPT)
+  return useStableFunctions({ openBodyMenu, openTabMenu, openEntryMenu, openRootMenu, documentRename, setDocumentRename, confirmDocumentRename, updateSettings, activeEntryToken: document.entryToken, findCapped, queueFind, plain, isPdf, tableView, setTableView, pdfBridge, pdfPages: pdfPages?.id === document.id ? pdfPages.pages : null, selectedDirectory, previewPartial, ai, panel, setPanel, systemFonts, loadSystemFonts, pickStyle, toggleDayNight, latinLayout, style, sourceDark, reading, setReading, lightbox, setLightbox, openImageFromClick, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettingsOpen, setSettingsTab, setSourceView, setStatus, settings, settingsOpen, settingsTab, sidebarOpen, sourceEditor, sourceView: sourceShown, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspaces }, STABLE_EXCEPT)
 }
 
 export type DocumentWorkspace = ReturnType<typeof useDocumentWorkspace>

@@ -106,9 +106,6 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .tab-close svg { width: 14px; height: 14px; }
 .document-tab svg { width: 16px; height: 16px; flex: none; color: var(--secondary); stroke-width: 1.6; }
 .document-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tab-context-menu { position: fixed; z-index: 50; display: flex; flex-direction: column; min-width: 172px; padding: 5px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); box-shadow: 0 12px 28px #0003; }
-.tab-context-menu button { border: 0; border-radius: 4px; padding: 8px 10px; background: transparent; color: var(--text); text-align: left; font-size: 12px; }
-.tab-context-menu button:hover:not(:disabled) { background: var(--hover); }
 .unsaved-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--accent); }
 .document-context { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 0 16px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .document-save-state { color: var(--secondary); }
@@ -280,7 +277,7 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .file-controls, .document-tabbar, .editor-toolbar, .app-status, .find-bar, .notice-bar, .editor-popover { background: var(--desk); border-color: transparent; color: var(--ui-secondary); }
 .document-sidebar, .outline-panel, .ai-drawer { background: var(--sidebar); border-color: var(--line); color: var(--ui-text); }
 .icon-button, .file-controls .control-button, .more-actions summary, .tree-action-menu summary, .toolbar-more summary, .tree-entry, .tree-actions > button, .search-hit, .document-tab, .document-context, .document-save-state, .status-mode { color: var(--ui-secondary); }
-.icon-button:hover:not(:disabled), .file-controls .control-button:hover:not(:disabled), .tree-entry:hover, .tree-entry[aria-selected="true"], .tree-header strong, .search-hit strong, .outline-list button, .file-controls .save-button, .tab-context-menu button, .more-actions-menu button, .tree-action-popup button, .toolbar-more-menu .menu-command { color: var(--ui-text); }
+.icon-button:hover:not(:disabled), .file-controls .control-button:hover:not(:disabled), .tree-entry:hover, .tree-entry[aria-selected="true"], .tree-header strong, .search-hit strong, .outline-list button, .file-controls .save-button, .more-actions-menu button, .tree-action-popup button, .toolbar-more-menu .menu-command { color: var(--ui-text); }
 .sidebar-heading h2, .sidebar-empty, .tree-note button, .tree-more, .tree-form { color: var(--ui-secondary); }
 .tree-chevron, .tree-note, .search-hit small, .find-count, .file-controls kbd { color: var(--ui-muted); }
 .tree-header { border-color: transparent; }
@@ -292,7 +289,7 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .editor-toolbar { height: 40px; min-height: 40px; opacity: .92; }
 .editor-toolbar select, .workspace-search input, .find-bar input, .editor-popover input, .tree-form input { background: var(--chrome); color: var(--ui-text); border-color: var(--line); }
 .app-status { height: 26px; }
-.table-size-picker, .tab-context-menu, .drafts-dialog { background: var(--chrome); color: var(--ui-text); }
+.table-size-picker, .drafts-dialog { background: var(--chrome); color: var(--ui-text); }
 .settings-title p, .settings-row small, .settings-section-heading small { color: var(--ui-muted); }
 .settings-tabs button { color: var(--ui-secondary); }
 .settings-tabs button:hover, .settings-tabs button[aria-current="page"] { color: var(--ui-text); }
@@ -483,3 +480,6 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .pdf-page .textLayer ::selection { background: rgb(0 96 223 / 0.28); color: transparent; }
 .pdf-page .textLayer br::selection { background: transparent; }
 .pdf-page .textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; -webkit-user-select: none; user-select: none; }
+.rename-dialog { width: min(380px, calc(100vw - 48px)); }
+.rename-field { display: flex; flex-direction: column; gap: 8px; padding: 14px 0 4px; font-size: 12px; color: var(--ui-secondary); }
+.rename-field input { height: 32px; border: 1px solid var(--line); border-radius: 7px; padding: 0 10px; background: var(--raised); color: var(--ui-text); font-size: 13px; }

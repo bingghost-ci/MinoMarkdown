@@ -1,6 +1,6 @@
 import { Crepe, CrepeFeature } from '@milkdown/crepe'
 import { insertImageCommand } from '@milkdown/kit/preset/commonmark'
-import { callCommand, insert } from '@milkdown/kit/utils'
+import { callCommand, getMarkdown, insert } from '@milkdown/kit/utils'
 import { commandsCtx, editorViewCtx, inputRulesCtx, prosePluginsCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import { closeHistory, undoDepth, redoDepth } from '@milkdown/kit/prose/history'
 import { toggleStrongCommand, toggleEmphasisCommand, toggleInlineCodeCommand, wrapInHeadingCommand, turnIntoTextCommand, wrapInBulletListCommand, wrapInOrderedListCommand, wrapInBlockquoteCommand, insertHrCommand, createCodeBlockCommand, clearTextInCurrentBlockCommand, wrapInBlockTypeCommand, listItemSchema, sinkListItemCommand, liftListItemCommand } from '@milkdown/kit/preset/commonmark'
@@ -8,7 +8,7 @@ import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
 import { undoCommand, redoCommand } from '@milkdown/kit/plugin/history'
 import { TextSelection, NodeSelection, type Command, type EditorState, type Transaction } from '@milkdown/kit/prose/state'
 import { keymap as proseKeymap } from '@milkdown/kit/prose/keymap'
-import type { Node as ProseNode } from '@milkdown/kit/prose/model'
+import { Fragment, Slice, type Node as ProseNode } from '@milkdown/kit/prose/model'
 import { Prec, type Extension } from '@codemirror/state'
 import { keymap as codeKeymap } from '@codemirror/view'
 import { deleteRow, deleteColumn } from '@milkdown/kit/prose/tables'
@@ -426,6 +426,50 @@ export class EditorAdapter {
     })
     this.crepe.editor.action(insert(markdown))
     this.crepe.editor.action((ctx) => ctx.get(editorViewCtx).focus())
+    this.emitToolbarState()
+  }
+
+  /**
+   * Called on a right click (T105). A click outside the selection moves the caret there, as in other Mac
+   * editors, so pasting and inserting from the menu happen where the user clicked. Returns whether text is selected.
+   */
+  prepareContextMenu(x: number, y: number): boolean {
+    let selected = false
+    if (this.created) this.crepe.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx)
+      const { selection } = view.state
+      const at = view.posAtCoords({ left: x, top: y })?.pos
+      const inside = at !== undefined && !selection.empty && at >= selection.from && at <= selection.to
+      if (!inside && at !== undefined && !this.composing) view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(at))))
+      selected = !view.state.selection.empty
+      view.focus()
+    })
+    return selected
+  }
+
+  /** The selection as Markdown, with images pointing where they will be saved; null when nothing is selected. */
+  selectionMarkdown(): string | null {
+    if (!this.created) return null
+    let range: { from: number; to: number } | null = null
+    this.crepe.editor.action((ctx) => { const { selection } = ctx.get(editorViewCtx).state; if (!selection.empty) range = { from: selection.from, to: selection.to } })
+    return range ? rewriteImageUrls(this.crepe.editor.action(getMarkdown(range)), this.persisted).trim() : null
+  }
+
+  /** Pastes text without its formatting: lines become paragraphs and nothing is read as HTML. */
+  pastePlainText(text: string): void {
+    if (this.readOnly) throw new Error('READING_MODE')
+    if (!this.created || this.composing) throw new Error('EDITOR_NOT_READY')
+    this.crepe.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx)
+      view.focus()
+      // Inserted as text so no Markdown or HTML in it is interpreted; each further line becomes its own paragraph.
+      const lines = text.replace(/\r\n?/g, '\n').split('\n')
+      const { schema } = view.state
+      const tr = lines.length === 1 || view.state.selection.$from.parent.type.spec.code
+        ? view.state.tr.insertText(text)
+        : view.state.tr.replaceSelection(new Slice(Fragment.from(lines.map((line) => schema.nodes.paragraph.create(null, line ? schema.text(line) : null))), 1, 1))
+      view.dispatch(tr.scrollIntoView())
+    })
     this.emitToolbarState()
   }
 

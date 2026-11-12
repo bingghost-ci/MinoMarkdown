@@ -6,7 +6,7 @@ import { OutlinePanel } from './components/OutlinePanel'
 import { TabBar } from './components/TabBar'
 import { EditorToolbar } from './components/EditorToolbar'
 import { EditorBody } from './components/EditorBody'
-import { TabContextMenu, DraftsDialog } from './components/Dialogs'
+import { DocumentRenameDialog, DraftsDialog } from './components/Dialogs'
 import { SettingsDialog } from './components/SettingsDialog'
 import { StatusBar, VerificationPanel } from './components/StatusBar'
 import { FloatingControls } from './components/FloatingControls'
@@ -14,13 +14,13 @@ import { AiConsentDialog, AiDrawer } from './components/AiDrawer'
 
 export function App() {
   const controller = useDocumentWorkspace()
-  const { latinLayout, lightbox, openImageFromClick, reading, setLightbox, setTabMenu, settings, t, tabMenu } = controller
+  const { latinLayout, lightbox, openBodyMenu, openImageFromClick, reading, setLightbox, settings, t } = controller
   return (
-    <main className="app-shell" data-reading={reading} onClick={() => { if (tabMenu) setTabMenu(null) }}>
+    <main className="app-shell" data-reading={reading}>
       <FileControls workspace={controller} />
       <div className="workspace-layout">
         <FileSidebar workspace={controller} />
-        <section className="editor-panel" data-editor-width={settings.editorWidth} data-reading={reading} data-image-captions={settings.imageCaptions} data-script={latinLayout ? 'latin' : 'cjk'} lang={latinLayout ? 'en' : undefined} aria-label={t('Markdown 编辑区域')} onClickCapture={openImageFromClick}>
+        <section className="editor-panel" data-editor-width={settings.editorWidth} data-reading={reading} data-image-captions={settings.imageCaptions} data-script={latinLayout ? 'latin' : 'cjk'} lang={latinLayout ? 'en' : undefined} aria-label={t('Markdown 编辑区域')} onClickCapture={openImageFromClick} onContextMenu={openBodyMenu}>
           <TabBar workspace={controller} />
           <EditorToolbar workspace={controller} />
           <div className="reading-progress" aria-hidden="true" hidden={!reading}><i /></div>
@@ -31,7 +31,7 @@ export function App() {
         <AiDrawer workspace={controller} />
       </div>
       <StatusBar workspace={controller} />
-      <TabContextMenu workspace={controller} />
+      <DocumentRenameDialog workspace={controller} />
       <DraftsDialog workspace={controller} />
       <SettingsDialog workspace={controller} />
       <AiConsentDialog workspace={controller} />

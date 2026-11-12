@@ -91,6 +91,15 @@ export class SourceEditor {
     this.view.dispatch({ selection: { anchor: offsetToPosition(doc, start, this.endings), head: offsetToPosition(doc, end, this.endings) } })
   }
 
+  /** A right click outside the selection moves the caret there (T105). Returns whether text is selected. */
+  prepareContextMenu(x: number, y: number): boolean {
+    const { main } = this.view.state.selection
+    const at = this.view.posAtCoords({ x, y })
+    if (at !== null && (main.empty || at < main.from || at > main.to)) this.view.dispatch({ selection: { anchor: at } })
+    this.view.focus()
+    return !this.view.state.selection.main.empty
+  }
+
   set readOnly(locked: boolean) {
     this.view.dispatch({ effects: this.readOnlyMode.reconfigure(EditorState.readOnly.of(locked)) })
   }

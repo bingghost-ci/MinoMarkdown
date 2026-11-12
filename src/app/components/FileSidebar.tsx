@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react'
+import { memo } from 'react'
 import type { DocumentWorkspace } from '../useDocumentWorkspace'
 import { pick } from '../stable'
 import { ChevronDown, ChevronRight, FilePlus2, FolderOpen, FileText, Folder, FolderPlus, MoreHorizontal, Pencil, RefreshCw, Trash2, X, PanelLeftClose } from 'lucide-react'
@@ -7,7 +7,7 @@ import { PANE_MAX, SIDEBAR_MIN } from '../readingSettings'
 import type { WorkspaceEntry } from '../useDocumentWorkspace'
 import { translateStatus } from '../i18n'
 
-const fileSidebarKeys = ['openSearchHit', 'runWorkspaceSearch', 'searchQuery', 'searchState', 'setSearchQuery', 'chooseWorkspace', 'closeWorkspace', 'createEntry', 'desktop', 'activeEntryToken', 'loadChildren', 'newEntryName', 'newEntryType', 'openWorkspaceEntry', 'renameEntry', 'renameName', 'renaming', 'selectedEntry', 'setNewEntryName', 'setNewEntryType', 'setRenameName', 'setRenaming', 'setSelectedDirectory', 'selectedDirectory', 'setSelectedEntry', 'updateSettings', 'settings', 'sidebarOpen', 't', 'toggleDirectory', 'trashEntry', 'tree', 'workspaces'] as const satisfies readonly (keyof DocumentWorkspace)[]
+const fileSidebarKeys = ['openEntryMenu', 'openRootMenu', 'openSearchHit', 'runWorkspaceSearch', 'searchQuery', 'searchState', 'setSearchQuery', 'chooseWorkspace', 'closeWorkspace', 'createEntry', 'desktop', 'activeEntryToken', 'loadChildren', 'newEntryName', 'newEntryType', 'openWorkspaceEntry', 'renameEntry', 'renameName', 'renaming', 'selectedEntry', 'setNewEntryName', 'setNewEntryType', 'setRenameName', 'setRenaming', 'setSelectedDirectory', 'selectedDirectory', 'setSelectedEntry', 'updateSettings', 'settings', 'sidebarOpen', 't', 'toggleDirectory', 'trashEntry', 'tree', 'workspaces'] as const satisfies readonly (keyof DocumentWorkspace)[]
 
 /** Renders again only when something it reads changes, not on every render of the app (T95). */
 export function FileSidebar({ workspace }: { workspace: DocumentWorkspace }) {
@@ -15,20 +15,7 @@ export function FileSidebar({ workspace }: { workspace: DocumentWorkspace }) {
 }
 
 const FileSidebarView = memo(function FileSidebarView(w: Pick<DocumentWorkspace, (typeof fileSidebarKeys)[number]>) {
-  const { openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, chooseWorkspace, closeWorkspace, createEntry, desktop, activeEntryToken, loadChildren, newEntryName, newEntryType, openWorkspaceEntry, renameEntry, renameName, renaming, selectedEntry, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, selectedDirectory, setSelectedEntry, settings, sidebarOpen, t, toggleDirectory, trashEntry, tree, workspaces } = w
-  // The menu a right click on a folder's title opens; it goes away on any click, on Escape and when the window loses focus.
-  const [rootMenu, setRootMenu] = useState<{ token: string; x: number; y: number } | null>(null)
-  useEffect(() => {
-    if (!rootMenu) return
-    const close = () => setRootMenu(null)
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close() }
-    window.addEventListener('click', close)
-    window.addEventListener('contextmenu', close)
-    window.addEventListener('blur', close)
-    window.addEventListener('keydown', onKey)
-    return () => { window.removeEventListener('click', close); window.removeEventListener('contextmenu', close); window.removeEventListener('blur', close); window.removeEventListener('keydown', onKey) }
-  }, [rootMenu])
-  const menuRoot = rootMenu ? workspaces.find((root) => root.token === rootMenu.token) : undefined
+  const { openEntryMenu, openRootMenu, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, chooseWorkspace, closeWorkspace, createEntry, desktop, activeEntryToken, loadChildren, newEntryName, newEntryType, openWorkspaceEntry, renameEntry, renameName, renaming, selectedEntry, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, selectedDirectory, setSelectedEntry, settings, sidebarOpen, t, toggleDirectory, trashEntry, tree, workspaces } = w
   function treeKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, entry: WorkspaceEntry) {
     if (event.key === 'ArrowRight' && entry.directory) { event.preventDefault(); if (!tree[entry.token]?.expanded) toggleDirectory(entry.token) }
     if (event.key === 'ArrowLeft' && entry.directory) { event.preventDefault(); if (tree[entry.token]?.expanded) toggleDirectory(entry.token) }
@@ -45,7 +32,7 @@ const FileSidebarView = memo(function FileSidebarView(w: Pick<DocumentWorkspace,
     if (!state?.expanded) return null
     return <div role="group">
       {state.entries.map((entry) => <div key={entry.token}>
-        <button type="button" role="treeitem" data-tree-item aria-level={depth + 1} aria-expanded={entry.directory ? (tree[entry.token]?.expanded ?? false) : undefined} aria-selected={activeEntryToken === entry.token || selectedEntry?.token === entry.token} className="tree-entry" style={{ paddingLeft: `${12 + depth * 16}px` }} onClick={() => { setSelectedEntry({ ...entry, parentToken: token }); setSelectedDirectory(entry.directory ? entry.token : token); if (entry.directory) toggleDirectory(entry.token); else void openWorkspaceEntry(entry.token) }} onKeyDown={(event) => treeKeyDown(event, entry)}>
+        <button type="button" role="treeitem" data-tree-item aria-level={depth + 1} aria-expanded={entry.directory ? (tree[entry.token]?.expanded ?? false) : undefined} aria-selected={activeEntryToken === entry.token || selectedEntry?.token === entry.token} className="tree-entry" onContextMenu={(event) => openEntryMenu(entry, token, event)} style={{ paddingLeft: `${12 + depth * 16}px` }} onClick={() => { setSelectedEntry({ ...entry, parentToken: token }); setSelectedDirectory(entry.directory ? entry.token : token); if (entry.directory) toggleDirectory(entry.token); else void openWorkspaceEntry(entry.token) }} onKeyDown={(event) => treeKeyDown(event, entry)}>
           <span className="tree-chevron" aria-hidden="true">{entry.directory ? tree[entry.token]?.expanded ? <ChevronDown /> : <ChevronRight /> : null}</span>
           {entry.directory ? <Folder className="tree-icon" aria-hidden="true" /> : <FileText className="tree-icon" aria-hidden="true" />}
           <span className="tree-name">{entry.name}</span>
@@ -80,7 +67,7 @@ const FileSidebarView = memo(function FileSidebarView(w: Pick<DocumentWorkspace,
               : <div role="tree" aria-label={t('文件夹目录')} className="file-tree">{workspaces.map((root) => {
                 const open = tree[root.token]?.expanded ?? false
                 return <div key={root.token} className="tree-root">
-                  <div className="tree-header" data-selected={selectedDirectory === root.token && !selectedEntry || undefined} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setSelectedEntry(null); setSelectedDirectory(root.token); setRootMenu({ token: root.token, x: event.clientX, y: event.clientY }) }}>
+                  <div className="tree-header" data-selected={selectedDirectory === root.token && !selectedEntry || undefined} onContextMenu={(event) => openRootMenu(root.token, event)}>
                     <button type="button" className="tree-root-name" aria-expanded={open} title={root.name} onClick={() => { setSelectedEntry(null); setSelectedDirectory(root.token); toggleDirectory(root.token) }}>{open ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}<strong>{root.name}</strong></button>
                     <button type="button" className="icon-button" onClick={() => void loadChildren(root.token)} title={t('刷新目录')} aria-label={t('刷新目录')}><RefreshCw aria-hidden="true" /></button>
                     <button type="button" className="icon-button" onClick={() => void closeWorkspace(root.token)} title={t('关闭这个文件夹')} aria-label={`${t('关闭这个文件夹')} ${root.name}`}><X aria-hidden="true" /></button>
@@ -98,11 +85,6 @@ const FileSidebarView = memo(function FileSidebarView(w: Pick<DocumentWorkspace,
             {newEntryType && <div className="tree-form"><label>{t(newEntryType === 'file' ? '文件名' : '目录名')}<input value={newEntryName} onChange={(event) => setNewEntryName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void createEntry(); if (event.key === 'Escape') setNewEntryType(null) }} /></label><button type="button" onClick={() => void createEntry()}>{t('创建')}</button><button type="button" onClick={() => setNewEntryType(null)}>{t('取消')}</button></div>}
             {renaming && <div className="tree-form"><label>{t('新名称')}<input value={renameName} onChange={(event) => setRenameName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void renameEntry(); if (event.key === 'Escape') setRenaming(false) }} /></label><button type="button" onClick={() => void renameEntry()}>{t('确定')}</button><button type="button" onClick={() => setRenaming(false)}>{t('取消')}</button></div>}
           </>}
-        {rootMenu && menuRoot && <div className="tab-context-menu" role="menu" aria-label={menuRoot.name} style={{ left: Math.min(rootMenu.x, window.innerWidth - 190), top: Math.min(rootMenu.y, window.innerHeight - 130) }}>
-        <button type="button" role="menuitem" onClick={() => void loadChildren(menuRoot.token)}>{t('刷新目录')}</button>
-        <button type="button" role="menuitem" onClick={() => void closeWorkspace(menuRoot.token)}>{t('关闭这个文件夹')}</button>
-        {workspaces.length > 1 && <button type="button" role="menuitem" onClick={() => void closeWorkspace()}>{t('关闭全部文件夹')}</button>}
-      </div>}
     </aside>}
   </>
 })

@@ -111,6 +111,13 @@ pub(crate) fn relocate_grants(store: &DocumentStore, old: &Path, new: &Path) -> 
     Ok(())
 }
 
+/// The file a document token was granted, checked to still be that regular file and not a link (T105).
+pub(crate) fn granted_file(store: &DocumentStore, token: &str) -> Result<PathBuf, String> {
+    let path = store.grant(token)?.path;
+    if validate_selected_file(&path)? != path { return Err("OUT_OF_SCOPE".into()); }
+    Ok(path)
+}
+
 pub(crate) fn forget_grants(store: &DocumentStore, path: &Path) -> Result<(), String> {
     store.0.lock().map_err(|_| "IO_ERROR")?.retain(|_, grant| grant.path != path);
     Ok(())

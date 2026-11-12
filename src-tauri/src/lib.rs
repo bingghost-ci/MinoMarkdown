@@ -16,6 +16,7 @@ mod system_fonts;
 mod file_kinds;
 mod text_encoding;
 mod positions;
+mod context_menu;
 
 use tauri::{Emitter, Manager};
 use tauri::menu::{Menu, MenuItemKind, PredefinedMenuItem, Submenu};
@@ -167,6 +168,8 @@ pub fn run() {
             } else if event.id().as_ref() == "new-window" {
                 let _ = windows::create(app, &app.state::<windows::TransferStore>(), None);
             } else if let Some(window) = focused_workspace(app) {
+                // A right-click menu item never runs as the main-menu item of the same name (T105).
+                if let Some(id) = event.id().as_ref().strip_prefix(context_menu::PREFIX) { context_menu::chosen(app, window.label(), id); return; }
                 let _ = app.emit_to(window.label(), "menu-action", event.id().as_ref());
             }
         })
@@ -196,6 +199,12 @@ pub fn run() {
             positions::get_reading_position,
             positions::set_reading_position,
             native_menu::set_menu_state,
+            context_menu::show_context_menu,
+            context_menu::reveal_in_finder,
+            context_menu::copy_file_path,
+            context_menu::write_clipboard_text,
+            context_menu::rename_document,
+            context_menu::trash_document,
             documents::save_conflict_copy,
             documents::save_as_document,
             documents::save_document,

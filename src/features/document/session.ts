@@ -51,6 +51,12 @@ export function saveFailed(session: DocumentSession, ticket: SaveTicket, code: s
   return { ...session, persistence: code === 'CONFLICT' ? 'conflict' : 'failed', errorCode: code }
 }
 
+/** The user chose to drop unsaved edits, as when the file is moved to the Trash (T105): nothing is dirty any more. */
+export function discardChanges(session: DocumentSession): DocumentSession {
+  if (session.persistence === 'saving') return session
+  return { ...session, savedRevision: session.revision, persistence: 'idle', errorCode: null }
+}
+
 export function externalConflict(session: DocumentSession): DocumentSession {
   return { ...session, persistence: 'conflict', errorCode: 'CONFLICT' }
 }
