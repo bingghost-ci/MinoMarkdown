@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import './helpers/bundled-font-css'
 import { describe, expect, it } from 'vitest'
 import {
-  bundledFaces, bundledFamilies, choiceFamily, cjkFonts, CODE_FONT_STACK, facesForText, familiesIn, fontFaceCss, fontStack, isFontChoice, isSystemFontName, latinFonts, systemFontId, systemFontName, withoutBundledFonts,
+  bundledFaces, bundledFamilies, choiceFamily, cjkFonts, codeFonts, codeFontStack, CODE_FONT_STACK, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, facesForText, familiesIn, fontFaceCss, fontStack, isFontChoice, isSystemFontName, latinFonts, systemFontId, systemFontName, withoutBundledFonts,
   FANGSONG_FAMILY, GARAMOND_FAMILY, HUOSONG_FAMILY, INTER_FAMILY, KAI_FAMILY, LITERATA_FAMILY, MONO_FAMILY, SANS_FAMILY, SERIF_FAMILY, SOURCE_SERIF_FAMILY, type FontFace,
 } from '../src/features/reading/fonts'
 import { FONT_BUDGET_BYTES } from '../vite.config'
@@ -20,6 +20,8 @@ const directories: Record<string, string> = {
   [GARAMOND_FAMILY]: 'node_modules/@fontsource-variable/eb-garamond/files',
   [INTER_FAMILY]: 'node_modules/@fontsource-variable/inter/files',
   [MONO_FAMILY]: 'node_modules/@fontsource-variable/jetbrains-mono/files',
+  [FIRA_CODE_FAMILY]: 'node_modules/@fontsource-variable/fira-code/files',
+  [SOURCE_CODE_FAMILY]: 'node_modules/@fontsource-variable/source-code-pro/files',
 }
 const westernFamilies = [SOURCE_SERIF_FAMILY, LITERATA_FAMILY, GARAMOND_FAMILY, INTER_FAMILY, MONO_FAMILY]
 const fileOnDisk = (face: FontFace) => join(directories[face.family], face.file)
@@ -27,7 +29,7 @@ const facesOf = (family: string) => bundledFaces.filter((face) => face.family ==
 const rust = readFileSync('src-tauri/src/settings.rs', 'utf8')
 
 describe('bundled fonts', () => {
-  it('bundles ten families, each with WOFF2 files that exist on disk', () => {
+  it('bundles twelve families, each with WOFF2 files that exist on disk', () => {
     expect([...bundledFamilies].sort()).toEqual(Object.keys(directories).sort())
     for (const family of Object.keys(directories)) expect(facesOf(family).length, family).toBeGreaterThan(0)
     for (const face of bundledFaces) {
@@ -303,3 +305,59 @@ describe('font subsets for a text', () => {
     expect(facesForText('x', new Set([HUOSONG_FAMILY]), bundledFaces, false).map((face) => face.file)).toEqual(['chill-huosong-400.woff2'])
   })
 })
+
+describe('fonts that ship as one large file', () => {
+  it('marks exactly the families without subsets, so the picker does not load them to draw a name', () => {
+    const heavy = [...cjkFonts, ...latinFonts, ...codeFonts].filter((font) => font.heavy)
+    expect(heavy.map((font) => font.id)).toEqual(['kai', 'fangsong', 'huosong'])
+    // A family is heavy when none of its faces is limited to a range of characters.
+    for (const font of [...cjkFonts, ...latinFonts, ...codeFonts].filter((item) => item.bundled)) {
+      const family = [...familiesIn(font.family)][0]
+      const whole = bundledFaces.filter((face) => face.family === family).every((face) => face.ranges === null)
+      expect(Boolean(font.heavy), font.id).toBe(whole)
+    }
+  })
+})
+
+describe('T90 code fonts', () => {
+  it('offers three bundled and three system monospace fonts', () => {
+    expect(codeFonts.map((font) => font.id)).toEqual(['jetbrains-mono', 'fira-code', 'source-code-pro', 'sf-mono', 'menlo', 'monaco'])
+    expect(codeFonts.filter((font) => font.bundled).map((font) => font.id)).toEqual(['jetbrains-mono', 'fira-code', 'source-code-pro'])
+    for (const font of codeFonts) {
+      expect(font.script).toBe('code')
+      expect(font.kind).toBe('mono')
+      expect(isFontChoice(font.id, 'code'), font.id).toBe(true)
+      // settings.rs accepts a listed font ID as lowercase letters, digits and hyphens, at most 32 long.
+      expect(font.id).toMatch(/^[a-z0-9-]{1,32}$/)
+      if (font.bundled) expect(bundledFamilies.has([...familiesIn(font.family)][0]), font.id).toBe(true)
+    }
+    // Both new families have files for basic and extended Latin.
+    for (const family of [FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY]) expect(bundledFaces.filter((face) => face.family === family && face.style === 'normal').map((face) => face.file).sort()).toEqual(expect.arrayContaining([expect.stringMatching(/-latin-wght-normal\.woff2$/), expect.stringMatching(/-latin-ext-wght-normal\.woff2$/)]))
+  })
+
+  it('builds the code stack from the choice and always ends in system fallbacks', () => {
+    expect(codeFontStack('auto')).toBe(CODE_FONT_STACK)
+    expect(codeFontStack('jetbrains-mono')).toBe(CODE_FONT_STACK)
+    expect(codeFontStack('fira-code')).toBe(`'${FIRA_CODE_FAMILY}', ui-monospace, SFMono-Regular, Menlo, 'PingFang SC', monospace`)
+    expect(codeFontStack('menlo').startsWith('Menlo, ui-monospace')).toBe(true)
+    expect(codeFontStack('sys:Maple Mono').startsWith("'Maple Mono', ui-monospace")).toBe(true)
+    // A font from a newer version, or a name that is not safe in CSS, falls back to the default.
+    expect(codeFontStack('no-such-font')).toBe(CODE_FONT_STACK)
+    expect(codeFontStack("sys:a'b")).toBe(CODE_FONT_STACK)
+    // A code font is not a text font and the other way round.
+    expect(isFontChoice('fira-code', 'latin')).toBe(false)
+    expect(isFontChoice('song', 'code')).toBe(false)
+    expect(withoutBundledFonts(codeFontStack('source-code-pro'))).toBe("ui-monospace, SFMono-Regular, Menlo, 'PingFang SC', monospace")
+  })
+
+  it('reaches the stylesheet through the typography variables, in the app and in exports', async () => {
+    const { typographyVariables } = await import('../src/features/reading/css')
+    const { documentTypography, defaultReadingSettings } = await import('../src/app/readingSettings')
+    const { readingStyle } = await import('../src/features/reading/styles')
+    const style = readingStyle('white')
+    expect(typographyVariables(documentTypography(defaultReadingSettings, style), style)['--code-font']).toBe(CODE_FONT_STACK)
+    expect(typographyVariables(documentTypography({ ...defaultReadingSettings, codeFont: 'fira-code' }, style), style)['--code-font']).toBe(codeFontStack('fira-code'))
+    expect(typographyVariables(documentTypography({ ...defaultReadingSettings, codeFont: 'sys:Maple Mono' }, style), style)['--code-font']).toContain("'Maple Mono'")
+  })
+})
+

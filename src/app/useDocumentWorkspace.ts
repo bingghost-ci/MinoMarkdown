@@ -843,7 +843,7 @@ export function useDocumentWorkspace() {
   /** Font families installed on this Mac, read once when the font panel first needs them (T67). */
   function loadSystemFonts() {
     if (systemFonts !== null) return
-    if (!desktop) { setSystemFonts(uiPreview ? ['Avenir Next', 'Baskerville', 'Georgia', 'Helvetica Neue', 'Kaiti SC', 'PingFang SC', 'Songti SC', 'Times New Roman'] : []); return }
+    if (!desktop) { setSystemFonts(uiPreview ? (window as { previewFonts?: string[] }).previewFonts ?? ['Avenir Next', 'Baskerville', 'Georgia', 'Helvetica Neue', 'Kaiti SC', 'PingFang SC', 'Songti SC', 'Times New Roman'] : []); return }
     void invoke<string[]>('list_system_fonts').then(setSystemFonts, () => setSystemFonts([]))
   }
   const pickStyle = (picked: ReadingStyle) => setSettings((current) => ({ ...current, ...pickedStyle(picked, current, systemDark) }))

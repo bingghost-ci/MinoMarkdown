@@ -16,7 +16,7 @@ const programmatic = Annotation.define<boolean>()
 const theme = EditorView.theme({
   '&': { flex: '1', minHeight: '0', color: 'var(--text)', backgroundColor: 'transparent' },
   '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': { padding: 'var(--source-padding-block) var(--source-padding-inline)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 'var(--editor-font-size)', lineHeight: 'var(--editor-line-height)' },
+  '.cm-scroller': { padding: 'var(--source-padding-block) var(--source-padding-inline)', fontFamily: 'var(--code-font, ui-monospace, SFMono-Regular, Menlo, monospace)', fontSize: 'var(--editor-font-size)', lineHeight: 'var(--editor-line-height)' },
   '.cm-content': { caretColor: 'var(--text)' },
   '.cm-cursor': { borderLeftColor: 'var(--text)' },
   '.cm-gutters': { border: 'none', backgroundColor: 'transparent', color: 'var(--muted)' },

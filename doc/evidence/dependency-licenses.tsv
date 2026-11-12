@@ -55,9 +55,11 @@ package	version	license	status
 @floating-ui/dom	1.8.0	MIT	installed
 @floating-ui/utils	0.2.12	MIT	installed
 @fontsource-variable/eb-garamond	5.3.0	OFL-1.1	installed
+@fontsource-variable/fira-code	5.3.0	OFL-1.1	installed
 @fontsource-variable/inter	5.3.0	OFL-1.1	installed
 @fontsource-variable/jetbrains-mono	5.3.0	OFL-1.1	installed
 @fontsource-variable/literata	5.3.0	OFL-1.1	installed
+@fontsource-variable/source-code-pro	5.3.1	OFL-1.1	installed
 @fontsource-variable/source-serif-4	5.3.1	OFL-1.1	installed
 @fontsource/lxgw-wenkai	5.3.0	OFL-1.1	installed
 @fontsource/noto-sans-sc	5.3.1	OFL-1.1	installed
@@ -243,6 +245,7 @@ nanoid	6.0.2	MIT	installed
 node-releases	2.0.63	MIT	installed
 orderedmap	2.1.1	MIT	installed
 pathe	2.0.3	MIT	installed
+pdfjs-dist	6.5.438	Apache-2.0	installed
 picocolors	1.1.1	ISC	installed
 picomatch	4.0.7	MIT	installed
 postcss	8.5.32	MIT	installed

@@ -1,6 +1,17 @@
 export type Language = 'zh-CN' | 'en-US'
 
 const english: Record<string, string> = {
+  "代码": "Code",
+  "代码字体": "Code Fonts",
+  "用于代码": "For Code",
+  "默认": "Default",
+  "用于代码块、代码与配置文件和源码编辑器。本机里其他的等宽字体可以在“本机”里选。": "Used for code blocks, source and configuration files, and the source editor. Other monospace fonts on this Mac are under Installed.",
+  "字形偏高，长时间看代码不累": "Tall letterforms, easy on the eyes for long sessions",
+  "带连字：=> != >= 会连成一个符号": "Has ligatures: => != >= join into single symbols",
+  "字形端正，间距宽松": "Upright shapes with generous spacing",
+  "系统等宽字体，与 Xcode、终端一致": "The system monospace font, as in Xcode and Terminal",
+  "系统自带，经典的 macOS 代码字体": "Built in; the classic macOS code font",
+  "系统自带，小字号下很清楚": "Built in; very clear at small sizes",
   "按阅读风格着色": "Use the reading style's colors",
   "显示 PDF 原本的颜色": "Show the PDF's own colors",
   "代码与数据": "Source & data",

@@ -10,7 +10,8 @@ import type { StyleFont } from './styles'
  * name (`sys:<family>`, listed by the `list_system_fonts` command) and cost no app size.
  */
 export type FontFace = { family: string; weight: string; style: 'normal' | 'italic'; file: string; url: string; ranges: [number, number][] | null; unicodeRange: string | null }
-export type FontScript = 'cjk' | 'latin'
+/** `code` is the monospace font of code blocks, source files and the source editor (T90). */
+export type FontScript = 'cjk' | 'latin' | 'code'
 export type FontKind = 'serif' | 'sans' | 'kai' | 'fangsong' | 'mono'
 export type FontOption = {
   id: string
@@ -21,6 +22,11 @@ export type FontOption = {
   /** CSS family list that draws this font: a bundled private family, or system families. */
   family: string
   bundled: boolean
+  /**
+   * Ships as one large file (5–12 MiB) rather than small subsets. Loading it stalls the page for a moment,
+   * so nothing may draw text in it just to show its name: the font picker waits for the pointer to rest on it.
+   */
+  heavy?: boolean
 }
 
 export const SERIF_FAMILY = 'Mino Noto Serif SC'
@@ -33,10 +39,13 @@ export const LITERATA_FAMILY = 'Mino Literata'
 export const GARAMOND_FAMILY = 'Mino EB Garamond'
 export const INTER_FAMILY = 'Mino Inter'
 export const MONO_FAMILY = 'Mino JetBrains Mono'
+export const FIRA_CODE_FAMILY = 'Mino Fira Code'
+export const SOURCE_CODE_FAMILY = 'Mino Source Code Pro'
 
 const SYSTEM_SANS = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', sans-serif"
-/** Code in documents, the editor and exports. */
-export const CODE_FONT_STACK = `'${MONO_FAMILY}', ui-monospace, SFMono-Regular, Menlo, 'PingFang SC', monospace`
+const CODE_FALLBACK = "ui-monospace, SFMono-Regular, Menlo, 'PingFang SC', monospace"
+/** Code in documents, the editor and exports, when no code font is chosen. */
+export const CODE_FONT_STACK = `'${MONO_FAMILY}', ${CODE_FALLBACK}`
 
 // Noto Serif SC and Noto Sans SC ship as about a hundred unicode-range subsets per weight, and WebKit
 // fetches only the subsets a page uses. LXGW WenKai 5.3.0 ships one file per weight (300, 500, 700).
@@ -45,12 +54,12 @@ const fontFiles = {
   ...import.meta.glob<string>('/node_modules/@fontsource/{noto-serif-sc,noto-sans-sc}/files/noto-{serif,sans}-sc-{latin,latin-ext,cyrillic,vietnamese}-{400,700}-normal.woff2', { query: '?url', import: 'default', eager: true }),
   ...import.meta.glob<string>('/node_modules/@fontsource/lxgw-wenkai/files/lxgw-wenkai-latin-{500,700}-normal.woff2', { query: '?url', import: 'default', eager: true }),
   // Western fonts are variable (one file holds every weight) and limited to the Latin subsets.
-  ...import.meta.glob<string>('/node_modules/@fontsource-variable/{source-serif-4,literata,eb-garamond,inter,jetbrains-mono}/files/*-{latin,latin-ext}-wght-{normal,italic}.woff2', { query: '?url', import: 'default', eager: true }),
+  ...import.meta.glob<string>('/node_modules/@fontsource-variable/{source-serif-4,literata,eb-garamond,inter,jetbrains-mono,fira-code,source-code-pro}/files/*-{latin,latin-ext}-wght-{normal,italic}.woff2', { query: '?url', import: 'default', eager: true }),
   ...import.meta.glob<string>('/src/assets/fonts/*/*.woff2', { query: '?url', import: 'default', eager: true }),
 }
 const fontCss = {
   ...import.meta.glob<string>('/node_modules/@fontsource/{noto-serif-sc,noto-sans-sc}/{400,700}.css', { query: '?raw', import: 'default', eager: true }),
-  ...import.meta.glob<string>('/node_modules/@fontsource-variable/{source-serif-4,literata,eb-garamond,inter,jetbrains-mono}/{wght,wght-italic}.css', { query: '?raw', import: 'default', eager: true }),
+  ...import.meta.glob<string>('/node_modules/@fontsource-variable/{source-serif-4,literata,eb-garamond,inter,jetbrains-mono,fira-code,source-code-pro}/{wght,wght-italic}.css', { query: '?raw', import: 'default', eager: true }),
 }
 
 const urlByFile = new Map(Object.entries(fontFiles).map(([path, url]) => [path.split('/').pop()!, url]))
@@ -100,6 +109,8 @@ export const bundledFaces: readonly FontFace[] = [
   ...packageFaces('eb-garamond', GARAMOND_FAMILY),
   ...packageFaces('inter', INTER_FAMILY),
   ...packageFaces('jetbrains-mono', MONO_FAMILY),
+  ...packageFaces('fira-code', FIRA_CODE_FAMILY),
+  ...packageFaces('source-code-pro', SOURCE_CODE_FAMILY),
 ]
 
 export const bundledFamilies: ReadonlySet<string> = new Set(bundledFaces.map((face) => face.family))
@@ -112,10 +123,10 @@ export function fontFaceCss(faces: readonly FontFace[], source: (face: FontFace)
 /** Chinese fonts offered by name. `hei` is the system's PingFang; the rest ship with the app. */
 export const cjkFonts: readonly FontOption[] = [
   { id: 'song', label: '思源宋体', note: '书宋，适合长文与书稿', script: 'cjk', kind: 'serif', family: `'${SERIF_FAMILY}', 'Songti SC', 'STSong'`, bundled: true },
-  { id: 'kai', label: '霞鹜文楷', note: '楷体，适合笔记与随笔', script: 'cjk', kind: 'kai', family: `'${KAI_FAMILY}', 'Kaiti SC', 'STKaiti'`, bundled: true },
+  { id: 'kai', label: '霞鹜文楷', note: '楷体，适合笔记与随笔', script: 'cjk', kind: 'kai', family: `'${KAI_FAMILY}', 'Kaiti SC', 'STKaiti'`, bundled: true, heavy: true },
   { id: 'sans', label: '思源黑体', note: '黑体，各字重均匀清晰', script: 'cjk', kind: 'sans', family: `'${SANS_FAMILY}', 'PingFang SC'`, bundled: true },
-  { id: 'fangsong', label: '朱雀仿宋', note: '仿宋，清秀，适合公文与随笔', script: 'cjk', kind: 'fangsong', family: `'${FANGSONG_FAMILY}', 'STFangsong'`, bundled: true },
-  { id: 'huosong', label: '寒蝉活宋', note: '活字印刷质感的宋体', script: 'cjk', kind: 'serif', family: `'${HUOSONG_FAMILY}', 'Songti SC'`, bundled: true },
+  { id: 'fangsong', label: '朱雀仿宋', note: '仿宋，清秀，适合公文与随笔', script: 'cjk', kind: 'fangsong', family: `'${FANGSONG_FAMILY}', 'STFangsong'`, bundled: true, heavy: true },
+  { id: 'huosong', label: '寒蝉活宋', note: '活字印刷质感的宋体', script: 'cjk', kind: 'serif', family: `'${HUOSONG_FAMILY}', 'Songti SC'`, bundled: true, heavy: true },
   { id: 'hei', label: '苹方', note: '系统黑体，适合技术文档', script: 'cjk', kind: 'sans', family: "'PingFang SC', 'Hiragino Sans GB'", bundled: false },
 ]
 
@@ -128,7 +139,20 @@ export const latinFonts: readonly FontOption[] = [
   { id: 'mono', label: 'JetBrains Mono', note: '等宽，适合技术笔记', script: 'latin', kind: 'mono', family: `'${MONO_FAMILY}'`, bundled: true },
 ]
 
-const optionById = new Map([...cjkFonts, ...latinFonts].map((option) => [`${option.script}:${option.id}`, option]))
+/**
+ * Monospace fonts for code (T90). The first three ship with the app; the rest come with macOS. Any other
+ * installed font can be chosen from the list of fonts on this Mac.
+ */
+export const codeFonts: readonly FontOption[] = [
+  { id: 'jetbrains-mono', label: 'JetBrains Mono', note: '字形偏高，长时间看代码不累', script: 'code', kind: 'mono', family: `'${MONO_FAMILY}'`, bundled: true },
+  { id: 'fira-code', label: 'Fira Code', note: '带连字：=> != >= 会连成一个符号', script: 'code', kind: 'mono', family: `'${FIRA_CODE_FAMILY}'`, bundled: true },
+  { id: 'source-code-pro', label: 'Source Code Pro', note: '字形端正，间距宽松', script: 'code', kind: 'mono', family: `'${SOURCE_CODE_FAMILY}'`, bundled: true },
+  { id: 'sf-mono', label: 'SF Mono', note: '系统等宽字体，与 Xcode、终端一致', script: 'code', kind: 'mono', family: "ui-monospace, 'SF Mono', SFMono-Regular", bundled: false },
+  { id: 'menlo', label: 'Menlo', note: '系统自带，经典的 macOS 代码字体', script: 'code', kind: 'mono', family: "Menlo", bundled: false },
+  { id: 'monaco', label: 'Monaco', note: '系统自带，小字号下很清楚', script: 'code', kind: 'mono', family: "Monaco", bundled: false },
+]
+
+const optionById = new Map([...cjkFonts, ...latinFonts, ...codeFonts].map((option) => [`${option.script}:${option.id}`, option]))
 
 /** The Chinese font a style recommends when the choice is `auto`. */
 const styleCjk: Record<StyleFont, string> = { song: 'song', kai: 'kai', hei: 'hei' }
@@ -187,6 +211,11 @@ export function fontStack(cjkChoice: string, latinChoice: string, styleFont: Sty
   const lead = latin ?? (cjkOption?.id === 'hei' ? "-apple-system, BlinkMacSystemFont, 'SF Pro Text'" : null)
   const generic = kind === 'sans' || kind === 'mono' ? SYSTEM_SANS : "'Songti SC', 'STSong', serif"
   return [lead, cjk, generic].filter(Boolean).join(', ')
+}
+
+/** The font stack of code. `auto` and unknown choices use JetBrains Mono; system fallbacks follow every choice. */
+export function codeFontStack(choice: string): string {
+  return `${choiceFamily(choice, 'code') ?? `'${MONO_FAMILY}'`}, ${CODE_FALLBACK}`
 }
 
 export function familiesIn(stack: string): Set<string> {

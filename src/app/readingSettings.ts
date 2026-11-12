@@ -1,4 +1,4 @@
-import { fontStack } from '../features/reading/fonts'
+import { codeFontStack, fontStack } from '../features/reading/fonts'
 import type { Measure, PageMargin, PageSize, ParagraphSpacing, TableStyle, Typography } from '../features/reading/css'
 import type { DocumentScript } from '../features/reading/script'
 import { readingStyle, resolveStyleId, type ReadingStyle, type StyleId, type ThemeId } from '../features/reading/styles'
@@ -11,6 +11,8 @@ export type ReadingSettings = {
   /** `auto`, a bundled font ID, or `sys:<family>` for a font installed on this Mac; see `fonts.ts`. */
   cjkFont: string
   latinFont: string
+  /** The monospace font of code blocks, source files and the source editor (T90). */
+  codeFont: string
   editorFontSize: number
   editorLineHeight: 'compact' | 'comfortable' | 'relaxed'
   paragraphSpacing: ParagraphSpacing
@@ -33,7 +35,7 @@ export type ReadingSettings = {
 
 /** New installs; `settings.rs` fills missing fields of older files so their look does not change. */
 export const defaultReadingSettings: ReadingSettings = {
-  theme: 'system', dayTheme: 'white', nightTheme: 'dark', cjkFont: 'auto', latinFont: 'auto', editorFontSize: 16, editorLineHeight: 'comfortable',
+  theme: 'system', dayTheme: 'white', nightTheme: 'dark', cjkFont: 'auto', latinFont: 'auto', codeFont: 'auto', editorFontSize: 16, editorLineHeight: 'comfortable',
   paragraphSpacing: 'standard', measure: '36', textAlign: 'left', firstLineIndent: false, tableStyle: 'three-line', textureStrength: 60, latinLayout: 'auto',
   imageCaptions: true, imageDimming: true, openInReadingMode: true, exportStyle: 'current', pdfMode: 'print', pageSize: 'a4', pageMargin: 'standard',
 }
@@ -62,6 +64,7 @@ export function documentTypography(settings: ReadingSettings, style: ReadingStyl
   const lineHeight = (latin ? latinLineHeights : lineHeights)[settings.editorLineHeight] ?? (latin ? latinLineHeights : lineHeights).comfortable
   return {
     fontFamily: documentFontFamily(settings, style),
+    codeFontFamily: codeFontStack(settings.codeFont),
     fontSize: settings.editorFontSize,
     lineHeight,
     paragraphSpacing: settings.paragraphSpacing,

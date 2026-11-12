@@ -39,3 +39,8 @@ Rust `several_folders_are_open_at_once_and_each_is_released_alone`：两个文�
 - 实机 PENDING：搜索同时命中两个文件夹；搜索进行中输入新词。
 - 实机 PENDING：关闭一个文件夹后，从中打开的文档仍能保存。
 - 用户验收 PENDING。
+
+## 2026-11-12 文件夹标题的右键菜单
+
+用户要求在文件栏的文件夹标题上加右键菜单以关闭该目录。右键标题弹出菜单：刷新目录、关闭这个文件夹；打开多个文件夹时另有“关闭全部文件夹”。点击任意处、按 Esc、窗口失去焦点时菜单消失。动作复用原有的 `loadChildren` 与 `closeWorkspace`，授权逻辑没有变。离屏 WebKit 里用合成的 `contextmenu` 事件确认菜单出现、三项齐全、Esc 与点击能关闭；真实右键与关闭后的结果实机 PENDING。没有新增自动化测试。
+

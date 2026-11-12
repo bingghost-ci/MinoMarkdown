@@ -37,7 +37,7 @@ export { withoutBundledFonts }
  */
 export async function buildExportStyle(input: ExportStyleInput): Promise<ExportStyle> {
   // Code blocks draw with the bundled monospace font, so its Latin subset travels with the page too.
-  const families = new Set([...familiesIn(input.typography.fontFamily), ...familiesIn(CODE_FONT_STACK)])
+  const families = new Set([...familiesIn(input.typography.fontFamily), ...familiesIn(input.typography.codeFontFamily ?? CODE_FONT_STACK)])
   const faces = facesForText(input.text, families, input.faces ?? bundledFaces, /(^|[^\\*_])[*_][^\s*_]/.test(input.text))
   const budget = input.mode === 'html' ? HTML_FONT_BUDGET : PRINT_FONT_BUDGET
   let typography = input.typography

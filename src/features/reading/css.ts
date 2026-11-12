@@ -16,6 +16,8 @@ export type ParagraphSpacing = 'compact' | 'standard' | 'relaxed'
 export type Measure = '30' | '36' | '42' | 'unlimited'
 export type Typography = {
   fontFamily: string
+  /** The stack for code; the default when left out. */
+  codeFontFamily?: string
   fontSize: number
   lineHeight: number
   paragraphSpacing: ParagraphSpacing
@@ -183,7 +185,7 @@ export function typographyVariables(typography: Typography, style: ReadingStyle)
     : '0 0 0 transparent'
   return {
     '--doc-font': typography.fontFamily,
-    '--code-font': CODE_FONT_STACK,
+    '--code-font': typography.codeFontFamily ?? CODE_FONT_STACK,
     '--doc-hyphens': typography.hyphens ? 'auto' : 'manual',
     '--doc-justify': typography.hyphens ? 'auto' : 'inter-character',
     '--paper-veil': veil,

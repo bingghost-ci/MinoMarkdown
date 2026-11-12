@@ -529,6 +529,10 @@ G01–G29 分别对应 T01–T29，每项命令可独立复制到支持 Goals �
 /goal 在 /Users/bobby/Code/software/MinoMarkdown 中完成或复核 T81–T89：让 Mino 支持 TXT、其他纯文本格式和 PDF。先读 CLAUDE.md、doc/01-产品方案.md §3.11、doc/02-技术设计.md §22、doc/03-开发计划.md 的 T81–T89、doc/05-验收与发布.md §8H、doc/06-开发进度.md 和 doc/evidence/T81–T89 各证据文件，并遵守 doc/04-Goal命令列表.md 的通用约束；以实际代码为准，已有实现先核对，不重复开发。各项完成条件见开发计划同编号章节。不在范围：Word、EPUB、PDF 批注与编辑、OCR。每个任务完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml，全部完成后再运行 npm run build 和 ./build.sh；每个检查点最多重试 3 次，仍失败则记录命令、输出、影响和下一步，继续不依赖它的工作。每项完成后更新 doc/06-开发进度.md，分别标注 codeComplete、automatedVerified、nativeVerified、accepted；Finder 打开、中文输入法、实机观感和性能未实测的一律写 PENDING，不虚报通过。不运行 ./install.sh，不改版本号，不提交、不推送。
 ```
 
+## G90 代码字体
+
+2026-11-12 用户试用后提出，G90 对应 T90，完成条件见[开发计划](03-开发计划.md)，范围见[产品方案 §3.12](01-产品方案.md)，设计见[技术设计 §23](02-技术设计.md)。在对话中直接实现，无单独的 Goal 命令。
+
 ## 连续开发总 Goal（逐项读取列表）
 
 此命令只负责开发阶段。每轮读取 G01–G29 的当前任务，依据代码依赖推进；已实现的任务先复核，不重复开发。最终原生验收层级与 Gate 留待集中测试，不能虚报 PASS。单项命令和本总 Goal 共用进度表，不创建嵌套 Goal。

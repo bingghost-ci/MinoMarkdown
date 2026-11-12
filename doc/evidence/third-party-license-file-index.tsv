@@ -55,9 +55,11 @@ npm	@floating-ui/core	1.8.0	MIT	LICENSE	0e4c9a9b6c71019cbbea3bdc20b01223110a9035
 npm	@floating-ui/dom	1.8.0	MIT	LICENSE	0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce	present
 npm	@floating-ui/utils	0.2.12	MIT	LICENSE	0e4c9a9b6c71019cbbea3bdc20b01223110a9035700f9c960c8fcbf78c2325ce	present
 npm	@fontsource-variable/eb-garamond	5.3.0	OFL-1.1	LICENSE	f03c8eda63076cd52317dcd40aa04db8472d4cb592dfaafa385129dfdafc7f9c	present
+npm	@fontsource-variable/fira-code	5.3.0	OFL-1.1	LICENSE	126cd7bf732b86f42885f1fbf682e6aeea456672c7fdb99f2d557ec44e468a28	present
 npm	@fontsource-variable/inter	5.3.0	OFL-1.1	LICENSE	3b0a5fca3d17942cde889069889dedbbbd075e9b599968c82a95f4d944e9b345	present
 npm	@fontsource-variable/jetbrains-mono	5.3.0	OFL-1.1	LICENSE	403581b69dac5cff4079205e01c6b467e56af449ecbd7247693ddb1baafa005b	present
 npm	@fontsource-variable/literata	5.3.0	OFL-1.1	LICENSE	9895ebc015226accf416b758ac1ca02a2fb4f83a89d316791ef697c3dc0852aa	present
+npm	@fontsource-variable/source-code-pro	5.3.1	OFL-1.1	LICENSE	18aabf190848725e2576eefb5c29ba06aac1029d02132252a7f312eac2e50cf3	present
 npm	@fontsource-variable/source-serif-4	5.3.1	OFL-1.1	LICENSE	18aabf190848725e2576eefb5c29ba06aac1029d02132252a7f312eac2e50cf3	present
 npm	@fontsource/lxgw-wenkai	5.3.0	OFL-1.1	LICENSE	a4654e013454eb0ea7b4b35689d235de2452a13737805e2a172761ae110b6905	present
 npm	@fontsource/noto-sans-sc	5.3.1	OFL-1.1	LICENSE	18aabf190848725e2576eefb5c29ba06aac1029d02132252a7f312eac2e50cf3	present
@@ -247,6 +249,7 @@ npm	nanoid	6.0.2	MIT	LICENSE	4383cb2c3608397ce7a4159502614ed66890f8999c2a9c056dd
 npm	node-releases	2.0.63	MIT	LICENSE	3706296ed611888111ceccc1dff4712844dea4bde0b185c82d718c3b69895abe	present
 npm	orderedmap	2.1.1	MIT	LICENSE	869c30f368eb08735e779027b9f4bc9fea2f39624351856aebe42741f0bc0884	present
 npm	pathe	2.0.3	MIT	LICENSE	52e92576851154bad7737e90cc72818936f43665cb0e3f7428ed8edc8cc5709b	present
+npm	pdfjs-dist	6.5.438	Apache-2.0	LICENSE	0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594	present
 npm	picocolors	1.1.1	ISC	LICENSE	6582629e2979466878f6014313dcc2f3756c9616148682227ce3063dde310750	present
 npm	picomatch	4.0.7	MIT	LICENSE	d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9	present
 npm	postcss	8.5.32	MIT	LICENSE	5be1f3465bba68a626777f984878814aaf35e7ef8e9fd314d469bcf887050fb8	present
