@@ -1,4 +1,4 @@
-import type { DocumentAnalysis } from '../../core/markdown/compatibility'
+import type { PreparedAnalysis } from '../../core/markdown/codec'
 
 /**
  * Opening a large document (T77). Reading the file is quick; analyzing it for visual editing and building
@@ -18,8 +18,8 @@ export function opensForQuickReading(source: string, opensInReading: boolean): b
  * Stands in for the analysis until the user edits: the document is shown and saved as its unchanged source,
  * as a source-protected document is, so nothing can be altered before the real analysis has run.
  */
-export function quickReadAnalysis(source: string): DocumentAnalysis {
-  return { mode: 'source-protected', issues: [], source, body: source, frontMatter: '', bom: false, newline: 'LF', trailingNewline: source.endsWith('\n') }
+export function quickReadAnalysis(source: string): PreparedAnalysis {
+  return { mode: 'source-protected', issues: [], frontMatter: '', bom: false, newline: 'LF', trailingNewline: source.endsWith('\n') }
 }
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})/

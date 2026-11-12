@@ -29,10 +29,10 @@ pub fn read_no_follow(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
 // so replacing the parent with a link cannot redirect a read outside app data.
 #[cfg(target_os = "macos")]
 pub fn read_canonical_parent(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
-    use std::{ffi::CString, fs::File, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::{MetadataExt, OpenOptionsExt}}}};
+    use std::{ffi::CString, fs::File, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::MetadataExt}}};
     let parent = path.parent().ok_or("INVALID_PATH")?;
     if fs::canonicalize(parent).map_err(|_| "IO_ERROR")? != parent { return Err("OUT_OF_SCOPE".into()); }
-    let directory = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(parent).map_err(|_| "OUT_OF_SCOPE")?;
+    let directory = crate::fs::open_directory(parent)?;
     let directory_meta = directory.metadata().map_err(|_| "IO_ERROR")?;
     let name = CString::new(path.file_name().ok_or("INVALID_PATH")?.as_bytes()).map_err(|_| "INVALID_PATH")?;
     let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };

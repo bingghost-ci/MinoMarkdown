@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist'
-import { findInText, type FindOptions } from '../editor/find'
+import { findInText, type FindOptions } from '../editor/findText'
 import type { OutlineItem } from '../outline/outline'
 
 /**
@@ -191,8 +191,8 @@ export class PdfTextCache {
     return text
   }
 
-  /** All pages up to a character budget; `onProgress` gets the page just read. */
-  async all(maxChars: number, onProgress?: (page: number, total: number) => void): Promise<string[]> {
+  /** All pages up to a character budget. */
+  async all(maxChars: number): Promise<string[]> {
     const pages: string[] = []
     let length = 0
     for (let pageNumber = 1; pageNumber <= this.document.numPages; pageNumber++) {
@@ -200,7 +200,6 @@ export class PdfTextCache {
       const text = await this.page(pageNumber)
       pages.push(text)
       length += text.length
-      onProgress?.(pageNumber, this.document.numPages)
     }
     return pages
   }
@@ -225,7 +224,8 @@ export function searchPages(texts: readonly string[], query: string, options: Fi
 
 type OutlineNode = { title: string; dest: string | unknown[] | null; items?: OutlineNode[] }
 
-async function destinationPage(document: PdfDocument, dest: string | unknown[] | null): Promise<number | null> {
+/** The page a link or bookmark destination leads to, counted from 1. */
+export async function resolveDestination(document: PdfDocument, dest: string | unknown[] | null): Promise<number | null> {
   try {
     const explicit = typeof dest === 'string' ? await document.getDestination(dest) : dest
     const target = Array.isArray(explicit) ? explicit[0] : null
@@ -233,11 +233,6 @@ async function destinationPage(document: PdfDocument, dest: string | unknown[] |
     if (target && typeof target === 'object') return await document.getPageIndex(target as Parameters<PdfDocument['getPageIndex']>[0]) + 1
   } catch { /* A bookmark that points nowhere is left out. */ }
   return null
-}
-
-/** The page a link or bookmark destination leads to, counted from 1. */
-export function resolveDestination(document: PdfDocument, dest: string | unknown[] | null): Promise<number | null> {
-  return destinationPage(document, dest)
 }
 
 export const OUTLINE_LIMIT = 2000
@@ -249,7 +244,7 @@ export async function pdfOutline(document: PdfDocument): Promise<OutlineItem[]> 
     for (const node of nodes) {
       if (items.length >= OUTLINE_LIMIT) return
       const text = (node.title ?? '').replace(/\s+/g, ' ').trim()
-      const page = await destinationPage(document, node.dest)
+      const page = await resolveDestination(document, node.dest)
       if (text && page !== null) items.push({ level: Math.min(level, 6), text, target: page })
       if (node.items?.length) await walk(node.items, level + 1)
     }

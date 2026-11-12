@@ -5,18 +5,25 @@ type Handler = NonNullable<NonNullable<Options['handlers']>['text']>
 type Parent = Parameters<Handler>[1]
 type InlineNode = { type: string; value?: string }
 
-const literalDollarsCache = new WeakMap<object, boolean>()
+// Keyed by the block's text: the editor builds a new tree for every serialization, so a cache keyed by node
+// never hit, and each block holding `$` was parsed again on every draft and save (T92).
+const literalDollarsCache = new Map<string, boolean>()
+const LITERAL_DOLLARS_CACHE_SIZE = 5000
 
 /** Whether this block's `$` signs can be written as-is without a reader taking them for a formula. */
 function dollarsAreLiteral(node: InlineNode, parent: Parent): boolean {
-  const key = parent ?? node
-  let literal = literalDollarsCache.get(key)
+  const siblings = ((parent as { children?: InlineNode[] } | undefined)?.children ?? [node])
+  const formulas = siblings.filter((item) => item.type === 'inlineMath').length
+  // Real formulas become `$X$`, so any formula other than those would come from the `$` in the text.
+  const probe = siblings.map((item) => item.type === 'text' ? item.value ?? '' : item.type === 'inlineMath' ? '$X$' : 'X').join('')
+  // A lone `$` has nothing to pair with.
+  if (formulas === 0 && probe.indexOf('$') === probe.lastIndexOf('$')) return true
+  let literal = literalDollarsCache.get(probe)
   if (literal === undefined) {
-    const siblings = ((parent as { children?: InlineNode[] } | undefined)?.children ?? [node])
-    // Real formulas become `$X$`, so any formula other than those would come from the `$` in the text.
-    const found = mathValues(siblings.map((item) => item.type === 'text' ? item.value ?? '' : item.type === 'inlineMath' ? '$X$' : 'X').join(''))
-    literal = found.length === siblings.filter((item) => item.type === 'inlineMath').length && found.every((value) => value === 'X')
-    literalDollarsCache.set(key, literal)
+    const found = mathValues(probe)
+    literal = found.length === formulas && found.every((value) => value === 'X')
+    if (literalDollarsCache.size >= LITERAL_DOLLARS_CACHE_SIZE) literalDollarsCache.clear()
+    literalDollarsCache.set(probe, literal)
   }
   return literal
 }

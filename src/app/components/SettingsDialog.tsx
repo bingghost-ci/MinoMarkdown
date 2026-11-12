@@ -75,9 +75,9 @@ function AiSettings({ workspace: w }: { workspace: DocumentWorkspace }) {
 }
 
 export function SettingsDialog({ workspace: w }: { workspace: DocumentWorkspace }) {
-  const { setSettings, setSettingsOpen, setSettingsTab, settings, settingsOpen, settingsTab, style: active, t } = w
+  const { updateSettings, setSettingsOpen, setSettingsTab, settings, settingsOpen, settingsTab, style: active, t } = w
   if (!settingsOpen) return null
-  const update: Update = (patch) => setSettings((current) => ({ ...current, ...patch }))
+  const update: Update = updateSettings
   const following = settings.theme === 'system'
   return <FocusTrap><div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}>
     <section className="settings-dialog" role="dialog" aria-modal="true" aria-label={t('设置')}>

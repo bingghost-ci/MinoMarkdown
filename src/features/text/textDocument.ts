@@ -32,7 +32,8 @@ export function chapterLevel(line: string): 1 | 2 | null {
   return null
 }
 
-function escapeHtml(text: string): string {
+/** Text as HTML text or an attribute value. Shared with the source-file renderer. */
+export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (character) => character === '&' ? '&amp;' : character === '<' ? '&lt;' : character === '>' ? '&gt;' : character === '"' ? '&quot;' : '&#39;')
 }
 

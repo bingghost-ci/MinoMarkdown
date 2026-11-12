@@ -3,8 +3,9 @@ use crate::staging::{StagedAsset, StagingStore};
 use crate::fs::bounded_file::read_no_follow;
 use crate::fs::app_data::ensure_dir;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::{fs::{self, File, OpenOptions}, io::Write, path::{Path, PathBuf}, sync::{atomic::{AtomicU64, Ordering}, Mutex}};
+#[cfg(not(target_os = "macos"))]
+use std::fs::OpenOptions;
+use std::{fs::{self, File}, io::Write, path::{Path, PathBuf}, sync::{atomic::{AtomicU64, Ordering}, Mutex}};
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 
 const MAX_DOCUMENT: usize = 20 * 1024 * 1024;
@@ -36,7 +37,7 @@ pub struct DiskAsset { url: String, relative: String }
 #[serde(rename_all = "camelCase")]
 pub struct DraftAssetOut { url: String, mime: String, bytes: Vec<u8> }
 
-fn hash(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
+fn hash(bytes: &[u8]) -> String { crate::fs::sha256_hex(bytes) }
 fn valid_id(id: &str) -> bool { id.len() >= 8 && id.len() <= 80 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') }
 fn root(app: &AppHandle) -> Result<PathBuf, String> {
     let app_data = app.path().app_data_dir().map_err(|_| "IO_ERROR")?;
@@ -44,7 +45,6 @@ fn root(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(meta) = fs::symlink_metadata(&path) { if meta.file_type().is_symlink() || !meta.is_dir() { return Err("OUT_OF_SCOPE".into()); } }
     Ok(path)
 }
-fn require_main(window: &WebviewWindow) -> Result<(), String> { if crate::is_workspace_window(window.label()) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
 #[cfg(not(target_os = "macos"))]
 fn write_sync(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let mut file = OpenOptions::new().create_new(true).write(true).open(path).map_err(|_| "IO_ERROR")?;
@@ -150,14 +150,12 @@ fn write_retaining(root: &Path, draft_id: &str, name: &str, target_path: Option<
 #[cfg(target_os = "macos")]
 #[allow(clippy::too_many_arguments)]
 fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<String>, base_disk_revision: Option<String>, markdown: &str, assets: Vec<DraftAsset>, retained: &[String]) -> Result<(), String> {
-    use std::{ffi::{CString, OsStr}, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::{MetadataExt, OpenOptionsExt}}}};
-    fn entry(name: &OsStr) -> Result<CString, String> { CString::new(name.as_bytes()).map_err(|_| "OUT_OF_SCOPE".into()) }
+    use std::{ffi::{CString, OsStr}, os::{fd::{AsRawFd, FromRawFd}, unix::fs::MetadataExt}};
+    use macos_tree::name as entry;
     fn make_dir(parent: &File, name: &CString) -> Result<File, String> {
         let made = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) };
         if made < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists { return Err("IO_ERROR".into()); }
-        let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
-        if fd < 0 { return Err("OUT_OF_SCOPE".into()); }
-        Ok(unsafe { File::from_raw_fd(fd) })
+        crate::fs::open_directory_at(parent, name).map_err(|_| "OUT_OF_SCOPE".into())
     }
     fn write_file(parent: &File, name: &CString, bytes: &[u8]) -> Result<(), String> {
         let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC, 0o600) };
@@ -180,7 +178,7 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
     }
     let root_parent = root.parent().ok_or("INVALID_PATH")?;
     if fs::canonicalize(root_parent).map_err(|_| "OUT_OF_SCOPE")? != root_parent { return Err("OUT_OF_SCOPE".into()); }
-    let app_data = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(root_parent).map_err(|_| "OUT_OF_SCOPE")?;
+    let app_data = crate::fs::open_directory(root_parent)?;
     let root_name = entry(root.file_name().ok_or("INVALID_PATH")?)?;
     let root_dir = make_dir(&app_data, &root_name)?;
     let draft_name = entry(OsStr::new(draft_id))?;
@@ -205,9 +203,7 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
     let staging_name = entry(OsStr::new(&format!(".staging-{snapshot_id}")))?;
     let published_name = entry(OsStr::new(&format!("snapshot-{snapshot_id}")))?;
     if unsafe { libc::mkdirat(folder.as_raw_fd(), staging_name.as_ptr(), 0o700) } < 0 { return Err("IO_ERROR".into()); }
-    let staging_fd = unsafe { libc::openat(folder.as_raw_fd(), staging_name.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
-    if staging_fd < 0 { return Err("OUT_OF_SCOPE".into()); }
-    let staging = unsafe { File::from_raw_fd(staging_fd) };
+    let staging = crate::fs::open_directory_at(&folder, &staging_name).map_err(|_| "OUT_OF_SCOPE")?;
     let asset_dir = make_dir(&staging, &entry(OsStr::new("assets"))?)?;
     for (asset, record) in assets.iter().zip(&manifest.assets) { write_file(&asset_dir, &entry(OsStr::new(&record.filename))?, &asset.bytes)?; }
     if let Some(prior) = &prior_assets {
@@ -238,7 +234,7 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
 
 #[tauri::command(async)]
 pub fn write_draft(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, draft_id: String, name: String, token: Option<String>, base_disk_revision: Option<String>, markdown: String, assets: Vec<StagedAsset>, disk_assets: Vec<DiskAsset>, retained: Vec<String>) -> Result<Vec<String>, String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     let mut uploads = assets.into_iter().map(|asset| Ok(DraftAsset { bytes: staging.take(&asset.staged)?, url: asset.url, mime: asset.mime })).collect::<Result<Vec<_>, String>>()?;
     if let Some(token) = &token {
         for asset in disk_assets {
@@ -254,7 +250,7 @@ pub fn write_draft(app: AppHandle, window: WebviewWindow, store: State<'_, Docum
 }
 #[tauri::command(async)]
 pub fn list_drafts(app: AppHandle, window: WebviewWindow) -> Result<Vec<DraftSummary>, String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     let root = root(&app)?;
     #[cfg(target_os = "macos")]
     return macos_read::list(&root);
@@ -277,14 +273,15 @@ pub fn list_drafts(app: AppHandle, window: WebviewWindow) -> Result<Vec<DraftSum
 }
 #[tauri::command(async)]
 pub fn read_draft(app: AppHandle, window: WebviewWindow, staging: State<'_, StagingStore>, draft_id: String, include_assets: bool) -> Result<DraftContent, String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     if !valid_id(&draft_id) { return Err("INVALID_DRAFT".into()); }
     #[cfg(target_os = "macos")]
-    let (manifest, markdown, assets) = macos_read::latest(&root(&app)?, &draft_id)?;
+    let (manifest, markdown, assets) = macos_read::latest(&root(&app)?, &draft_id, include_assets)?;
     #[cfg(not(target_os = "macos"))]
     let (manifest, markdown, assets) = latest(&root(&app)?.join(&draft_id))?;
     if manifest.draft_id != draft_id { return Err("CORRUPT_DRAFT".into()); }
-    let asset_count = assets.len();
+    // A preview shows the text and how many images there are; it does not read them (T100).
+    let asset_count = manifest.assets.len();
     let assets = if include_assets { assets.into_iter().map(|asset| Ok(StagedAsset { staged: staging.put(asset.bytes)?, url: asset.url, mime: asset.mime })).collect::<Result<Vec<_>, String>>()? } else { vec![] };
     Ok(DraftContent { draft_id, name: manifest.name, target_status: target_status(manifest.target_path.as_deref(), manifest.base_disk_revision.as_deref()), target_path: manifest.target_path, markdown, assets, asset_count })
 }
@@ -292,18 +289,16 @@ pub fn read_draft(app: AppHandle, window: WebviewWindow, staging: State<'_, Stag
 #[cfg(target_os = "macos")]
 mod macos_read {
     use super::*;
-    use std::{ffi::{CStr, CString, OsStr, OsString}, io::Read, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::{OsStrExt, OsStringExt}, fs::OpenOptionsExt}}};
+    use std::{ffi::{CStr, CString, OsStr, OsString}, io::Read, os::{fd::{AsRawFd, FromRawFd}, unix::ffi::{OsStrExt, OsStringExt}}};
 
     fn name(value: &OsStr) -> Result<CString, String> { CString::new(value.as_bytes()).map_err(|_| "CORRUPT_DRAFT".into()) }
     fn open_dir(parent: &File, entry: &CString) -> Result<File, String> {
-        let fd = unsafe { libc::openat(parent.as_raw_fd(), entry.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
-        if fd < 0 { return Err("CORRUPT_DRAFT".into()); }
-        Ok(unsafe { File::from_raw_fd(fd) })
+        crate::fs::open_directory_at(parent, entry).map_err(|_| "CORRUPT_DRAFT".into())
     }
     fn root_dir(root: &Path) -> Result<File, String> {
         let parent = root.parent().ok_or("INVALID_PATH")?;
         if fs::canonicalize(parent).map_err(|_| "OUT_OF_SCOPE")? != parent { return Err("OUT_OF_SCOPE".into()); }
-        let app_data = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(parent).map_err(|_| "OUT_OF_SCOPE")?;
+        let app_data = crate::fs::open_directory(parent)?;
         open_dir(&app_data, &name(root.file_name().ok_or("INVALID_PATH")?)?)
     }
     fn entries(folder: &File) -> Result<Vec<OsString>, String> {
@@ -337,7 +332,9 @@ mod macos_read {
         if bytes.len() as u64 > limit || file.metadata().map_err(|_| "CORRUPT_DRAFT")?.len() > limit { return Err("CORRUPT_DRAFT".into()); }
         Ok(bytes)
     }
-    fn snapshot(snapshot: &File) -> Result<(Manifest, String, Vec<DraftAssetOut>), String> {
+    /// `with_assets` false reads and checks the text only: the caller wants a preview, and a restore reads the
+    /// images, and checks each against its hash, when it happens.
+    fn snapshot(snapshot: &File, with_assets: bool) -> Result<(Manifest, String, Vec<DraftAssetOut>), String> {
         let manifest_bytes = read_file(snapshot, &name(OsStr::new("manifest.json"))?, 64 * 1024)?;
         let manifest: Manifest = serde_json::from_slice(&manifest_bytes).map_err(|_| "CORRUPT_DRAFT")?;
         if manifest.schema_version != 1 || !valid_id(&manifest.draft_id) || manifest.assets.len() > MAX_ASSETS { return Err("CORRUPT_DRAFT".into()); }
@@ -345,7 +342,7 @@ mod macos_read {
         if hash(&body) != manifest.body_revision { return Err("CORRUPT_DRAFT".into()); }
         let markdown = String::from_utf8(body).map_err(|_| "CORRUPT_DRAFT")?;
         let mut assets = Vec::new();
-        if !manifest.assets.is_empty() {
+        if with_assets && !manifest.assets.is_empty() {
             let asset_dir = open_dir(snapshot, &name(OsStr::new("assets"))?)?;
             for asset in &manifest.assets {
                 if !asset.filename.starts_with("asset-") || asset.filename.contains('/') || asset.filename.contains('\\') || !markdown.contains(&asset.url) { return Err("CORRUPT_DRAFT".into()); }
@@ -356,11 +353,11 @@ mod macos_read {
         }
         Ok((manifest, markdown, assets))
     }
-    fn latest_in(folder: &File) -> Result<(Manifest, String, Vec<DraftAssetOut>, usize), String> {
+    fn latest_in(folder: &File, with_assets: bool) -> Result<(Manifest, String, Vec<DraftAssetOut>, usize), String> {
         let mut names: Vec<_> = entries(folder)?.into_iter().filter(|name| name.to_str().is_some_and(|s| s.starts_with("snapshot-"))).collect();
         names.sort_by(|a,b| b.cmp(a));
         let count = names.len();
-        for entry in names { if let Ok(dir) = open_dir(folder, &name(&entry)?) { if let Ok(record) = snapshot(&dir) { return Ok((record.0, record.1, record.2, count)); } } }
+        for entry in names { if let Ok(dir) = open_dir(folder, &name(&entry)?) { if let Ok(record) = snapshot(&dir, with_assets) { return Ok((record.0, record.1, record.2, count)); } } }
         Err("CORRUPT_DRAFT".into())
     }
     fn manifest_of(snapshot: &File) -> Result<Manifest, String> {
@@ -382,10 +379,10 @@ mod macos_read {
         Err("CORRUPT_DRAFT".into())
     }
     pub(super) fn assets_dir(snapshot: &File) -> Result<File, String> { open_dir(snapshot, &name(OsStr::new("assets"))?) }
-    pub(super) fn latest(root: &Path, id: &str) -> Result<(Manifest, String, Vec<DraftAssetOut>), String> {
+    pub(super) fn latest(root: &Path, id: &str, with_assets: bool) -> Result<(Manifest, String, Vec<DraftAssetOut>), String> {
         let root = root_dir(root)?;
         let folder = open_dir(&root, &name(OsStr::new(id))?)?;
-        let (manifest, markdown, assets, _) = latest_in(&folder)?;
+        let (manifest, markdown, assets, _) = latest_in(&folder, with_assets)?;
         Ok((manifest, markdown, assets))
     }
     pub(super) fn list(root: &Path) -> Result<Vec<DraftSummary>, String> {
@@ -407,7 +404,7 @@ mod macos_read {
 }
 #[tauri::command(async)]
 pub fn discard_draft(app: AppHandle, window: WebviewWindow, draft_id: String) -> Result<(), String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     if !valid_id(&draft_id) { return Err("INVALID_DRAFT".into()); }
     let _guard = DRAFT_LOCK.lock().map_err(|_| "IO_ERROR")?;
     discard_at(&root(&app)?, &draft_id)
@@ -416,14 +413,14 @@ pub fn discard_draft(app: AppHandle, window: WebviewWindow, draft_id: String) ->
 #[cfg(target_os = "macos")]
 mod macos_tree {
     use super::*;
-    use std::{ffi::{CStr, CString, OsStr, OsString}, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::{OsStrExt, OsStringExt}, fs::MetadataExt}}};
-    fn name(value: &OsStr) -> Result<CString, String> { CString::new(value.as_bytes()).map_err(|_| "OUT_OF_SCOPE".into()) }
+    use std::{ffi::{CStr, CString, OsStr, OsString}, os::{fd::AsRawFd, unix::{ffi::{OsStrExt, OsStringExt}, fs::MetadataExt}}};
+    /// A file name as the system calls take it.
+    pub(super) fn name(value: &OsStr) -> Result<CString, String> { CString::new(value.as_bytes()).map_err(|_| "OUT_OF_SCOPE".into()) }
     fn open_dir(parent: &File, entry: &CString) -> Result<File, String> {
-        let fd = unsafe { libc::openat(parent.as_raw_fd(), entry.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
-        if fd < 0 { return Err("OUT_OF_SCOPE".into()); }
-        Ok(unsafe { File::from_raw_fd(fd) })
+        crate::fs::open_directory_at(parent, entry).map_err(|_| "OUT_OF_SCOPE".into())
     }
-    fn same_entry(parent: &File, entry: &CString, opened: &File) -> Result<(), String> {
+    /// Whether `entry` of `parent` is still the directory that was opened, and not something put in its place since.
+    pub(super) fn same_entry(parent: &File, entry: &CString, opened: &File) -> Result<(), String> {
         let mut current: libc::stat = unsafe { std::mem::zeroed() };
         if unsafe { libc::fstatat(parent.as_raw_fd(), entry.as_ptr(), &mut current, libc::AT_SYMLINK_NOFOLLOW) } < 0 { return Err("COMMIT_UNCERTAIN".into()); }
         let held = opened.metadata().map_err(|_| "COMMIT_UNCERTAIN")?;
@@ -491,24 +488,15 @@ fn discard_at(root: &Path, draft_id: &str) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 fn discard_at(root: &Path, draft_id: &str) -> Result<(), String> {
-    use std::{ffi::{CString, OsStr}, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::{MetadataExt, OpenOptionsExt}}}};
-    fn name(value: &OsStr) -> Result<CString, String> { CString::new(value.as_bytes()).map_err(|_| "OUT_OF_SCOPE".into()) }
+    use std::{ffi::{CString, OsStr}, os::{fd::AsRawFd, unix::fs::MetadataExt}};
+    use macos_tree::{name, same_entry};
     fn open_dir(parent: &File, entry: &CString) -> Result<File, String> {
-        let fd = unsafe { libc::openat(parent.as_raw_fd(), entry.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
-        if fd < 0 { return Err(if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound { "NOT_FOUND" } else { "OUT_OF_SCOPE" }.into()); }
-        Ok(unsafe { File::from_raw_fd(fd) })
-    }
-    fn same_entry(parent: &File, entry: &CString, opened: &File) -> Result<(), String> {
-        let mut current: libc::stat = unsafe { std::mem::zeroed() };
-        if unsafe { libc::fstatat(parent.as_raw_fd(), entry.as_ptr(), &mut current, libc::AT_SYMLINK_NOFOLLOW) } < 0 { return Err("COMMIT_UNCERTAIN".into()); }
-        let held = opened.metadata().map_err(|_| "COMMIT_UNCERTAIN")?;
-        if current.st_dev as u64 != held.dev() || current.st_ino as u64 != held.ino() { return Err("COMMIT_UNCERTAIN".into()); }
-        Ok(())
+        crate::fs::open_directory_at(parent, entry).map_err(|error| if error.kind() == std::io::ErrorKind::NotFound { "NOT_FOUND" } else { "OUT_OF_SCOPE" }.into())
     }
     if !valid_id(draft_id) { return Err("INVALID_DRAFT".into()); }
     let parent = root.parent().ok_or("INVALID_PATH")?;
     if fs::canonicalize(parent).map_err(|_| "OUT_OF_SCOPE")? != parent { return Err("OUT_OF_SCOPE".into()); }
-    let app_data = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(parent).map_err(|_| "OUT_OF_SCOPE")?;
+    let app_data = crate::fs::open_directory(parent)?;
     let root_name = name(root.file_name().ok_or("INVALID_PATH")?)?;
     let drafts = match open_dir(&app_data, &root_name) { Ok(dir) => dir, Err(code) if code == "NOT_FOUND" => return Ok(()), Err(code) => return Err(code) };
     let draft_name = name(OsStr::new(draft_id))?;
@@ -647,6 +635,24 @@ mod tests {
     }
     #[cfg(target_os = "macos")]
     #[test]
+    fn a_preview_reads_the_text_without_the_images_and_a_restore_still_checks_them() {
+        let root = temp(); let id = "draft-12345678";
+        let asset = DraftAsset { url: "blob:sample".into(), mime: "image/png".into(), bytes: b"image bytes".to_vec() };
+        write_at(&root, id, "note", None, None, "text ![](blob:sample)", vec![asset]).unwrap();
+        let (manifest, body, assets) = macos_read::latest(&root, id, true).unwrap();
+        assert_eq!((manifest.assets.len(), body.as_str(), assets.len()), (1, "text ![](blob:sample)", 1));
+        assert_eq!(assets[0].bytes, b"image bytes");
+        // With the image file damaged, the preview still shows the text and the count: it never opened the file.
+        let stored = snapshots(&root.join(id))[0].join("assets").join(&manifest.assets[0].filename);
+        fs::write(&stored, b"damaged").unwrap();
+        let (manifest, body, assets) = macos_read::latest(&root, id, false).unwrap();
+        assert_eq!((manifest.assets.len(), body.as_str(), assets.len()), (1, "text ![](blob:sample)", 0));
+        // A restore reads every image against its hash and refuses this snapshot.
+        assert_eq!(macos_read::latest(&root, id, true).err().as_deref(), Some("CORRUPT_DRAFT"));
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
     fn anchored_reader_skips_linked_snapshot_and_rejects_linked_draft_folder() {
         let root = temp(); let id = "draft-12345678";
         write_at(&root, id, "note", None, None, "old", vec![]).unwrap();
@@ -654,11 +660,11 @@ mod tests {
         let newest = snapshots(&root.join(id)).remove(0);
         let moved = root.join("moved-snapshot"); fs::rename(&newest, &moved).unwrap();
         std::os::unix::fs::symlink(&moved, &newest).unwrap();
-        assert_eq!(macos_read::latest(&root, id).unwrap().1, "old");
+        assert_eq!(macos_read::latest(&root, id, true).unwrap().1, "old");
         let folder = root.join(id); let moved_folder = root.join("moved-folder");
         fs::rename(&folder, &moved_folder).unwrap();
         std::os::unix::fs::symlink(&moved_folder, &folder).unwrap();
-        assert!(macos_read::latest(&root, id).is_err());
+        assert!(macos_read::latest(&root, id, true).is_err());
         assert!(macos_read::list(&root).unwrap().is_empty());
         fs::remove_dir_all(root).unwrap();
     }

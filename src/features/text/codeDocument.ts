@@ -2,6 +2,7 @@ import type { Language } from '@codemirror/language'
 import { highlightTree } from '@lezer/highlight'
 import { syntaxClassHighlighter } from '../../core/markdown/syntaxRoles'
 import { parseDelimited, type ParsedTable } from './delimited'
+import { escapeHtml } from './textDocument'
 
 /**
  * Source and data files as a reading page (T85). The file's text is escaped character by character and only
@@ -10,10 +11,6 @@ import { parseDelimited, type ParsedTable } from './delimited'
 
 /** Past this size a file is shown without colors; parsing it would hold up the page. */
 export const CODE_HIGHLIGHT_LIMIT = 500_000
-
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (character) => character === '&' ? '&amp;' : character === '<' ? '&lt;' : character === '>' ? '&gt;' : character === '"' ? '&quot;' : '&#39;')
-}
 
 type Token = { from: number; to: number; classes: string }
 

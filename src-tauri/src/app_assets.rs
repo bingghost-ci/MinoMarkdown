@@ -4,11 +4,18 @@ fn plain_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= 160 && !name.starts_with('.') && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')) && !name.contains("..")
 }
 
-/// Only built WOFF2 font files under `/assets/` can be read, for embedding in exported HTML and print pages,
-/// and the character maps and standard fonts the PDF renderer needs (T86): the webview's CSP does not let it
-/// fetch them. These are the app's own bundled files; no document or user path is reachable through this command.
+/// The paper textures of the reading styles (T98). The page already draws these files; an export reads them to
+/// carry its paper inside the exported page.
+const PAPERS: [&str; 4] = ["paper-", "xuan-", "parchment-", "kraft-"];
+
+/// Only built WOFF2 font files and paper texture layers under `/assets/` can be read, for embedding in exported
+/// HTML and print pages, and the character maps and standard fonts the PDF renderer needs (T86): the webview's
+/// CSP does not let it fetch them. These are the app's own bundled files; no document or user path is reachable
+/// through this command.
 pub(crate) fn allowed_path(path: &str) -> bool {
-    if let Some(name) = path.strip_prefix("/assets/") { return plain_name(name) && name.ends_with(".woff2"); }
+    if let Some(name) = path.strip_prefix("/assets/") {
+        return plain_name(name) && (name.ends_with(".woff2") || (name.ends_with(".png") && PAPERS.iter().any(|paper| name.starts_with(paper))));
+    }
     if let Some(name) = path.strip_prefix("/pdfjs/cmaps/") { return plain_name(name) && name.ends_with(".bcmap"); }
     if let Some(name) = path.strip_prefix("/pdfjs/standard_fonts/") { return plain_name(name) && (name.ends_with(".pfb") || name.ends_with(".ttf")); }
     false
@@ -16,7 +23,7 @@ pub(crate) fn allowed_path(path: &str) -> bool {
 
 #[tauri::command(async)]
 pub fn read_app_asset(app: AppHandle, window: WebviewWindow, path: String) -> Result<Response, String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     if !allowed_path(&path) { return Err("OUT_OF_SCOPE".into()); }
     app.asset_resolver().get(path).map(|asset| Response::new(asset.bytes)).ok_or_else(|| "ASSET_NOT_FOUND".into())
 }
@@ -27,6 +34,8 @@ mod tests {
     #[test]
     fn only_bundled_woff2_files_are_readable() {
         assert!(allowed_path("/assets/noto-serif-sc-116-400-normal-B1x_9a.woff2"));
+        for path in ["/assets/kraft-fibers-B1x_9a.png", "/assets/paper-grain-Dk2.png", "/assets/xuan-laid-a.png", "/assets/parchment-pores-a.png"] { assert!(allowed_path(path), "{path}"); }
+        for path in ["/assets/logo.png", "/assets/icon-kraft-.png", "/assets/kraft-/x.png", "/assets/kraft-..png", "/assets/kraft-a.png.js", "/kraft-a.png", "/assets/kraft-a.svg"] { assert!(!allowed_path(path), "{path}"); }
         for path in ["/assets/../index.html", "/assets/a/b.woff2", "/assets/x.js", "/etc/passwd", "assets/x.woff2", "/assets/.woff2", "/assets/x%2F.woff2", "/assets/x..woff2", "/node_modules/a.woff2", "/assets/x.woff2?"] {
             assert!(!allowed_path(path), "{path}");
         }

@@ -18,9 +18,12 @@ mod text_encoding;
 mod positions;
 
 use tauri::{Emitter, Manager};
-use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
+use tauri::menu::{Menu, MenuItemKind, PredefinedMenuItem, Submenu};
 
 pub(crate) fn is_workspace_window(label: &str) -> bool { label == "main" || label.starts_with("workspace-") }
+/// The first line of every command: only the app's own document windows may call it.
+pub(crate) fn require_workspace_window(window: &tauri::WebviewWindow) -> Result<(), String> { require_workspace_label(window.label()) }
+pub(crate) fn require_workspace_label(label: &str) -> Result<(), String> { if is_workspace_window(label) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
 fn focused_workspace(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
     app.webview_windows().into_values().find(|window| is_workspace_window(window.label()) && window.is_focused().unwrap_or(false))
         .or_else(|| app.state::<windows::ActiveWindow>().0.lock().ok().and_then(|label| app.get_webview_window(&label)))
@@ -48,16 +51,20 @@ pub fn run() {
         .manage(ai::AiState::default())
         .setup(|app| {
             let handle = app.handle();
-            native_menu::set_language(handle, &settings::initial_language(handle));
             windows::show_if_webview_stalls(handle.clone(), "main".into());
-            recent::refresh_menu(handle);
+            // Listing recent files asks the disk about each of them, and one on a volume that does not answer
+            // would hold up the launch. The list is read off the main thread and the menu filled in when it is ready (T99).
+            let recent_handle = handle.clone();
+            std::thread::spawn(move || recent::refresh_menu(&recent_handle));
             #[cfg(target_os = "macos")]
             native_menu::install_dock_menu(handle);
             Ok(())
         })
         .menu(|app| {
             let menu = Menu::default(app)?;
+            // The settings file is read once at launch; the menu is built in its language and remembers it.
             let english = settings::initial_language(app) == "en-US";
+            native_menu::built_in(english);
             let recent_menu = Submenu::with_id(app, "open-recent", native_menu::label("open-recent", english), true)?;
             app.manage(recent::RecentMenu(recent_menu.clone()));
             for item in menu.items()? {
@@ -65,44 +72,44 @@ pub fn run() {
                     let title = submenu.text()?;
                     if title == "File" || title == "文件" {
                         submenu.prepend_items(&[
-                            &MenuItem::with_id(app, "new", native_menu::label("new", english), true, native_menu::accelerator("new"))?,
-                            &MenuItem::with_id(app, "new-window", native_menu::label("new-window", english), true, native_menu::accelerator("new-window"))?,
-                            &MenuItem::with_id(app, "open", native_menu::label("open", english), true, native_menu::accelerator("open"))?,
-                            &MenuItem::with_id(app, "open-folder", native_menu::label("open-folder", english), true, native_menu::accelerator("open-folder"))?,
+                            &native_menu::item(app, "new", english)?,
+                            &native_menu::item(app, "new-window", english)?,
+                            &native_menu::item(app, "open", english)?,
+                            &native_menu::item(app, "open-folder", english)?,
                             &recent_menu,
                             &PredefinedMenuItem::separator(app)?,
-                            &MenuItem::with_id(app, "save", native_menu::label("save", english), true, native_menu::accelerator("save"))?,
-                            &MenuItem::with_id(app, "save-as", native_menu::label("save-as", english), true, native_menu::accelerator("save-as"))?,
-                            &MenuItem::with_id(app, "recover-drafts", native_menu::label("recover-drafts", english), true, native_menu::accelerator("recover-drafts"))?,
-                            &MenuItem::with_id(app, "close-tab", native_menu::label("close-tab", english), true, native_menu::accelerator("close-tab"))?,
+                            &native_menu::item(app, "save", english)?,
+                            &native_menu::item(app, "save-as", english)?,
+                            &native_menu::item(app, "recover-drafts", english)?,
+                            &native_menu::item(app, "close-tab", english)?,
                             &PredefinedMenuItem::separator(app)?,
-                            &MenuItem::with_id(app, "export-md", native_menu::label("export-md", english), true, native_menu::accelerator("export-md"))?,
-                            &MenuItem::with_id(app, "export-text", native_menu::label("export-text", english), true, native_menu::accelerator("export-text"))?,
-                            &MenuItem::with_id(app, "export-html", native_menu::label("export-html", english), true, native_menu::accelerator("export-html"))?,
-                            &MenuItem::with_id(app, "print", native_menu::label("print", english), true, native_menu::accelerator("print"))?,
+                            &native_menu::item(app, "export-md", english)?,
+                            &native_menu::item(app, "export-text", english)?,
+                            &native_menu::item(app, "export-html", english)?,
+                            &native_menu::item(app, "print", english)?,
                             &PredefinedMenuItem::separator(app)?,
                         ])?;
                     } else if title == "Edit" || title == "编辑" {
                         submenu.append_items(&[
                             &PredefinedMenuItem::separator(app)?,
-                            &MenuItem::with_id(app, "find", native_menu::label("find", english), true, native_menu::accelerator("find"))?,
+                            &native_menu::item(app, "find", english)?,
                         ])?;
                     } else if title == "View" || title == "视图" {
                         submenu.prepend_items(&[
-                            &MenuItem::with_id(app, "toggle-reading", native_menu::label("toggle-reading", english), true, native_menu::accelerator("toggle-reading"))?,
-                            &MenuItem::with_id(app, "toggle-source", native_menu::label("toggle-source", english), true, native_menu::accelerator("toggle-source"))?,
-                            &MenuItem::with_id(app, "view-toolbar", native_menu::label("view-toolbar", english), true, native_menu::accelerator("view-toolbar"))?,
-                            &MenuItem::with_id(app, "view-sidebar", native_menu::label("view-sidebar", english), true, native_menu::accelerator("view-sidebar"))?,
-                            &MenuItem::with_id(app, "view-outline", native_menu::label("view-outline", english), true, native_menu::accelerator("view-outline"))?,
+                            &native_menu::item(app, "toggle-reading", english)?,
+                            &native_menu::item(app, "toggle-source", english)?,
+                            &native_menu::item(app, "view-toolbar", english)?,
+                            &native_menu::item(app, "view-sidebar", english)?,
+                            &native_menu::item(app, "view-outline", english)?,
                             &PredefinedMenuItem::separator(app)?,
-                            &MenuItem::with_id(app, "zoom-in", native_menu::label("zoom-in", english), true, native_menu::accelerator("zoom-in"))?,
-                            &MenuItem::with_id(app, "zoom-out", native_menu::label("zoom-out", english), true, native_menu::accelerator("zoom-out"))?,
-                            &MenuItem::with_id(app, "zoom-reset", native_menu::label("zoom-reset", english), true, native_menu::accelerator("zoom-reset"))?,
+                            &native_menu::item(app, "zoom-in", english)?,
+                            &native_menu::item(app, "zoom-out", english)?,
+                            &native_menu::item(app, "zoom-reset", english)?,
                             &PredefinedMenuItem::separator(app)?,
                         ])?;
                     } else if title == app.package_info().name || title == "Mino" {
                         submenu.insert_items(&[
-                            &MenuItem::with_id(app, "preferences", native_menu::label("preferences", english), true, native_menu::accelerator("preferences"))?,
+                            &native_menu::item(app, "preferences", english)?,
                             &PredefinedMenuItem::separator(app)?,
                         ], 2)?;
                         for existing in submenu.items()? {
@@ -113,40 +120,40 @@ pub fn run() {
                                 }
                             }
                         }
-                        submenu.append(&MenuItem::with_id(app, "quit", native_menu::label("quit", english), true, native_menu::accelerator("quit"))?)?;
+                        submenu.append(&native_menu::item(app, "quit", english)?)?;
                     }
                 }
             }
             let format_position = menu.items()?.iter().position(|item| matches!(item, MenuItemKind::Submenu(submenu) if submenu.text().is_ok_and(|title| title == "Edit" || title == "编辑"))).map_or(0, |index| index + 1);
             let format_menu = Submenu::with_id_and_items(app, "format", native_menu::label("format", english), true, &[
-                &MenuItem::with_id(app, "format-paragraph", native_menu::label("format-paragraph", english), true, native_menu::accelerator("format-paragraph"))?,
-                &MenuItem::with_id(app, "format-heading1", native_menu::label("format-heading1", english), true, native_menu::accelerator("format-heading1"))?,
-                &MenuItem::with_id(app, "format-heading2", native_menu::label("format-heading2", english), true, native_menu::accelerator("format-heading2"))?,
-                &MenuItem::with_id(app, "format-heading3", native_menu::label("format-heading3", english), true, native_menu::accelerator("format-heading3"))?,
-                &MenuItem::with_id(app, "format-heading4", native_menu::label("format-heading4", english), true, native_menu::accelerator("format-heading4"))?,
-                &MenuItem::with_id(app, "format-heading5", native_menu::label("format-heading5", english), true, native_menu::accelerator("format-heading5"))?,
-                &MenuItem::with_id(app, "format-heading6", native_menu::label("format-heading6", english), true, native_menu::accelerator("format-heading6"))?,
+                &native_menu::item(app, "format-paragraph", english)?,
+                &native_menu::item(app, "format-heading1", english)?,
+                &native_menu::item(app, "format-heading2", english)?,
+                &native_menu::item(app, "format-heading3", english)?,
+                &native_menu::item(app, "format-heading4", english)?,
+                &native_menu::item(app, "format-heading5", english)?,
+                &native_menu::item(app, "format-heading6", english)?,
                 &PredefinedMenuItem::separator(app)?,
-                &MenuItem::with_id(app, "format-bold", native_menu::label("format-bold", english), true, native_menu::accelerator("format-bold"))?,
-                &MenuItem::with_id(app, "format-italic", native_menu::label("format-italic", english), true, native_menu::accelerator("format-italic"))?,
-                &MenuItem::with_id(app, "format-strike", native_menu::label("format-strike", english), true, native_menu::accelerator("format-strike"))?,
-                &MenuItem::with_id(app, "format-inline-code", native_menu::label("format-inline-code", english), true, native_menu::accelerator("format-inline-code"))?,
+                &native_menu::item(app, "format-bold", english)?,
+                &native_menu::item(app, "format-italic", english)?,
+                &native_menu::item(app, "format-strike", english)?,
+                &native_menu::item(app, "format-inline-code", english)?,
                 &PredefinedMenuItem::separator(app)?,
-                &MenuItem::with_id(app, "format-bullet", native_menu::label("format-bullet", english), true, native_menu::accelerator("format-bullet"))?,
-                &MenuItem::with_id(app, "format-ordered", native_menu::label("format-ordered", english), true, native_menu::accelerator("format-ordered"))?,
-                &MenuItem::with_id(app, "format-task", native_menu::label("format-task", english), true, native_menu::accelerator("format-task"))?,
-                &MenuItem::with_id(app, "format-quote", native_menu::label("format-quote", english), true, native_menu::accelerator("format-quote"))?,
-                &MenuItem::with_id(app, "format-code-block", native_menu::label("format-code-block", english), true, native_menu::accelerator("format-code-block"))?,
+                &native_menu::item(app, "format-bullet", english)?,
+                &native_menu::item(app, "format-ordered", english)?,
+                &native_menu::item(app, "format-task", english)?,
+                &native_menu::item(app, "format-quote", english)?,
+                &native_menu::item(app, "format-code-block", english)?,
                 &PredefinedMenuItem::separator(app)?,
-                &MenuItem::with_id(app, "format-link", native_menu::label("format-link", english), true, native_menu::accelerator("format-link"))?,
+                &native_menu::item(app, "format-link", english)?,
                 &PredefinedMenuItem::separator(app)?,
                 &Submenu::with_id_and_items(app, "transform", native_menu::label("transform", english), true, &[
-                    &MenuItem::with_id(app, "transform-upper", native_menu::label("transform-upper", english), true, native_menu::accelerator("transform-upper"))?,
-                    &MenuItem::with_id(app, "transform-lower", native_menu::label("transform-lower", english), true, native_menu::accelerator("transform-lower"))?,
-                    &MenuItem::with_id(app, "transform-title", native_menu::label("transform-title", english), true, native_menu::accelerator("transform-title"))?,
-                    &MenuItem::with_id(app, "transform-cjk-spacing", native_menu::label("transform-cjk-spacing", english), true, native_menu::accelerator("transform-cjk-spacing"))?,
-                    &MenuItem::with_id(app, "transform-full-punct", native_menu::label("transform-full-punct", english), true, native_menu::accelerator("transform-full-punct"))?,
-                    &MenuItem::with_id(app, "transform-half-punct", native_menu::label("transform-half-punct", english), true, native_menu::accelerator("transform-half-punct"))?,
+                    &native_menu::item(app, "transform-upper", english)?,
+                    &native_menu::item(app, "transform-lower", english)?,
+                    &native_menu::item(app, "transform-title", english)?,
+                    &native_menu::item(app, "transform-cjk-spacing", english)?,
+                    &native_menu::item(app, "transform-full-punct", english)?,
+                    &native_menu::item(app, "transform-half-punct", english)?,
                 ])?,
             ])?;
             menu.insert(&format_menu, format_position)?;
@@ -194,7 +201,6 @@ pub fn run() {
             staging::stage_binary,
             staging::read_staged,
             documents::export_html,
-            documents::export_source_markdown,
             documents::save_note_beside,
             drafts::write_draft,
             drafts::list_drafts,
@@ -217,11 +223,8 @@ pub fn run() {
             open_intents::open_intent_workspace,
             open_intents::read_intent_image,
             open_intents::discard_open_intent,
-            recent::list_recent,
             recent::remember_recent_document,
             recent::remember_recent_workspace,
-            recent::remove_recent,
-            recent::reorder_recent,
             recent::choose_recent_file,
             recent::choose_recent_workspace,
             recent::remember_session,

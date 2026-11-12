@@ -6,15 +6,13 @@ pub fn ensure_dir(path: &Path) -> Result<PathBuf, String> {
     let parent = fs::canonicalize(parent).map_err(|_| "IO_ERROR")?;
     #[cfg(target_os = "macos")]
     {
-        use std::{ffi::CString, fs::{File, OpenOptions}, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::{MetadataExt, OpenOptionsExt}}}};
+        use std::{ffi::CString, os::{fd::AsRawFd, unix::{ffi::OsStrExt, fs::MetadataExt}}};
         let name = path.file_name().ok_or("INVALID_PATH")?;
         let entry = CString::new(name.as_bytes()).map_err(|_| "INVALID_PATH")?;
-        let parent_file = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(&parent).map_err(|_| "OUT_OF_SCOPE")?;
+        let parent_file = crate::fs::open_directory(&parent)?;
         let made = unsafe { libc::mkdirat(parent_file.as_raw_fd(), entry.as_ptr(), 0o700) };
         if made < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists { return Err("IO_ERROR".into()); }
-        let fd = unsafe { libc::openat(parent_file.as_raw_fd(), entry.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
-        if fd < 0 { return Err("OUT_OF_SCOPE".into()); }
-        let directory = unsafe { File::from_raw_fd(fd) };
+        let directory = crate::fs::open_directory_at(&parent_file, &entry).map_err(|_| "OUT_OF_SCOPE")?;
         let actual = parent.join(name);
         let current = fs::symlink_metadata(&actual).map_err(|_| "COMMIT_UNCERTAIN")?;
         let held = directory.metadata().map_err(|_| "COMMIT_UNCERTAIN")?;

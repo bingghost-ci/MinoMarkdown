@@ -38,7 +38,8 @@ describe('local images in preview', () => {
 
 describe('raw HTML now reachable from visual documents', () => {
   it('never reaches an HTML export', async () => {
-    const { renderHtml } = await import('../src/features/export/renderHtml')
+    const { renderExport } = await import('../src/features/export/renderHtml')
+    const renderHtml = async (markdown: string, title: string, resolveImage: () => Promise<null>) => (await renderExport(markdown, title, resolveImage)).html
     const hostile = readFileSync('tests/fixtures/markdown/F11-hostile.md', 'utf8').split('\n').filter((line) => !line.startsWith('![')).join('\n')
     const html = await renderHtml(`${hostile}\n<iframe src="https://example.com"></iframe>\n`, 'x', async () => null)
     expect(html).not.toMatch(/<script>alert|onerror=|javascript:|<iframe/i)

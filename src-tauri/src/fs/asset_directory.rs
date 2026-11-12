@@ -1,4 +1,6 @@
-use std::{ffi::OsStr, fs::{self, File, OpenOptions}, io::{Read, Write}, path::{Path, PathBuf}};
+#[cfg(not(target_os = "macos"))]
+use std::fs::OpenOptions;
+use std::{ffi::OsStr, fs::{self, File}, io::{Read, Write}, path::{Path, PathBuf}};
 
 const MAX_ASSET: u64 = 20 * 1024 * 1024;
 
@@ -37,8 +39,8 @@ impl AssetDirectory {
         if canonical != parent_path { return Err("OUT_OF_SCOPE".into()); }
         #[cfg(target_os = "macos")]
         {
-            use std::os::{fd::{AsRawFd, FromRawFd}, unix::fs::OpenOptionsExt};
-            let parent = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(&canonical).map_err(|_| "OUT_OF_SCOPE")?;
+            use std::os::fd::AsRawFd;
+            let parent = crate::fs::open_directory(&canonical)?;
             let assets_name = c_name(OsStr::new("assets"))?;
             if create {
                 let created = unsafe { libc::mkdirat(parent.as_raw_fd(), assets_name.as_ptr(), 0o755) };
@@ -46,9 +48,7 @@ impl AssetDirectory {
                     return Err("ASSET_WRITE_FAILED".into());
                 }
             }
-            let fd = unsafe { libc::openat(parent.as_raw_fd(), assets_name.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW) };
-            if fd < 0 { return Err(if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound { "ASSET_NOT_FOUND" } else { "OUT_OF_SCOPE" }.into()); }
-            let assets = unsafe { File::from_raw_fd(fd) };
+            let assets = crate::fs::open_directory_at(&parent, &assets_name).map_err(|error| if error.kind() == std::io::ErrorKind::NotFound { "ASSET_NOT_FOUND" } else { "OUT_OF_SCOPE" })?;
             return Ok(Self { parent_path: canonical, parent, assets });
         }
         #[cfg(not(target_os = "macos"))]

@@ -13,6 +13,9 @@ type PositionedNode = {
 // delimiter and a letter after it make the delimiter invalid. A thin space
 // makes the intended emphasis unambiguous without changing code spans/blocks.
 export function normalizeAdjacentStrong(markdown: string): string {
+  // The pattern is rare. Whatever matches inside a text node also matches this looser form in the whole text,
+  // so a document without it needs no parse (T92).
+  if (!/\*\*[^*\n]+\p{P}\*\*(?=[\p{L}\p{N}])/u.test(markdown)) return markdown
   const tree = unified().use(remarkParse).use(remarkGfm).parse(markdown) as Root
   const insertions: number[] = []
   const marker = /(?<!\\)\*\*[^*\n]+\p{P}\*\*(?=[\p{L}\p{N}])/gu

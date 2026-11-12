@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowUp, Copy, CornerDownLeft, Eraser, RefreshCw, Replace, Square, X, FilePlus2 } from 'lucide-react'
 import { PaneResizer } from './PaneResizer'
 import { AI_MAX, AI_MIN } from '../readingSettings'
@@ -15,12 +15,16 @@ function host(baseUrl: string): string {
 function Answer({ turn, workspace: w }: { turn: AiTurn; workspace: DocumentWorkspace }) {
   const { ai, reading, setStatus, t } = w
   const finished = turn.status === 'done' || turn.status === 'cancelled'
-  return <div className="ai-turn ai-answer" data-status={turn.status}>
+  // While the answer arrives its text comes from the stream, so each piece renders this answer and nothing else.
+  const text = useSyncExternalStore(ai.stream.subscribe, () => turn.status === 'streaming' ? ai.stream.get(turn.id) : undefined) ?? turn.text
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (turn.status === 'streaming') { const list = root.current?.closest('.ai-turns'); list?.scrollTo({ top: list.scrollHeight }) } }, [text, turn.status])
+  return <div ref={root} className="ai-turn ai-answer" data-status={turn.status}>
     {turn.progress && <p className="ai-progress" role="status">{t(turn.progress)}</p>}
     {turn.status === 'done' && turn.html
       // The HTML comes from the preview renderer, which sanitizes it; remote images are blocked by the app's CSP.
       ? <div className="ai-text mino-doc" dangerouslySetInnerHTML={{ __html: turn.html }} />
-      : turn.text ? <div className="ai-text ai-text-plain">{turn.text}{turn.status === 'streaming' && <i className="ai-caret" aria-hidden="true" />}</div>
+      : text ? <div className="ai-text ai-text-plain">{text}{turn.status === 'streaming' && <i className="ai-caret" aria-hidden="true" />}</div>
       : turn.status === 'streaming' && !turn.progress ? <p className="ai-progress" role="status">{t('正在思考…')}</p> : null}
     {turn.status === 'cancelled' && <p className="ai-note">{t('已停止。')}</p>}
     {turn.error && <p className="ai-error" role="alert">{t(turn.error)}</p>}
@@ -45,7 +49,7 @@ export function AiDrawer({ workspace: w }: { workspace: DocumentWorkspace }) {
   if (!ai.open || !ai.config.enabled) return null
   const send = () => { const text = draft.trim(); if (!text || ai.busy) return; setDraft(''); void ai.ask(text) }
   return <aside className="ai-drawer" aria-label={t('AI 问书')} style={{ width: w.settings.aiWidth }}>
-    <PaneResizer edge="left" width={w.settings.aiWidth} min={AI_MIN} max={AI_MAX} fallback={400} label={t('调整 AI 栏宽度')} onCommit={(aiWidth) => w.setSettings((current) => ({ ...current, aiWidth }))} />
+    <PaneResizer edge="left" width={w.settings.aiWidth} min={AI_MIN} max={AI_MAX} fallback={400} label={t('调整 AI 栏宽度')} onCommit={(aiWidth) => w.updateSettings({ aiWidth })} />
     <header className="ai-header">
       <div><h2>{t('AI 问书')}</h2><p title={document.name}>{document.name}</p></div>
       <button type="button" className="icon-button" title={t('清空对话')} aria-label={t('清空对话')} disabled={ai.turns.length === 0} onClick={ai.clear}><Eraser aria-hidden="true" /></button>

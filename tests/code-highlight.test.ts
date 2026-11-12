@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { codeLanguages, HIGHLIGHT_BLOCK_LIMIT, loadCodeParsers } from '../src/core/markdown/highlight'
-import { syntaxRoles } from '../src/core/markdown/syntaxRoles'
+import { syntaxRoles } from '../src/core/markdown/syntaxRoleNames'
 import { renderMarkdownPreview } from '../src/features/preview/renderMarkdownPreview'
 import { renderExport } from '../src/features/export/renderHtml'
 import { documentElementCss, DOC_ROOT } from '../src/features/reading/css'

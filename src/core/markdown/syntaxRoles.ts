@@ -1,13 +1,12 @@
 import { defaultHighlightStyle } from '@codemirror/language'
 import { tagHighlighter, tags, type Highlighter, type Tag } from '@lezer/highlight'
+import { tokenClass, type SyntaxRole } from './syntaxRoleNames'
 
 /**
- * Code colors come from the reading style's syntax palette (`--syntax-<role>` in src/features/reading/css.ts).
+ * Code colors come from the reading style's syntax palette (the roles in `syntaxRoleNames.ts`).
  * The tag list is CodeMirror's default highlight style; its colors are mapped onto these roles, so the
  * editor (`codeTheme.ts`) and the preview and export highlighter color the same tokens the same way.
  */
-export const syntaxRoles = ['keyword', 'atom', 'number', 'definition', 'variable', 'type', 'string', 'comment', 'meta', 'invalid', 'heading'] as const
-export type SyntaxRole = (typeof syntaxRoles)[number]
 
 const roleByColor: Record<string, SyntaxRole> = {
   '#708': 'keyword', '#219': 'atom', '#164': 'number', '#a11': 'string', '#e40': 'string', '#00f': 'definition', '#00c': 'definition',
@@ -27,9 +26,6 @@ export const extraSyntax: readonly { tag: Tag; role: SyntaxRole }[] = [
   { tag: tags.propertyName, role: 'definition' },
   { tag: tags.standard(tags.variableName), role: 'atom' },
 ]
-
-/** CSS class of a token role in preview and export markup. */
-export const tokenClass = (role: SyntaxRole) => `tok-${role}`
 
 /** Gives tokens the class of their role, for static highlighting outside CodeMirror. */
 export const syntaxClassHighlighter: Highlighter = tagHighlighter([

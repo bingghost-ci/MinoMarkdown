@@ -36,7 +36,6 @@ pub struct SearchResults { hits: Vec<SearchHit>, truncated: bool, skipped: usize
 #[derive(Default)]
 pub struct SearchState(Mutex<HashMap<String, Arc<AtomicU64>>>);
 
-fn require_main(window: &WebviewWindow) -> Result<(), String> { if crate::is_workspace_window(window.label()) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
 /// Files the sidebar lists: every kind the app opens (T81).
 fn is_document(path: &Path) -> bool { DocumentKind::of(path).is_some() }
 fn ignored(name: &str) -> bool { name.starts_with('.') || matches!(name, "node_modules" | "target" | "dist" | "build" | "assets" | "venv" | "__pycache__") }
@@ -55,9 +54,8 @@ fn valid_rename(current: &Path, name: &str, directory: bool) -> bool {
 
 #[cfg(target_os = "macos")]
 fn directory_handle(parent: &Path) -> Result<fs::File, String> {
-    use std::os::unix::fs::OpenOptionsExt;
     if fs::canonicalize(parent).map_err(|_| "OUT_OF_SCOPE")? != parent { return Err("OUT_OF_SCOPE".into()); }
-    fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(parent).map_err(|_| "OUT_OF_SCOPE".into())
+    crate::fs::open_directory(parent)
 }
 
 #[cfg(target_os = "macos")]
@@ -161,11 +159,13 @@ fn list_at(store: &WorkspaceStore, token: &str, offset: usize) -> Result<Childre
         let name = entry.file_name().to_string_lossy().into_owned();
         if ignored(&name) { continue; }
         let path = entry.path();
-        let Ok(meta) = fs::symlink_metadata(&path) else { continue };
-        if meta.file_type().is_symlink() || !(meta.is_dir() || meta.is_file() && is_document(&path)) { continue; }
-        children.push((name, path, meta.is_dir()));
+        // The type comes with the directory entry and, like `lstat`, describes a link itself, never its target.
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_symlink() || !(kind.is_dir() || kind.is_file() && is_document(&path)) { continue; }
+        children.push((name, path, kind.is_dir()));
     }
-    children.sort_by(|a,b| b.2.cmp(&a.2).then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase())).then_with(|| a.0.cmp(&b.0)));
+    // Folders first, then by name without regard to case; the lowercase names are made once, not for every comparison (T100).
+    children.sort_by_cached_key(|(name, _, directory)| (!*directory, name.to_lowercase(), name.clone()));
     let total = children.len();
     let current_paths: HashSet<_> = children.iter().map(|(_, path, directory)| (path.clone(), *directory)).collect();
     let page = children.into_iter().skip(offset).take(PAGE_SIZE).collect::<Vec<_>>();
@@ -196,7 +196,7 @@ fn list_at(store: &WorkspaceStore, token: &str, offset: usize) -> Result<Childre
 
 #[tauri::command]
 pub async fn choose_workspace(app: AppHandle, window: WebviewWindow, store: State<'_, WorkspaceStore>) -> Result<Option<WorkspaceRoot>, String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     let Some(selected) = app.dialog().file().blocking_pick_folder() else { return Ok(None); };
     let path = fs::canonicalize(selected.into_path().map_err(|_| "INVALID_PATH")?).map_err(|_| "NOT_FOUND")?;
     if !fs::metadata(&path).map_err(|_| "NOT_FOUND")?.is_dir() { return Err("INVALID_PATH".into()); }
@@ -222,12 +222,12 @@ pub(crate) fn workspace_path(store: &WorkspaceStore, token: &str) -> Result<Path
 }
 #[tauri::command(async)]
 pub fn list_children(window: WebviewWindow, store: State<'_, WorkspaceStore>, directory_token: String, offset: usize) -> Result<ChildrenPage, String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     list_at(&store, &directory_token, offset)
 }
 #[tauri::command(async)]
 pub fn open_workspace_document(window: WebviewWindow, workspace: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String) -> Result<OpenDocument, String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     let grant = workspace.0.lock().map_err(|_| "IO_ERROR")?.get(&entry_token).cloned().ok_or("OUT_OF_SCOPE")?;
     if grant.directory { return Err("OUT_OF_SCOPE".into()); }
     let path = checked_path(&grant)?;
@@ -235,7 +235,7 @@ pub fn open_workspace_document(window: WebviewWindow, workspace: State<'_, Works
 }
 #[tauri::command]
 pub fn release_workspace(window: WebviewWindow, store: State<'_, WorkspaceStore>, token: String) -> Result<(), String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     let mut map = store.0.lock().map_err(|_| "IO_ERROR")?;
     if !map.get(&token).is_some_and(|entry| entry.workspace == token) { return Err("OUT_OF_SCOPE".into()); }
     map.retain(|_, entry| entry.workspace != token);
@@ -244,7 +244,7 @@ pub fn release_workspace(window: WebviewWindow, store: State<'_, WorkspaceStore>
 
 #[tauri::command(async)]
 pub fn create_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, parent_token: String, name: String, directory: bool) -> Result<WorkspaceEntry, String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     if !valid_name(&name, directory) { return Err("INVALID_NAME".into()); }
     let parent_grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(&parent_token).cloned().ok_or("OUT_OF_SCOPE")?;
     if !parent_grant.directory { return Err("OUT_OF_SCOPE".into()); }
@@ -258,7 +258,7 @@ pub fn create_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceS
 
 #[tauri::command(async)]
 pub fn rename_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String, new_name: String) -> Result<WorkspaceEntry, String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(&entry_token).cloned().ok_or("OUT_OF_SCOPE")?;
     if grant.path == grant.root || !valid_rename(&grant.path, &new_name, grant.directory) { return Err("INVALID_NAME".into()); }
     let source = checked_path(&grant)?;
@@ -292,7 +292,7 @@ fn move_to_trash(_path: &Path) -> Result<(), String> { Err("UNSUPPORTED_PLATFORM
 
 #[tauri::command(async)]
 pub fn trash_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String) -> Result<(), String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(&entry_token).cloned().ok_or("OUT_OF_SCOPE")?;
     if grant.path == grant.root { return Err("OUT_OF_SCOPE".into()); }
     let path = checked_path(&grant)?;
@@ -383,7 +383,7 @@ fn search_at(store: &WorkspaceStore, root_token: &str, query: &str, canceled: im
 /// An empty query is how the frontend stops a search that is still running.
 #[tauri::command(async)]
 pub fn search_workspace(window: WebviewWindow, store: State<'_, WorkspaceStore>, searches: State<'_, SearchState>, root_token: String, query: String) -> Result<SearchResults, String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     let counter = searches.0.lock().map_err(|_| "IO_ERROR")?.entry(window.label().to_owned()).or_default().clone();
     let current = counter.fetch_add(1, Ordering::SeqCst) + 1;
     search_at(&store, &root_token, &query, || counter.load(Ordering::SeqCst) != current)

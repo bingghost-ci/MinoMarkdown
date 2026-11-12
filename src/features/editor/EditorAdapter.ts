@@ -15,13 +15,15 @@ import { deleteRow, deleteColumn } from '@milkdown/kit/prose/tables'
 import { insertTableCommand, addRowAfterCommand, addColAfterCommand, setAlignCommand } from '@milkdown/kit/preset/gfm'
 import { toggleLinkCommand, updateLinkCommand, updateImageCommand } from '@milkdown/kit/preset/commonmark'
 import { rewriteImageUrls } from '../export/snapshot'
+import { rewriteImageUrlsAsync } from '../../core/markdown/analysisClient'
 import { safeTextHandler } from './markdownStringify'
 import { renderMermaidPreview } from '../diagrams/mermaid'
 import { remarkDemoteCurrencyPlugin } from './mathEditor'
 import { numericColumnsPlugin } from './numericColumns'
 import { CREPE_INLINE_MATH_RULE, STRICT_INLINE_MATH_RULE } from '../../core/markdown/math'
 import { isAssetUrl, relativeFromAssetUrl } from './assetUrl'
-import { findKey, findPlugin, replacementFor, setFind, type FindOptions } from './find'
+import { findKey, findPlugin, setFind } from './find'
+import { replacementFor, type FindOptions } from './findText'
 import { duplicateBlock, moveBlock } from './blockCommands'
 import { textTransformTransaction, type TextTransform } from './textTransform'
 import { linkPasteTransaction, parseTabularText, pastedLinkHref, tablePasteTransaction } from './smartPaste'
@@ -46,6 +48,8 @@ export class EditorAdapter {
   private composing = false
   /** The document as the editor left it after loading, before any edit; see the `updated` listener. */
   private loadedDoc: ProseNode | null = null
+  /** Values worked out from the whole document. A ProseMirror document is immutable, so they hold until it is replaced (T93). */
+  private readonly derived = new Map<string, { doc: ProseNode; value: unknown }>()
   private edited = false
   private savedSelection: { from: number; to: number; node: boolean } | null = null
   private savedLinkHref: string | null = null
@@ -448,16 +452,6 @@ export class EditorAdapter {
     this.crepe.editor.action(callCommand(updateImageCommand.key, { src: url, alt: file.name || '图片' }))
   }
 
-  async retryFailedImages(): Promise<void> {
-    const failures = Array.from(this.pending.values()).filter((item) => item.error)
-    this.onImageError?.(null)
-    for (const item of failures) {
-      item.error = null
-      item.validation = this.validateImage(item.file).catch((error: unknown) => { item.error = String(error); this.onImageError?.(item.error); throw error })
-      await item.validation.catch(() => undefined)
-    }
-  }
-
   // Load errors do not bubble, so this listens during capture. Attachments load lazily after the text.
   private onResourceError = (event: Event): void => {
     const target = event.target
@@ -545,6 +539,13 @@ export class EditorAdapter {
     return this.updateFind((tr) => setFind(tr, { index: (index + direction + total) % total }), true)
   }
 
+  /** Goes straight to one match, as stepping to it one at a time would end up (T94). */
+  findAt(index: number): { current: number; total: number } {
+    const { total } = this.findCounts()
+    if (total === 0) return { current: 0, total: 0 }
+    return this.updateFind((tr) => setFind(tr, { index: index % total }), true)
+  }
+
   replaceCurrent(text: string): { current: number; total: number } {
     if (this.composing || this.readOnly) return this.findCounts()
     return this.updateFind((tr, find) => {
@@ -592,7 +593,7 @@ export class EditorAdapter {
     let result: { text: string; selected: string | null } = { text: '', selected: null }
     if (this.created) this.crepe.editor.action((ctx) => {
       const { doc, selection } = ctx.get(editorViewCtx).state
-      result = { text: doc.textBetween(0, doc.content.size, '\n', ' '), selected: selection.empty ? null : doc.textBetween(selection.from, selection.to, '\n', ' ') }
+      result = { text: this.perDocument('text', doc, () => doc.textBetween(0, doc.content.size, '\n', ' ')), selected: selection.empty ? null : doc.textBetween(selection.from, selection.to, '\n', ' ') }
     })
     return result
   }
@@ -600,7 +601,7 @@ export class EditorAdapter {
   outline(): OutlineItem[] {
     if (!this.created) return []
     let items: OutlineItem[] = []
-    this.crepe.editor.action((ctx) => { items = outlineFromDoc(ctx.get(editorViewCtx).state.doc) })
+    this.crepe.editor.action((ctx) => { const { doc } = ctx.get(editorViewCtx).state; items = this.perDocument('outline', doc, () => outlineFromDoc(doc)) })
     return items
   }
 
@@ -617,25 +618,46 @@ export class EditorAdapter {
     })
   }
 
+  /** The document as Markdown. Serializing walks the whole document, so the text is kept until the document changes (T93). */
   getMarkdown(): string {
     if (!this.created) throw new Error('Editor is not ready')
-    return this.crepe.getMarkdown()
+    let doc: ProseNode | null = null
+    this.crepe.editor.action((ctx) => { doc = ctx.get(editorViewCtx).state.doc })
+    return doc ? this.perDocument('markdown', doc, () => this.crepe.getMarkdown()) : this.crepe.getMarkdown()
   }
 
   getPersistableMarkdown(): string {
     return rewriteImageUrls(this.getMarkdown(), this.persisted)
   }
 
+  /** `getPersistableMarkdown` for saving: the text is taken now and its image references are rewritten off the main thread (T92). */
+  persistableMarkdown(): Promise<string> {
+    return rewriteImageUrlsAsync(this.getMarkdown(), this.persisted)
+  }
+
   /** Image URLs in the live document, read from its nodes so no Markdown parsing is needed. */
-  referencedImageUrls(): Set<string> {
-    const urls = new Set<string>()
+  referencedImageUrls(): ReadonlySet<string> {
+    let urls: ReadonlySet<string> = new Set<string>()
     if (!this.created) return urls
     this.crepe.editor.action((ctx) => {
-      ctx.get(editorViewCtx).state.doc.descendants((node) => {
-        if ((node.type.name === 'image' || node.type.name === 'image-block') && node.attrs.src) urls.add(node.attrs.src as string)
+      const { doc } = ctx.get(editorViewCtx).state
+      urls = this.perDocument('images', doc, () => {
+        const found = new Set<string>()
+        doc.descendants((node) => {
+          if ((node.type.name === 'image' || node.type.name === 'image-block') && node.attrs.src) found.add(node.attrs.src as string)
+        })
+        return found
       })
     })
     return urls
+  }
+
+  private perDocument<T>(name: string, doc: ProseNode, compute: () => T): T {
+    const kept = this.derived.get(name)
+    if (kept?.doc === doc) return kept.value as T
+    const value = compute()
+    this.derived.set(name, { doc, value })
+    return value
   }
 
   /** Bytes of referenced pending images, except URLs in `skip`, which are only loaded when needed. */

@@ -156,7 +156,8 @@ describe('reading styles', () => {
       expect(style.texture, 'each paper style has its own texture').toBe(style.id)
       const layers = vars['--paper-texture'].split(', ')
       expect(layers.length, style.id).toBeGreaterThanOrEqual(2)
-      for (const layer of layers) expect(layer, style.id).toMatch(/^url\("data:image\/png;base64,[A-Za-z0-9+/=]+"\)$/)
+      // The app's own files, drawn from where the build puts them; nothing is fetched from elsewhere (T98).
+      for (const layer of layers) expect(layer, style.id).toMatch(new RegExp(`^url\\("/src/assets/paper/${style.id}-[a-z]+\\.png"\\)$`))
       const sizes = vars['--paper-texture-size'].split(', ')
       expect(sizes.length, `${style.id} sizes`).toBe(layers.length)
       for (const size of sizes) expect(size, style.id).toMatch(/^(\d+)px \1px$/)

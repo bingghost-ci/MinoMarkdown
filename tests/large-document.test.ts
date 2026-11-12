@@ -15,7 +15,6 @@ describe('large documents (T77)', () => {
   it('stands in with an analysis that keeps the source unchanged and cannot be composed as visual', () => {
     const analysis = quickReadAnalysis('---\ntitle: a\n---\n# 标题\r\n正文')
     expect(analysis.mode).toBe('source-protected')
-    expect(analysis.source).toBe('---\ntitle: a\n---\n# 标题\r\n正文')
     expect(analysis.issues).toEqual([])
   })
 

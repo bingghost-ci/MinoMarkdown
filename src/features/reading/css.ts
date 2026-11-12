@@ -2,7 +2,7 @@ import { mix, parseHex } from './color'
 import { CODE_FONT_STACK } from './fonts'
 import { readingStyle, readingStyles, type CodeTheme, type ReadingStyle } from './styles'
 import { textureBackground } from './textures'
-import { syntaxRoles, tokenClass } from '../../core/markdown/syntaxRoles'
+import { syntaxRoles, tokenClass } from '../../core/markdown/syntaxRoleNames'
 
 /**
  * CSS for every place a document is shown. The app injects `appStylesheet()` once and switches styles by
@@ -53,8 +53,8 @@ function declarations(values: Record<string, string>): string {
   return Object.entries(values).map(([name, value]) => `${name}:${value};`).join('')
 }
 
-export function styleVariables(style: ReadingStyle): Record<string, string> {
-  const texture = textureBackground(style.texture)
+export function styleVariables(style: ReadingStyle, textureSource?: (file: string) => string | undefined): Record<string, string> {
+  const texture = textureBackground(style.texture, textureSource)
   const syntax = syntaxPalettes[style.codeTheme]
   return {
     'color-scheme': style.dark ? 'dark' : 'light',
@@ -225,6 +225,8 @@ export type ExportStyleOptions = {
   pageMargin: PageMargin
   typography: Typography
   fontFaces: string
+  /** The paper's layers as data URIs, by file. An exported page cannot reach the app's files, so a layer missing here is left out. */
+  textures?: ReadonlyMap<string, string>
 }
 
 /** The style an export draws with: print-friendly and plain pages use white paper and dark ink. */
@@ -244,8 +246,9 @@ function printStyle(style: ReadingStyle): ReadingStyle {
 export function exportStylesheet(options: ExportStyleOptions): string {
   const style = exportReadingStyle(options)
   const print = printStyle(style)
-  const vars = { ...styleVariables(style), ...typographyVariables(options.typography, style) }
-  const printVars = { ...styleVariables(print), ...typographyVariables({ ...options.typography, imageDimming: false }, print) }
+  const texture = (file: string) => options.textures?.get(file)
+  const vars = { ...styleVariables(style, texture), ...typographyVariables(options.typography, style) }
+  const printVars = { ...styleVariables(print, texture), ...typographyVariables({ ...options.typography, imageDimming: false }, print) }
   const pageWidth = `calc(var(--doc-measure) + ${2 * PAGE_PADDING_X}px)`
   return [
     options.fontFaces,

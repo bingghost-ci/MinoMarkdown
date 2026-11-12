@@ -1,7 +1,7 @@
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { textureBackground, type TextureId } from '../src/features/reading/textures'
+import { textureBackground, textureFiles, type TextureId } from '../src/features/reading/textures'
 // The generator is plain Node; the tests read the committed layers with its decoder.
 import { PERIOD, decodePng, encodePng, layerFile, outputDir, readLayer, renderLayer, textureSpecs } from '../scripts/generate-paper-textures.mjs'
 
@@ -189,11 +189,19 @@ describe('paper textures', { timeout: 120_000 }, () => {
     expect(specs.map((item) => item.id)).toEqual(['paper', 'xuan', 'parchment', 'kraft'])
     for (const paper of specs) {
       expect(paper.paper, paper.id).toBe(pages[paper.id])
-      const background = textureBackground(paper.id)!
+      // The app draws the layer files themselves, top layer first; an export puts in the data URIs it read from them (T98).
+      const files = paper.layers.map((layer) => `/src/assets/paper/${layerFile(paper, layer)}`)
+      expect(textureFiles(paper.id), paper.id).toEqual(files)
+      expect(textureBackground(paper.id)!.image.split(', '), paper.id).toEqual(files.map((file) => `url("${file}")`))
+      const inlined = (file: string) => `data:image/png;base64,${readLayer(paper, paper.layers[files.indexOf(file)]).toString('base64')}`
+      const background = textureBackground(paper.id, inlined)!
       expect(background.image.split(', '), paper.id).toEqual(paper.layers.map((layer) => `url("data:image/png;base64,${readLayer(paper, layer).toString('base64')}")`))
+      // A layer that could not be read leaves the page plain rather than half textured.
+      expect(textureBackground(paper.id, (file) => file === files[0] ? undefined : inlined(file)), paper.id).toBeNull()
       expect(background.size, paper.id).toBe(paper.layers.map((layer) => `${layer.size}px ${layer.size}px`).join(', '))
     }
     expect(textureBackground(null)).toBeNull()
+    expect(textureFiles(null)).toEqual([])
   })
 
   it('matches a fresh build of the generator, so the committed layers are reproducible', () => {

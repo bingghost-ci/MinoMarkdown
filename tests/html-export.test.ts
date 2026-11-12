@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { renderExport, renderHtml } from '../src/features/export/renderHtml'
+import { renderExport, type ImageResolver } from '../src/features/export/renderHtml'
+
+const renderHtml = async (markdown: string, title: string, resolveImage: ImageResolver) => (await renderExport(markdown, title, resolveImage)).html
 import { snapshotResources } from '../src/features/export/snapshot'
 
 describe('self-contained HTML export', () => {

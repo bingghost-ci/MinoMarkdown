@@ -1,6 +1,9 @@
 import { exportReadingStyle, exportStylesheet, type Typography } from '../reading/css'
-import { bundledFaces, CODE_FONT_STACK, facesForText, familiesIn, fontFaceCss, withoutBundledFonts, type FontFace } from '../reading/fonts'
+import { CODE_FONT_STACK, familiesIn, withoutBundledFonts } from '../reading/fonts'
+import { bundledFaces, facesForText, fontFaceCss, type FontFace } from '../reading/fontFaces'
 import type { ReadingStyle } from '../reading/styles'
+import { base64 } from './appAssets'
+import { textureFiles } from '../reading/textures'
 
 /** §3 budgets: exported HTML carries at most 6 MiB of fonts. Print pages are never saved, so they may carry more. */
 export const HTML_FONT_BUDGET = 6 * 1024 * 1024
@@ -16,20 +19,12 @@ export type ExportStyleInput = {
   /** The text whose characters decide which font subsets are embedded. */
   text: string
   mode: 'html' | 'print'
-  /** Reads a bundled file by its built path (`/assets/…`); the app reads it through `read_app_asset`. */
+  /** Reads a bundled font or paper layer by its built path (`/assets/…`); the app reads it through `read_app_asset`. */
   readAsset: (path: string) => Promise<Uint8Array>
   faces?: readonly FontFace[]
 }
 
 export type ExportStyle = { stylesheet: string; fontsEmbedded: boolean; fontFallback: boolean; fontBytes: number; diagramStyleId: string }
-
-function base64(bytes: Uint8Array): string {
-  let output = ''
-  for (let offset = 0; offset < bytes.length; offset += 8192) output += String.fromCharCode(...bytes.subarray(offset, offset + 8192))
-  return btoa(output)
-}
-
-export { withoutBundledFonts }
 
 /**
  * Builds the stylesheet of an exported page. Only the font subsets that cover characters of the text are
@@ -61,8 +56,13 @@ export async function buildExportStyle(input: ExportStyleInput): Promise<ExportS
       typography = { ...typography, fontFamily: withoutBundledFonts(typography.fontFamily) || 'serif' }
     }
   }
-  const options = { styleId: input.style.id, exportStyle: input.exportStyle, pdfMode: input.pdfMode, pageSize: input.pageSize, pageMargin: input.pageMargin, typography, fontFaces }
-  const drawn = exportReadingStyle(options)
+  const drawn = exportReadingStyle({ styleId: input.style.id, exportStyle: input.exportStyle })
+  // The paper travels inside the page, like the fonts. If a layer cannot be read the page keeps its color and loses its grain.
+  const textures = new Map<string, string>()
+  try {
+    for (const file of textureFiles(drawn.texture)) textures.set(file, file.startsWith('data:') ? file : `data:image/png;base64,${base64(await input.readAsset(file))}`)
+  } catch { textures.clear() }
+  const options = { styleId: input.style.id, exportStyle: input.exportStyle, pdfMode: input.pdfMode, pageSize: input.pageSize, pageMargin: input.pageMargin, typography, fontFaces, textures }
   const printsWhite = input.mode === 'print' && input.pdfMode === 'print'
   return {
     stylesheet: exportStylesheet(options),

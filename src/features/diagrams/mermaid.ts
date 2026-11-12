@@ -64,6 +64,9 @@ export function diagramVariables(styleId: string): Record<string, string | boole
 /** Mermaid keeps global state, so renders run strictly one at a time. */
 function renderSvg(source: string, theme: Theme): Promise<string> {
   const result = renderChain.then(async () => {
+    // A document with many diagrams draws them back to back. Giving up the thread before each one lets
+    // scrolling and typing through while they fill in (T96).
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
     const mermaid = await loadMermaid()
     mermaid.initialize({
       startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, theme: 'base', themeVariables: diagramVariables(theme), htmlLabels: false, flowchart: { htmlLabels: false },

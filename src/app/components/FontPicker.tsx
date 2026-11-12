@@ -8,11 +8,6 @@ const fontsOf = { cjk: cjkFonts, latin: latinFonts, code: codeFonts } as const
 const listLabel = { cjk: '中文字体', latin: '西文字体', code: '代码字体' } as const
 
 /**
- * The font grid (T65): every button is drawn in its own font. Chinese and Western fonts are chosen
- * separately, code has its own monospace font (T90), and the last tab lists the fonts installed on this Mac
- * for any of the three.
- */
-/**
  * A button is drawn in its own font only when that costs nothing: the font is in use, or it loads in small
  * pieces. A font that ships as one large file, and each of the hundreds of fonts installed on the Mac, is
  * shown in the interface font until the pointer rests on its button. Drawing them all at once loaded 24 MiB
@@ -31,20 +26,25 @@ function previewOnRest(family: string) {
   }
 }
 
+/**
+ * The font grid (T65): every button is drawn in its own font. Chinese and Western fonts are chosen
+ * separately, code has its own monospace font (T90), and the last tab lists the fonts installed on this Mac
+ * for any of the three.
+ */
 export function FontPicker({ workspace: w }: { workspace: DocumentWorkspace }) {
-  const { document, loadSystemFonts, setSettings, settings, style, systemFonts, t } = w
+  const { document, loadSystemFonts, updateSettings, settings, style, systemFonts, t } = w
   // A source file is drawn in the code font alone, so the picker opens on it.
   const [tab, setTab] = useState<Tab>(document.kind === 'code' ? 'code' : systemFontName(settings.cjkFont) ? 'system' : 'cjk')
   const [target, setTarget] = useState<FontScript>(document.kind === 'code' ? 'code' : systemFontName(settings.latinFont) && !systemFontName(settings.cjkFont) ? 'latin' : 'cjk')
   const [query, setQuery] = useState('')
   useEffect(() => { if (tab === 'system') loadSystemFonts() }, [tab])
-  const pick = (script: FontScript, id: string) => setSettings((current) => ({ ...current, [settingOf[script]]: id }))
+  const pick = (script: FontScript, id: string) => updateSettings({ [settingOf[script]]: id })
   const selected = (script: FontScript) => settings[settingOf[script]]
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return (systemFonts ?? []).filter((name) => !needle || name.toLowerCase().includes(needle))
   }, [systemFonts, query])
-  const styleFont = cjkFonts.find((font) => font.id === (style.font === 'hei' ? 'hei' : style.font))
+  const styleFont = cjkFonts.find((font) => font.id === style.font)
   const autoCjkFamily = styleFont && (!styleFont.heavy || settings.cjkFont === 'auto') ? styleFont.family : undefined
   const grid = (script: FontScript, autoLabel: string, autoFamily: string | undefined) => <div className="font-grid" role="listbox" aria-label={t(listLabel[script])}>
     <button type="button" role="option" className="font-chip" aria-selected={selected(script) === 'auto'} onClick={() => pick(script, 'auto')} style={{ fontFamily: autoFamily }}>{t(autoLabel)}</button>

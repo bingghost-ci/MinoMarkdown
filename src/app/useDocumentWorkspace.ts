@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import { compareMarkdown, describeIssues, exceedsVisualLimit, protectedFragments } from '../core/markdown/compatibility'
 import { opensForQuickReading, previewHead, quickReadAnalysis } from '../features/document/largeDocument'
-import { countWordsAsync, imageUrlsInAsync, mermaidSourcesAsync, prepareMarkdownAsync, renderCodePreviewAsync, renderExportAsync, renderPreviewAsync, renderTextPreviewAsync } from '../core/markdown/analysisClient'
+import { countWordsAsync, hydrateMarkdownAsync, imageUrlsInAsync, mermaidSourcesAsync, prepareMarkdownAsync, rewriteImageUrlsAsync, renderCodePreviewAsync, renderExportAsync, renderPreviewAsync, renderTextPreviewAsync } from '../core/markdown/analysisClient'
 import { delimiterOf, extensionOf, isTextKind, kindOfName, titleOf, type DocumentKind } from '../features/document/kinds'
 import { textHead, textOutline } from '../features/text/textDocument'
 import type { PdfBridge, PdfHandle, PdfPosition } from '../features/pdf/PdfView'
@@ -15,19 +15,21 @@ import { composeVisualMarkdown, prepareMarkdown, type PreparedMarkdown } from '.
 import type { EditorAdapter as EditorInstance, PendingAsset, ToolbarState } from '../features/editor/EditorAdapter'
 import { EditorPool } from '../features/editor/editorPool'
 import { safeLinkHref } from '../features/editor/linkSafety'
-import { assetUrl, isAssetUrl, relativeFromAssetUrl } from '../features/editor/assetUrl'
+import { isAssetUrl, relativeFromAssetUrl } from '../features/editor/assetUrl'
 import { beginSave, clearExternalConflict, createSession, editSession, externalConflict, isDirty, saveCanceled, saveFailed, saveSucceeded, type DocumentSession } from '../features/document/session'
 import { mayLeaveDocument, type UnsavedAction } from '../features/document/lifecycle'
 import { createDraftScheduler, type DraftScheduler } from '../features/document/draftScheduler'
 import { autosaveDecision } from '../features/document/autosave'
 import { lineDiff, type DiffLine } from '../features/document/lineDiff'
-import { defaultFindOptions, findInText, replacementFor, type FindMatch, type FindOptions } from '../features/editor/find'
+import { defaultFindOptions, findInText, replacementFor, type FindMatch, type FindOptions } from '../features/editor/findText'
 import { outlineFromSource, type OutlineItem } from '../features/outline/outline'
-import { imageUrlsIn, localAssetPath, rewriteImageUrls, snapshotResources } from '../features/export/snapshot'
+import { localAssetPath, snapshotResources } from '../features/export/snapshot'
 import { translate, translateStatus, type Language } from './i18n'
 import { activeStyle, defaultReadingSettings, documentTypography, layoutScript, lineHeights, opensInReadingMode, pickedStyle, toggledDayNight, type ReadingSettings } from './readingSettings'
 import { typographyVariables } from '../features/reading/css'
 import { dominantScript } from '../features/reading/script'
+import { createWordCounter, sameOutline } from '../features/document/derived'
+import { useStableFunctions } from './stable'
 import { migrateStyleId, type ReadingStyle } from '../features/reading/styles'
 import { previewAiTransport, previewSampleSource } from './previewSample'
 import { useAiAssistant, type InsertPlacement } from './aiAssistant'
@@ -84,7 +86,8 @@ export const samples = [
   { id: 'F05', label: 'F05 表格' },
 ] as const
 type OpenResult = { token: string; name: string; markdown: string; revision: string; assetKey: string; /** What Rust opened the file as (T81); a PDF has no `markdown`. */ kind: DocumentKind; encoding?: string; size?: number }
-type SaveResult = OpenResult & { assetPaths: Record<string, string>; assetRelocations: Record<string, string> }
+/** `markdown` comes back only when saving changed the text (pasted images now point at their files); otherwise it is the text that was sent (T100). */
+type SaveResult = Omit<OpenResult, 'markdown'> & { markdown?: string; assetPaths: Record<string, string>; assetRelocations: Record<string, string> }
 type DiskStatus = { kind: 'same' | 'changed' | 'deleted'; revision: string | null }
 type DocumentState = OpenResult & { id: number; draftId: string; imageUrls: Map<string, string>; recoveredAssets: Map<string, { bytes: Uint8Array<ArrayBuffer>; mime: string }>; pendingFiles: Map<string, File>; retiredTokens: string[]; entryToken?: string; sampleId?: string; originalMarkdown: string; prepared: PreparedMarkdown; /** T77: a large document shown through the preview until the user edits; see largeDocument.ts. */ deferredVisual?: boolean; sourceText: string; mode: 'visual' | 'source-protected'; reading?: boolean }
 /** The bytes a PDF may hold in one IPC answer; Rust allows 8 MiB. */
@@ -170,6 +173,22 @@ export function errorText(error: unknown): string {
   return messages[code] ?? `操作失败：${code}`
 }
 
+/** `t` is called while rendering and its result depends on the language. */
+const STABLE_EXCEPT = ['t'] as const
+const FIND_INPUT_DELAY_MS = 120
+/** Matches listed in the source editor, as in a PDF: a pattern that matches every character would otherwise hold millions of them (T94). */
+const SOURCE_MATCH_LIMIT = 5000
+
+/** Frees the object URLs a document held for its images. */
+function revokeDocumentUrls(closed: DocumentState): void {
+  for (const urls of [closed.imageUrls, closed.recoveredAssets, closed.pendingFiles]) for (const url of urls.keys()) URL.revokeObjectURL(url)
+}
+
+/** The text of a document that a draft is written from. */
+function draftText(note: DocumentState): string {
+  return note.mode === 'visual' ? note.markdown : note.sourceText
+}
+
 /** T77: a large document as it opens for reading, before any analysis: the preview shows it and saving keeps its source. */
 function quickDocument(markdown: string, name: string): DocumentState {
   return { token: '', assetKey: '', name, kind: 'markdown', markdown, revision: '', id: nextDocumentId++, draftId: crypto.randomUUID(), originalMarkdown: markdown, imageUrls: new Map(), recoveredAssets: new Map(), pendingFiles: new Map(), retiredTokens: [], prepared: { analysis: quickReadAnalysis(markdown), editorMarkdown: markdown }, sourceText: markdown, mode: 'source-protected', deferredVisual: true }
@@ -187,27 +206,8 @@ function plainDocument(text: string, name: string, kind: DocumentKind): Document
 async function hydrateImages(opened: OpenResult, quickRead = false): Promise<DocumentState> {
   if (opened.kind !== 'markdown') return { ...plainDocument(opened.markdown, opened.name, opened.kind), ...opened }
   if (opensForQuickReading(opened.markdown, quickRead)) return { ...quickDocument(opened.markdown, opened.name), ...opened }
-  const prepared = await prepareMarkdownAsync(opened.markdown)
-  let markdown = prepared.editorMarkdown
-  const imageUrls = new Map<string, string>()
-  const replacements = new Map<string, string>()
-  let hydrationFailed = false
-  if (prepared.analysis.mode === 'visual' && opened.assetKey) {
-    for (const relative of imageUrlsIn(markdown)) {
-      const path = localAssetPath(relative)
-      if (path === null) continue
-      const url = assetUrl(opened.assetKey, path)
-      imageUrls.set(url, relative)
-      replacements.set(relative, url)
-    }
-  }
-  try { markdown = rewriteImageUrls(markdown, replacements) }
-  catch {
-    hydrationFailed = true
-    imageUrls.clear()
-    markdown = prepared.editorMarkdown
-  }
-  return { ...opened, id: nextDocumentId++, draftId: crypto.randomUUID(), markdown, originalMarkdown: opened.markdown, imageUrls, recoveredAssets: new Map(), pendingFiles: new Map(), retiredTokens: [], prepared, sourceText: opened.markdown, mode: hydrationFailed ? 'source-protected' : prepared.analysis.mode }
+  const { prepared, markdown, imageUrls, failed } = await hydrateMarkdownAsync(opened.markdown, opened.assetKey)
+  return { ...opened, id: nextDocumentId++, draftId: crypto.randomUUID(), markdown, originalMarkdown: opened.markdown, imageUrls, recoveredAssets: new Map(), pendingFiles: new Map(), retiredTokens: [], prepared, sourceText: opened.markdown, mode: failed ? 'source-protected' : prepared.analysis.mode }
 }
 
 export function useDocumentWorkspace() {
@@ -216,7 +216,6 @@ export function useDocumentWorkspace() {
   const previewRoot = useRef<HTMLDivElement>(null)
   const sourceEditor = useRef<SourceEditor | null>(null)
   const forceSourceView = useRef(false)
-  const sidebarRoot = useRef<HTMLElement>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const imageInputAction = useRef<'insert' | 'replace'>('insert')
   const adapter = useRef<EditorInstance | null>(null)
@@ -281,10 +280,13 @@ export function useDocumentWorkspace() {
   const [findOptions, setFindOptionsState] = useState<FindOptions>(defaultFindOptions)
   const findOptionsRef = useRef<FindOptions>(defaultFindOptions)
   const [findRegexBlocked, setFindRegexBlocked] = useState(false)
+  /** The source editor found more matches than it lists (T94). */
+  const [findCapped, setFindCapped] = useState(false)
+  const queuedFind = useRef<{ timer: number; query: string | null }>({ timer: 0, query: null })
   const findRef = useRef({ open: findOpen, query: findQuery })
   findRef.current = { open: findOpen, query: findQuery }
   const runFindRef = useRef<(query: string) => void>(() => undefined)
-  const findStepRef = useRef<(direction: 1 | -1) => void>(() => undefined)
+  const findGoToRef = useRef<(index: number) => void>(() => undefined)
   const [drafts, setDrafts] = useState<DraftSummary[]>([])
   const [draftPreview, setDraftPreview] = useState<DraftContent | null>(null)
   const [draftsOpen, setDraftsOpen] = useState(false)
@@ -294,6 +296,9 @@ export function useDocumentWorkspace() {
   const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([])
   const [wordCounts, setWordCounts] = useState<{ total: number; selected: number | null }>({ total: 0, selected: null })
   const wordCountSequence = useRef(0)
+  const wordCounter = useRef(createWordCounter(countWordsAsync))
+  /** The text of each document's last stored draft, so leaving a tab that has not changed since does not write it again (T93). */
+  const draftedText = useRef(new Map<string, { text: string; name: string; diskRevision: string | null }>())
   const derivedTimer = useRef<number | undefined>(undefined)
   const [tablePicker, setTablePicker] = useState<{ x: number; y: number } | null>(null)
   const [linkHref, setLinkHref] = useState('')
@@ -305,7 +310,12 @@ export function useDocumentWorkspace() {
   workspacesRef.current = workspaces
   const [settings, setSettings] = useState<Settings>(() => uiPreview ? previewSettings() : defaultSettings)
   const sidebarOpen = settings.showSidebar
-  const t = (value: string) => translate(value, settings.language)
+  /** Changes some settings and leaves the rest: the fields themselves, or a function of the current settings that gives them. */
+  function updateSettings(patch: Partial<Settings> | ((current: Settings) => Partial<Settings>)) {
+    setSettings((current) => ({ ...current, ...(typeof patch === 'function' ? patch(current) : patch) }))
+  }
+  // Its identity follows the language, so a `memo` component that shows text renders again when the language changes.
+  const t = useCallback((value: string) => translate(value, settings.language), [settings.language])
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [systemDark, setSystemDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false)
   const [tree, setTree] = useState<Record<string, TreeState>>(uiPreview ? previewTree : {})
@@ -338,7 +348,9 @@ export function useDocumentWorkspace() {
   const delimiter = document.kind === 'code' && tableView ? delimiterOf(document.name) : null
   // A text or source file is read through its preview and edited in the source editor (T84); find shows the source.
   const sourceShown = plain ? !isPdf && (!reading || sourceView) : sourceView
-  const wantsPreview = document.mode === 'source-protected' && !isPdf && !sourceShown && (document.kind === 'text' || !exceedsVisualLimit(document.sourceText))
+  // Measuring a text near the limit encodes all of it, which must not happen on every render (T93).
+  const overVisualLimit = useMemo(() => exceedsVisualLimit(document.sourceText), [document.sourceText])
+  const wantsPreview = document.mode === 'source-protected' && !isPdf && !sourceShown && (document.kind === 'text' || !overVisualLimit)
   const previewVariant = `${document.kind}:${document.kind === 'code' ? `${extensionOf(document.name)}:${delimiter ?? ''}` : ''}`
   const [preview, setPreview] = useState<{ source: string; variant: string; html: string | null; partial?: boolean } | null>(null)
   const previewPending = wantsPreview && (preview?.source !== document.sourceText || preview.variant !== previewVariant)
@@ -363,7 +375,7 @@ export function useDocumentWorkspace() {
   }, [wantsPreview, document.sourceText, document.assetKey, document.kind, document.name, previewVariant, settings.imageCaptions])
   const refreshDerivedRef = useRef<() => void>(() => undefined)
   refreshDerivedRef.current = () => {
-    if (settingsRef.current.showOutline) setOutlineItems(currentOutline())
+    if (settingsRef.current.showOutline) { const next = currentOutline(); setOutlineItems((old) => sameOutline(old, next) ? old : next) }
     void refreshWordCounts()
   }
   const [pdfOutlineItems, setPdfOutlineItems] = useState<{ id: number; items: OutlineItem[] }>({ id: 0, items: [] })
@@ -381,9 +393,9 @@ export function useDocumentWorkspace() {
     const visual = current.mode === 'visual' ? adapter.current?.plainText() : null
     const text = visual?.text ?? element?.value ?? current.sourceText
     const selected = visual ? visual.selected : element && element.selectionStart !== element.selectionEnd ? element.value.slice(element.selectionStart, element.selectionEnd) : null
-    const [total, selectedTotal] = await Promise.all([countWordsAsync(text), selected === null ? null : countWordsAsync(selected)])
+    const counted = await wordCounter.current(text, selected)
     if (sequence !== wordCountSequence.current) return
-    setWordCounts((old) => old.total === total && old.selected === selectedTotal ? old : { total, selected: selectedTotal })
+    setWordCounts((old) => old.total === counted.total && old.selected === counted.selected ? old : counted)
   }
   useEffect(() => () => window.clearTimeout(derivedTimer.current), [])
 
@@ -451,11 +463,13 @@ export function useDocumentWorkspace() {
     const activeDocument = documentRef.current
     let markdown = activeDocument.markdown
     if (activeDocument.mode === 'visual' && adapter.current?.isReady()) {
+      // The editor keeps its Markdown until the document changes, so an untouched tab costs nothing here.
       try { markdown = adapter.current.getMarkdown() } catch { /* Keep the last complete snapshot. */ }
     }
     const captured = { ...current, document: { ...activeDocument, markdown, pendingFiles: adapter.current?.pendingFiles() ?? activeDocument.pendingFiles }, session: sessionRef.current }
     updateTabs(tabsRef.current.map((tab) => tab.key === captured.key ? captured : tab))
-    if (desktop && isDirty(captured.session)) void persistTabDraft(captured, adapter.current)
+    const drafted = draftedText.current.get(activeDocument.draftId)
+    if (desktop && isDirty(captured.session) && !(drafted && drafted.text === draftText(captured.document) && drafted.name === activeDocument.name && drafted.diskRevision === captured.session.diskRevision)) void persistTabDraft(captured, adapter.current)
     return captured
   }
 
@@ -596,8 +610,7 @@ export function useDocumentWorkspace() {
   function openTab(opened: DocumentState, nextSession = createSession(opened.id)) {
     // Files opened from disk start in reading mode; new, draft-restored and unsaved documents open for editing.
     const nextDocument = opened.kind === 'pdf' ? { ...opened, reading: true } : opened.reading !== undefined ? opened : { ...opened, reading: opensInReadingMode(settingsRef.current.openInReadingMode, Boolean(opened.token), isDirty(nextSession)) }
-    const activeDocument = documentRef.current
-    const onlyWelcome = tabsRef.current.length === 1 && activeDocument.id === initialDocumentId.current && !activeDocument.token && activeDocument.markdown === '' && !isDirty(sessionRef.current)
+    const onlyWelcome = onlyUntouchedBlank()
     if (!onlyWelcome) captureCurrentTab()
     const tab = { key: crypto.randomUUID(), document: nextDocument, session: nextSession }
     updateTabs(onlyWelcome ? [tab] : [...tabsRef.current, tab])
@@ -620,6 +633,40 @@ export function useDocumentWorkspace() {
     return false
   }
 
+  /** Whether the window holds nothing but the empty document it started with, which the first file opened takes the place of. */
+  function onlyUntouchedBlank(): boolean {
+    const active = documentRef.current
+    return tabsRef.current.length === 1 && active.id === initialDocumentId.current && !active.token && active.markdown === '' && !isDirty(sessionRef.current)
+  }
+
+  /** Shows a file Rust has just opened in a new tab and notes it among the recent files. The caller releases the file's token if this fails. */
+  async function showOpened(opened: OpenResult, entryToken?: string): Promise<void> {
+    const hydrated = await hydrateImages(opened, settingsRef.current.openInReadingMode)
+    openTab(entryToken ? { ...hydrated, entryToken } : hydrated, createSession(hydrated.id, hydrated.revision))
+    void rememberDocument(opened.token).catch(() => undefined)
+  }
+
+  /** Takes a tab out of the bar and shows its neighbour, or an empty document when it was the last. */
+  function removeTab(key: string, index: number) {
+    const remaining = tabsRef.current.filter((tab) => tab.key !== key)
+    if (remaining.length) { updateTabs(remaining); activateTab(remaining[Math.min(index, remaining.length - 1)]); return }
+    const empty = makeDocument('')
+    initialDocumentId.current = empty.id
+    const replacement = { key: crypto.randomUUID(), document: empty, session: createSession(empty.id) }
+    updateTabs([replacement])
+    activateTab(replacement)
+  }
+
+  /** Lets go of what is kept for a document that has left this window: its live editor and its remembered positions (T96). */
+  function forgetDocument(closed: DocumentState) {
+    editorPool.current?.drop(closed.id)
+    scrollPositions.current.delete(closed.id)
+    savedPositions.current.delete(closed.id)
+    autosaveStopped.current.delete(closed.id)
+    draftUploads.current.delete(closed.draftId)
+    draftedText.current.delete(closed.draftId)
+  }
+
   async function closeTabs(keys: string[]): Promise<boolean> {
     if (closingTabsRef.current) return false
     closingTabsRef.current = true
@@ -631,11 +678,10 @@ export function useDocumentWorkspace() {
       if (key !== activeTabKeyRef.current && !isDirty(tab.session)) {
         // A clean background tab can close without loading its editor.
         updateTabs(tabsRef.current.filter((item) => item.key !== key))
+        forgetDocument(tab.document)
         await draftWriteChain.current.catch(() => undefined)
         for (const retired of [tab.document.token, ...tab.document.retiredTokens]) await releaseCandidate(retired)
-        for (const url of tab.document.imageUrls.keys()) URL.revokeObjectURL(url)
-        for (const url of tab.document.recoveredAssets.keys()) URL.revokeObjectURL(url)
-        for (const url of tab.document.pendingFiles.keys()) URL.revokeObjectURL(url)
+        revokeDocumentUrls(tab.document)
         continue
       }
       if (!await focusTabForSave(key)) return false
@@ -646,23 +692,12 @@ export function useDocumentWorkspace() {
       const activePendingUrls = Array.from(adapter.current?.pendingFiles().keys() ?? [])
       const token = documentRef.current.token || closing.document.token
       const retiredTokens = [...closing.document.retiredTokens, ...documentRef.current.retiredTokens]
-      const remaining = tabsRef.current.filter((tab) => tab.key !== key)
-      if (remaining.length === 0) {
-        const empty = makeDocument('')
-        initialDocumentId.current = empty.id
-        const replacement = { key: crypto.randomUUID(), document: empty, session: createSession(empty.id) }
-        updateTabs([replacement])
-        activateTab(replacement)
-      } else {
-        updateTabs(remaining)
-        activateTab(remaining[Math.min(index, remaining.length - 1)])
-      }
+      removeTab(key, index)
       await draftWriteChain.current.catch(() => undefined)
       for (const retired of new Set([token, ...retiredTokens])) await releaseCandidate(retired)
-      for (const url of closing.document.imageUrls.keys()) URL.revokeObjectURL(url)
-      for (const url of closing.document.recoveredAssets.keys()) URL.revokeObjectURL(url)
-      for (const url of closing.document.pendingFiles.keys()) URL.revokeObjectURL(url)
+      revokeDocumentUrls(closing.document)
       for (const url of activePendingUrls) URL.revokeObjectURL(url)
+      forgetDocument(closing.document)
       setStatus(`已关闭 ${closing.document.name}`)
     }
     setTabMenu(null)
@@ -689,11 +724,11 @@ export function useDocumentWorkspace() {
     const tab = captureCurrentTab()
     const note = tab.document
     const markdown = note.mode === 'visual' ? note.markdown : note.sourceText
-    const referenced = new Set(imageUrlsIn(markdown))
     setBusy(true)
     try {
       const assets: DetachedAsset[] = []
       if (note.mode === 'visual') {
+        const referenced = new Set(await imageUrlsInAsync(markdown))
         const pending = adapter.current?.isReady() ? await adapter.current.pendingAssets(false) : await Promise.all(Array.from(note.pendingFiles, async ([url, file]) => ({ url, mime: file.type, bytes: new Uint8Array(await file.arrayBuffer()) })))
         const uploads = pending.filter((asset) => referenced.has(asset.url))
         for (const [url, asset] of note.recoveredAssets) if (referenced.has(url) && !uploads.some((item) => item.url === url)) uploads.push({ url, ...asset })
@@ -702,18 +737,9 @@ export function useDocumentWorkspace() {
       await draftWriteChain.current.catch(() => undefined)
       const transfer: DetachedTransfer = { name: note.name, kind: note.kind, encoding: note.encoding, size: note.size, token: note.token, assetKey: note.assetKey, retiredTokens: note.retiredTokens, imageUrls: Array.from(note.imageUrls), revision: note.revision, markdown, originalMarkdown: note.originalMarkdown, sourceText: note.sourceText, mode: note.mode, draftId: note.draftId, session: tab.session, assets }
       await invoke('create_workspace_window', { transfer })
-      const index = tabsRef.current.findIndex((item) => item.key === key)
-      const remaining = tabsRef.current.filter((item) => item.key !== key)
-      if (remaining.length) { updateTabs(remaining); activateTab(remaining[Math.min(index, remaining.length - 1)]) }
-      else {
-        const empty = makeDocument('')
-        initialDocumentId.current = empty.id
-        const replacement = { key: crypto.randomUUID(), document: empty, session: createSession(empty.id) }
-        updateTabs([replacement]); activateTab(replacement)
-      }
-      for (const url of note.imageUrls.keys()) URL.revokeObjectURL(url)
-      for (const url of note.pendingFiles.keys()) URL.revokeObjectURL(url)
-      for (const url of note.recoveredAssets.keys()) URL.revokeObjectURL(url)
+      removeTab(key, tabsRef.current.findIndex((item) => item.key === key))
+      revokeDocumentUrls(note)
+      forgetDocument(note)
       setStatus(`已将 ${note.name} 移到新窗口`)
     } catch (error) { setStatus(errorText(error)) }
     finally { setBusy(false) }
@@ -738,7 +764,7 @@ export function useDocumentWorkspace() {
       next.token = transfer.token
       next.revision = transfer.revision
       next.draftId = transfer.draftId
-      next.markdown = rewriteImageUrls(transfer.markdown, replacements)
+      next.markdown = await rewriteImageUrlsAsync(transfer.markdown, replacements)
       next.sourceText = transfer.sourceText
       next.mode = transfer.mode
       openTab(next, { ...transfer.session, generation: next.id })
@@ -804,6 +830,7 @@ export function useDocumentWorkspace() {
     }
   }, [document.id])
 
+  // Synchronous on purpose: it must finish before the user can type into an editor that would rewrite these fragments.
   function fragmentsSurvived(instance: EditorInstance): boolean {
     const expected = documentRef.current.prepared.analysis.fragments ?? []
     if (expected.length === 0) return true
@@ -828,7 +855,7 @@ export function useDocumentWorkspace() {
   }, [style.id])
 
   // Western layout follows the text the document had when it was opened or last saved, so typing never reflows the page.
-  const docScript = useMemo(() => dominantScript(document.sourceText), [document.id, document.sourceText])
+  const docScript = useMemo(() => dominantScript(document.sourceText), [document.id, document.revision])
   const latinLayout = layoutScript(settings, docScript) === 'latin'
   const typography = documentTypography(settings, style, docScript)
   const typographyKey = JSON.stringify(typography)
@@ -837,7 +864,6 @@ export function useDocumentWorkspace() {
     for (const [name, value] of Object.entries(typographyVariables(typography, style))) root.style.setProperty(name, value)
     root.style.setProperty('--editor-font', typography.fontFamily)
     root.style.setProperty('--editor-font-size', `${typography.fontSize}px`)
-    root.style.setProperty('--editor-line-height', String(typography.lineHeight))
   }, [typographyKey, style.id])
 
   /** Font families installed on this Mac, read once when the font panel first needs them (T67). */
@@ -846,8 +872,8 @@ export function useDocumentWorkspace() {
     if (!desktop) { setSystemFonts(uiPreview ? (window as { previewFonts?: string[] }).previewFonts ?? ['Avenir Next', 'Baskerville', 'Georgia', 'Helvetica Neue', 'Kaiti SC', 'PingFang SC', 'Songti SC', 'Times New Roman'] : []); return }
     void invoke<string[]>('list_system_fonts').then(setSystemFonts, () => setSystemFonts([]))
   }
-  const pickStyle = (picked: ReadingStyle) => setSettings((current) => ({ ...current, ...pickedStyle(picked, current, systemDark) }))
-  const toggleDayNight = () => setSettings((current) => ({ ...current, ...toggledDayNight(current, systemDark) }))
+  const pickStyle = (picked: ReadingStyle) => updateSettings((current) => ({ ...pickedStyle(picked, current, systemDark) }))
+  const toggleDayNight = () => updateSettings((current) => ({ ...toggledDayNight(current, systemDark) }))
 
   useEffect(() => {
     window.document.documentElement.lang = settings.language
@@ -918,7 +944,7 @@ export function useDocumentWorkspace() {
     let timer: number | undefined
     const onResize = () => {
       window.clearTimeout(timer)
-      timer = window.setTimeout(() => setSettings((current) => ({ ...current, windowWidth: Math.max(720, Math.min(3000, window.innerWidth)), windowHeight: Math.max(520, Math.min(2000, window.innerHeight)) })), 250)
+      timer = window.setTimeout(() => updateSettings({ windowWidth: Math.max(720, Math.min(3000, window.innerWidth)), windowHeight: Math.max(520, Math.min(2000, window.innerHeight)) }), 250)
     }
     window.addEventListener('resize', onResize)
     return () => { window.clearTimeout(timer); window.removeEventListener('resize', onResize) }
@@ -937,8 +963,9 @@ export function useDocumentWorkspace() {
   async function sendDraft(note: DocumentState, diskRevision: string | null, markdown: string, instance: EditorInstance | null, fullUpload = false): Promise<void> {
     const visual = note.mode === 'visual'
     const live = visual && instance?.isReady() ? instance : null
-    const referenced = live ? live.referencedImageUrls() : new Set(imageUrlsIn(markdown))
     const stored = fullUpload ? new Set<string>() : draftUploads.current.get(note.draftId) ?? new Set<string>()
+    // Without a live editor the image list costs a parse of the whole text, so it is made only when something below reads it (T92).
+    const referenced = live ? live.referencedImageUrls() : stored.size || note.recoveredAssets.size || (visual && note.token && note.imageUrls.size) ? new Set(await imageUrlsInAsync(markdown)) : new Set<string>()
     const retained = [...stored].filter((url) => referenced.has(url))
     const skip = new Set(retained)
     const uploads: PendingAsset[] = live ? await live.pendingAssets(false, skip) : []
@@ -958,6 +985,7 @@ export function useDocumentWorkspace() {
     const markdown = savedDocument.mode === 'visual' ? composeVisualMarkdown(savedDocument.prepared.analysis, savedDocument.markdown) : savedDocument.sourceText
     draftWriteChain.current = draftWriteChain.current.catch(() => undefined)
       .then(() => sendDraft(savedDocument, savedSession.diskRevision, markdown, instance))
+      .then(() => { draftedText.current.set(savedDocument.draftId, { text: draftText(savedDocument), name: savedDocument.name, diskRevision: savedSession.diskRevision }) })
       .catch((error: unknown) => {
         setNotice({ kind: 'error', message: `草稿保存失败：${errorText(error)}` })
         if (requireSuccess) throw error
@@ -1027,6 +1055,7 @@ export function useDocumentWorkspace() {
 
   async function discardDraft(draftId: string): Promise<void> {
     await draftWriteChain.current
+    draftedText.current.delete(draftId)
     await invoke('discard_draft', { draftId })
     draftUploads.current.delete(draftId)
     setDrafts((current) => current.filter((item) => item.draftId !== draftId))
@@ -1050,14 +1079,14 @@ export function useDocumentWorkspace() {
         sourceAssets.set(url, { bytes, mime: asset.mime })
       }
       // Attachments that were unreadable when the draft was written fall back to their relative path.
-      for (const url of imageUrlsIn(recovered.markdown)) {
+      for (const url of await imageUrlsInAsync(recovered.markdown)) {
         const relative = relativeFromAssetUrl(url)
         if (isAssetUrl(url) && relative && !replacements.has(url) && !sourceAssets.has(url)) replacements.set(url, relative)
       }
       if (next.mode === 'visual') {
         try {
-          next.markdown = rewriteImageUrls(next.markdown, replacements)
-          next.sourceText = rewriteImageUrls(next.sourceText, replacements)
+          next.markdown = await rewriteImageUrlsAsync(next.markdown, replacements)
+          next.sourceText = await rewriteImageUrlsAsync(next.sourceText, replacements)
         } catch (error) {
           for (const url of sourceAssets.keys()) URL.revokeObjectURL(url)
           throw error
@@ -1155,9 +1184,7 @@ export function useDocumentWorkspace() {
       documentRef.current = next
       setDocument(next)
       updateTabs(tabsRef.current.map((tab) => tab.key === activeTabKeyRef.current ? { ...tab, document: next, session: sessionRef.current } : tab))
-      for (const url of previous.imageUrls.keys()) URL.revokeObjectURL(url)
-      for (const url of previous.recoveredAssets.keys()) URL.revokeObjectURL(url)
-      for (const url of previous.pendingFiles.keys()) URL.revokeObjectURL(url)
+      revokeDocumentUrls(previous)
       setDiskConflict(null)
       setStatus(wasDirty ? '已加载磁盘最新版本；未保存修改已留在恢复草稿中' : '已加载磁盘最新版本')
     } finally {
@@ -1262,10 +1289,8 @@ export function useDocumentWorkspace() {
       if (intent.kind === 'document') {
         const opened = await invoke<OpenResult>('open_intent_document', { token: intent.token })
         candidateToken = opened.token
-        const hydrated = await hydrateImages(opened, settingsRef.current.openInReadingMode)
-        openTab(hydrated, createSession(hydrated.id, hydrated.revision))
+        await showOpened(opened)
         candidateToken = null
-        void rememberDocument(hydrated.token).catch(() => undefined)
       } else if (intent.kind === 'folder') {
         const chosen = await invoke<WorkspaceRoot>('open_intent_workspace', { token: intent.token })
         await activateWorkspace(chosen)
@@ -1332,9 +1357,7 @@ export function useDocumentWorkspace() {
         } catch { missing++; await releaseCandidate(opened.token) }
       }
       if (items.length > 0) {
-        const activeDocument = documentRef.current
-        const onlyBlank = tabsRef.current.length === 1 && activeDocument.id === initialDocumentId.current && !activeDocument.token && activeDocument.markdown === '' && !isDirty(sessionRef.current)
-        if (onlyBlank) { updateTabs(items); activateTab(activeItem ?? items[0]) }
+        if (onlyUntouchedBlank()) { updateTabs(items); activateTab(activeItem ?? items[0]) }
         // Something else opened first, such as a file from Finder, so it stays in front.
         else { captureCurrentTab(); updateTabs([...items, ...tabsRef.current]) }
       }
@@ -1383,10 +1406,8 @@ export function useDocumentWorkspace() {
         candidateToken = opened.token
         setBusy(true)
         setStatus(`正在打开 ${opened.name}…`)
-        const hydrated = await hydrateImages(opened, settingsRef.current.openInReadingMode)
-        openTab(hydrated, createSession(hydrated.id, hydrated.revision))
+        await showOpened(opened)
         candidateToken = null
-        void rememberDocument(opened.token).catch(() => undefined)
       }
     } catch (error) {
       await releaseCandidate(candidateToken)
@@ -1421,7 +1442,7 @@ export function useDocumentWorkspace() {
     setWorkspaces((current) => current.some((root) => root.token === chosen.token) ? current : [...current, chosen])
     setSelectedDirectory(chosen.token)
     setSelectedEntry(null)
-    setSettings((current) => ({ ...current, showSidebar: true }))
+    updateSettings({ showSidebar: true })
     await loadChildren(chosen.token)
     setStatus(`已打开文件夹 ${chosen.name}`)
     void rememberWorkspace(chosen.token).catch(() => undefined)
@@ -1435,10 +1456,8 @@ export function useDocumentWorkspace() {
     try {
       const opened = await invoke<OpenResult>('open_workspace_document', { entryToken: token })
       candidateToken = opened.token
-      const hydrated = await hydrateImages(opened, settingsRef.current.openInReadingMode)
-      openTab({ ...hydrated, entryToken: token }, createSession(hydrated.id, hydrated.revision))
+      await showOpened(opened, token)
       candidateToken = null
-      void rememberDocument(opened.token).catch(() => undefined)
     } catch (error) { await releaseCandidate(candidateToken); setStatus(errorText(error)) }
     finally { setBusy(false) }
   }
@@ -1497,7 +1516,7 @@ export function useDocumentWorkspace() {
     do await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     while (performance.now() < deadline && !(documentRef.current.mode === 'visual' ? adapterDocumentId.current === documentRef.current.id && adapter.current?.isReady() : sourceEditor.current))
     runFindRef.current(query)
-    for (let step = 0; step < hit.occurrence; step++) findStepRef.current(1)
+    findGoToRef.current(hit.occurrence)
   }
 
   /** Closes one open folder, or all of them. Documents already open from it stay open: each holds its own grant. */
@@ -1580,10 +1599,12 @@ export function useDocumentWorkspace() {
     updateSession(saving)
     try {
       const visual = document.mode === 'visual'
-      const editorMarkdown = visual ? instance!.getPersistableMarkdown() : sourceText
+      // Both calls read the editor before anything is awaited, so the text and its pending images are one state.
+      const [editorMarkdown, pending] = visual ? await Promise.all([instance!.persistableMarkdown(), instance!.pendingAssets()]) : [sourceText, null]
       const markdown = visual ? composeVisualMarkdown(document.prepared.analysis, editorMarkdown) : editorMarkdown
-      const referenced = new Set(imageUrlsIn(markdown))
-      const assets: PendingAsset[] = visual ? await instance!.pendingAssets() : Array.from(document.recoveredAssets, ([url, asset]) => ({ url, ...asset })).filter((asset) => referenced.has(asset.url))
+      // Only a source-mode document that holds recovered images needs the list of images in its text (T92).
+      const referenced = !visual && document.recoveredAssets.size ? new Set(await imageUrlsInAsync(markdown)) : null
+      const assets: PendingAsset[] = pending ?? Array.from(document.recoveredAssets, ([url, asset]) => ({ url, ...asset })).filter((asset) => referenced!.has(asset.url))
       const saved = await invokeSave<SaveResult | null>(asNew && document.token ? 'save_as_document' : 'save_document', {
         token: document.token || null,
         expectedRevision: ticket.diskRevision,
@@ -1607,12 +1628,13 @@ export function useDocumentWorkspace() {
         if (moved) document.imageUrls.set(url, moved)
       }
       const unchangedDuringSave = sessionRef.current.revision === ticket.revision
-      if (unchangedDuringSave && sourceEditor.current && document.mode === 'source-protected') sourceEditor.current.value = saved.markdown
+      const savedText = saved.markdown ?? markdown
+      if (unchangedDuringSave && sourceEditor.current && document.mode === 'source-protected') sourceEditor.current.value = savedText
       setDocument((current) => current.id === document.id ? {
         ...current, kind: saved.kind, encoding: saved.encoding,
         // A text file saved as Markdown becomes a Markdown document: read as one now, analyzed when editing starts.
         deferredVisual: saved.kind === 'markdown' && current.kind !== 'markdown' ? true : current.deferredVisual,
-        token: saved.token, assetKey: saved.assetKey, retiredTokens: document.token && saved.token !== document.token ? [...current.retiredTokens, document.token] : current.retiredTokens, name: saved.name, revision: saved.revision, originalMarkdown: saved.markdown, sourceText: current.mode === 'source-protected' && unchangedDuringSave ? saved.markdown : current.sourceText, sampleId: undefined,
+        token: saved.token, assetKey: saved.assetKey, retiredTokens: document.token && saved.token !== document.token ? [...current.retiredTokens, document.token] : current.retiredTokens, name: saved.name, revision: saved.revision, originalMarkdown: savedText, sourceText: current.mode === 'source-protected' && unchangedDuringSave ? savedText : current.sourceText, sampleId: undefined,
       } : current)
       setNotice((current) => current?.kind === 'error' ? null : current)
       const completed = saveSucceeded(sessionRef.current, ticket, saved.revision)
@@ -1730,7 +1752,7 @@ export function useDocumentWorkspace() {
     if (action.startsWith('recent:')) { void openRecent(action); return }
     if (action.startsWith('format-') || action.startsWith('transform-')) { runFormatAction(action); return }
     if (isZoomAction(action) && documentRef.current.kind === 'pdf') { pdfView.current?.zoom(action as 'zoom-in' | 'zoom-out' | 'zoom-reset'); return }
-    if (isZoomAction(action)) { setSettings((current) => ({ ...current, editorFontSize: zoomedFontSize(current.editorFontSize, action) })); return }
+    if (isZoomAction(action)) { updateSettings((current) => ({ editorFontSize: zoomedFontSize(current.editorFontSize, action) })); return }
     if (action === 'new') void newDocument()
     if (action === 'open') void openDocument()
     if (action === 'open-folder') void chooseWorkspace()
@@ -1743,9 +1765,9 @@ export function useDocumentWorkspace() {
     if (action === 'export-html') void exportPage('html')
     if (action === 'print') void exportPage('print')
     if (action === 'toggle-reading') setReading(!documentRef.current.reading)
-    if (action === 'view-toolbar') setSettings((current) => ({ ...current, showFileToolbar: !current.showFileToolbar }))
-    if (action === 'view-sidebar') setSettings((current) => ({ ...current, showSidebar: !current.showSidebar }))
-    if (action === 'view-outline') setSettings((current) => ({ ...current, showOutline: !current.showOutline }))
+    if (action === 'view-toolbar') updateSettings((current) => ({ showFileToolbar: !current.showFileToolbar }))
+    if (action === 'view-sidebar') updateSettings((current) => ({ showSidebar: !current.showSidebar }))
+    if (action === 'view-outline') updateSettings((current) => ({ showOutline: !current.showOutline }))
     if (action === 'preferences') setSettingsOpen(true)
     if (action === 'recover-drafts') {
       setDraftsOpen(true)
@@ -1755,8 +1777,8 @@ export function useDocumentWorkspace() {
     if (action === 'close-tab') void closeTabs([activeTabKeyRef.current])
   }
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
+  const onKeyDownRef = useRef<(event: KeyboardEvent) => void>(() => undefined)
+  onKeyDownRef.current = (event: KeyboardEvent) => {
       // In the desktop app the native menu owns these shortcuts, so each key press has exactly one path.
       if (!desktop && (event.metaKey || event.ctrlKey)) {
         const key = event.key.toLowerCase()
@@ -1774,10 +1796,13 @@ export function useDocumentWorkspace() {
         setDiskDiff(null)
         closeDetailsMenus(null)
       }
-    }
+  }
+  // Subscribed once; the handler above is replaced on every render and always sees the current state (T93).
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => onKeyDownRef.current(event)
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  })
+  }, [])
 
   function closeDetailsMenus(target: Element | null) {
     for (const menu of window.document.querySelectorAll<HTMLDetailsElement>('details[open]:not(.verification-panel)')) {
@@ -1808,10 +1833,8 @@ export function useDocumentWorkspace() {
       candidateToken = opened.token
       setBusy(true)
       setStatus(`正在打开 ${opened.name}…`)
-      const hydrated = await hydrateImages(opened, settingsRef.current.openInReadingMode)
-      openTab(hydrated, createSession(hydrated.id, hydrated.revision))
+      await showOpened(opened)
       candidateToken = null
-      void rememberDocument(opened.token).catch(() => undefined)
     } catch (error) { await releaseCandidate(candidateToken); setStatus(errorText(error)) }
     finally { setBusy(false) }
   }
@@ -1822,6 +1845,8 @@ export function useDocumentWorkspace() {
   }
 
   function closeFind() {
+    cancelQueuedFind()
+    setFindCapped(false)
     setFindOpen(false)
     adapter.current?.find('')
     if (documentRef.current.kind === 'pdf') void pdfView.current?.find('', findOptionsRef.current)
@@ -1851,8 +1876,34 @@ export function useDocumentWorkspace() {
     return exceedsVisualLimit(text) ? { ...options, regex: false } : options
   }
 
+  /** Typing searches after a short pause, so a fast typist does not search for every prefix of the word (T94). */
+  function queueFind(query: string) {
+    window.clearTimeout(queuedFind.current.timer)
+    queuedFind.current = { query, timer: window.setTimeout(flushQueuedFind, FIND_INPUT_DELAY_MS) }
+  }
+
+  function cancelQueuedFind() {
+    window.clearTimeout(queuedFind.current.timer)
+    queuedFind.current.query = null
+  }
+
+  /** Anything that acts on the matches runs the pending search first, so it never acts on the previous query's. */
+  function flushQueuedFind() {
+    const { query } = queuedFind.current
+    if (query !== null) runFind(query)
+  }
+
+  /** The matches the source editor lists. Replacing everything searches again without the limit. */
+  function sourceMatches(text: string, query: string): FindMatch[] {
+    const matches = findInText(text, query, sourceFindOptions(text), SOURCE_MATCH_LIMIT + 1)
+    setFindCapped(matches.length > SOURCE_MATCH_LIMIT)
+    return matches.length > SOURCE_MATCH_LIMIT ? matches.slice(0, SOURCE_MATCH_LIMIT) : matches
+  }
+
   const pdfFindSequence = useRef(0)
   function runFind(query: string) {
+    cancelQueuedFind()
+    if (documentRef.current.mode === 'visual' || documentRef.current.kind === 'pdf') setFindCapped(false)
     if (documentRef.current.kind === 'pdf') {
       // The text of a PDF is read page by page, so the count arrives a little later.
       const sequence = ++pdfFindSequence.current
@@ -1863,7 +1914,7 @@ export function useDocumentWorkspace() {
     if (documentRef.current.mode === 'visual') { setFindRegexBlocked(false); setFindCount(adapter.current?.find(query, findOptionsRef.current) ?? { current: 0, total: 0 }); return }
     const text = sourceEditor.current?.value ?? documentRef.current.sourceText
     setFindRegexBlocked(exceedsVisualLimit(text))
-    sourceFind.current = { matches: findInText(text, query, sourceFindOptions(text)), index: 0 }
+    sourceFind.current = { matches: sourceMatches(text, query), index: 0 }
     setFindCount({ current: 0, total: sourceFind.current.matches.length })
     revealSourceMatch()
   }
@@ -1871,11 +1922,25 @@ export function useDocumentWorkspace() {
   /** The user can type in the source editor while the find bar is open, so stored offsets go stale. */
   function refreshSourceMatches() {
     const text = sourceEditor.current?.value ?? documentRef.current.sourceText
-    const matches = findInText(text, findQuery, sourceFindOptions(text))
+    const matches = sourceMatches(text, findQuery)
     sourceFind.current = { matches, index: Math.min(sourceFind.current.index, Math.max(0, matches.length - 1)) }
   }
 
+  /** Goes to the match that stepping forward `index` times from the first would reach, without the steps in between (T94). */
+  function findGoTo(index: number) {
+    flushQueuedFind()
+    if (documentRef.current.kind === 'pdf') { for (let step = 0; step < index; step++) findStep(1); return }
+    if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.findAt(index) ?? { current: 0, total: 0 }); return }
+    refreshSourceMatches()
+    const { matches } = sourceFind.current
+    if (matches.length === 0) return
+    sourceFind.current.index = index % matches.length
+    setFindCount({ current: sourceFind.current.index, total: matches.length })
+    revealSourceMatch()
+  }
+
   function findStep(direction: 1 | -1) {
+    flushQueuedFind()
     if (documentRef.current.kind === 'pdf') { setFindCount(pdfView.current?.findStep(direction) ?? { current: 0, total: 0 }); return }
     if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.findStep(direction) ?? { current: 0, total: 0 }); return }
     refreshSourceMatches()
@@ -1893,7 +1958,7 @@ export function useDocumentWorkspace() {
   }
 
   runFindRef.current = runFind
-  findStepRef.current = findStep
+  findGoToRef.current = findGoTo
 
   function replaceInSource(ranges: FindMatch[]) {
     const element = sourceEditor.current
@@ -1905,6 +1970,7 @@ export function useDocumentWorkspace() {
 
   function replaceOne() {
     if (documentRef.current.reading || documentRef.current.kind === 'pdf') { setStatus(errorText('READING_MODE')); return }
+    flushQueuedFind()
     if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.replaceCurrent(replaceText) ?? { current: 0, total: 0 }); return }
     refreshSourceMatches()
     const match = sourceFind.current.matches[sourceFind.current.index]
@@ -1913,9 +1979,11 @@ export function useDocumentWorkspace() {
 
   function replaceEvery() {
     if (documentRef.current.reading || documentRef.current.kind === 'pdf') { setStatus(errorText('READING_MODE')); return }
+    flushQueuedFind()
     if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.replaceAll(replaceText) ?? { current: 0, total: 0 }); return }
-    refreshSourceMatches()
-    replaceInSource(sourceFind.current.matches)
+    // Every match, not only the listed ones.
+    const text = sourceEditor.current?.value ?? documentRef.current.sourceText
+    replaceInSource(findInText(text, findQuery, sourceFindOptions(text)))
   }
 
   const linkOpenRef = useRef<(href: string) => void>(() => undefined)
@@ -2084,7 +2152,7 @@ export function useDocumentWorkspace() {
         recoveredReplacements.set(oldUrl, newUrl)
         visual.recoveredAssets.set(newUrl, asset)
       }
-      try { visual.markdown = rewriteImageUrls(visual.markdown, recoveredReplacements) }
+      try { visual.markdown = await rewriteImageUrlsAsync(visual.markdown, recoveredReplacements) }
       catch {
         for (const url of visual.recoveredAssets.keys()) URL.revokeObjectURL(url)
         for (const url of visual.imageUrls.keys()) URL.revokeObjectURL(url)
@@ -2210,7 +2278,7 @@ export function useDocumentWorkspace() {
     onStatus: setStatus,
   })
   const sourceDark = style.dark
-  return { plain, isPdf, tableView, setTableView, pdfBridge, pdfPages: pdfPages?.id === document.id ? pdfPages.pages : null, selectedDirectory, previewPartial, ai, panel, setPanel, systemFonts, loadSystemFonts, pickStyle, toggleDayNight, systemDark, latinLayout, style, sourceDark, reading, setReading, lightbox, setLightbox, openImageFromClick, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, preview, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettings, setSettingsOpen, setSettingsTab, setSourceView, setStatus, setTabMenu, settings, settingsOpen, settingsTab, sidebarOpen, sidebarRoot, sourceEditor, sourceView: sourceShown, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabMenu, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspaces }
+  return useStableFunctions({ updateSettings, activeEntryToken: document.entryToken, findCapped, queueFind, plain, isPdf, tableView, setTableView, pdfBridge, pdfPages: pdfPages?.id === document.id ? pdfPages.pages : null, selectedDirectory, previewPartial, ai, panel, setPanel, systemFonts, loadSystemFonts, pickStyle, toggleDayNight, latinLayout, style, sourceDark, reading, setReading, lightbox, setLightbox, openImageFromClick, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettingsOpen, setSettingsTab, setSourceView, setStatus, setTabMenu, settings, settingsOpen, settingsTab, sidebarOpen, sourceEditor, sourceView: sourceShown, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabMenu, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspaces }, STABLE_EXCEPT)
 }
 
 export type DocumentWorkspace = ReturnType<typeof useDocumentWorkspace>

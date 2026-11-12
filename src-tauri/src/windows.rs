@@ -44,7 +44,7 @@ fn external_url(raw: &str) -> Option<String> {
 /// Hands a web or mail link to the system. Only these schemes ever leave the app.
 #[tauri::command(async)]
 pub fn open_external(window: WebviewWindow, url: String) -> Result<(), String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     let url = external_url(&url).ok_or("OUT_OF_SCOPE")?;
     std::process::Command::new("/usr/bin/open").arg(url).spawn().map(|_| ()).map_err(|_| "IO_ERROR".into())
 }
@@ -62,7 +62,7 @@ mod tests {
 
 #[tauri::command]
 pub fn show_workspace_window(window: WebviewWindow) -> Result<(), String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     if !window.is_visible().unwrap_or(false) {
         window.show().map_err(|_| "WINDOW_SHOW_FAILED")?;
         let _ = window.set_focus();
@@ -72,19 +72,19 @@ pub fn show_workspace_window(window: WebviewWindow) -> Result<(), String> {
 
 #[tauri::command]
 pub fn create_workspace_window(app: AppHandle, window: WebviewWindow, transfers: State<'_, TransferStore>, transfer: Option<serde_json::Value>) -> Result<String, String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     create(&app, &transfers, transfer)
 }
 
 #[tauri::command]
 pub fn take_window_transfer(window: WebviewWindow, transfers: State<'_, TransferStore>) -> Result<Option<serde_json::Value>, String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     Ok(transfers.0.lock().map_err(|_| "IO_ERROR")?.remove(window.label()))
 }
 
 #[tauri::command]
 pub fn close_workspace_window(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     window.destroy().map_err(|_| "WINDOW_CLOSE_FAILED")?;
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(300));

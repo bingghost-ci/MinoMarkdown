@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { memo, useEffect, useRef, useState, type FormEvent } from 'react'
 import { ChevronDown, ChevronUp, Maximize2, Palette, ZoomIn, ZoomOut } from 'lucide-react'
-import type { FindOptions } from '../editor/find'
+import type { FindOptions } from '../editor/findText'
 import type { OutlineItem } from '../outline/outline'
 import { closePdf, assemblePdfText, clampScale, fitWidthScale, joinTextItems, loadPdfLibrary, openPdf, outputScale, pageAtOffset, pdfOutline, PdfTextCache, resolveDestination, searchPages, zoomedScale, type PdfDocument, type PdfLibrary, type PdfMatch, type PdfSource, type PdfText } from './pdfEngine'
 
@@ -35,7 +35,10 @@ export type PdfBridge = {
 
 type Props = { bridge: PdfBridge; name: string; dark: boolean; t: (text: string) => string }
 type PageSize = { width: number; height: number }
-type Rendered = { scale: number; cancel: () => void; divs: HTMLElement[]; starts: number[] }
+type Rendered = { scale: number; cancel: () => void; divs: HTMLElement[]; starts: number[]; /** The page proxy, so what it decoded can be freed when the page leaves the screen. */ page?: { cleanup: () => unknown } }
+
+/** How long the pane's width must hold still before a fit-width PDF is drawn again at the new size. */
+export const FIT_SETTLE_MS = 120
 
 const PAGE_GAP = 14
 const VIEW_PADDING = 24
@@ -53,6 +56,17 @@ function highlights(): { registry: HighlightRegistry; make: (ranges: Range[]) =>
   const Constructor = (window as unknown as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight
   return registry && Constructor ? { registry, make: (ranges) => new Constructor(...ranges) } : null
 }
+
+/**
+ * The empty frames of all pages. Turning a page or typing a page number renders the view but not this list:
+ * a long document has thousands of frames, and each render used to detach and attach every one of their refs (T97).
+ */
+const PdfPages = memo(function PdfPages({ sizes, scale, label, register }: { sizes: PageSize[]; scale: number; label: string; register: (pageNumber: number, element: HTMLDivElement | null) => void }) {
+  const widest = sizes.reduce((width, size) => Math.max(width, size.width), 0)
+  return <div className="pdf-pages" style={{ width: Math.floor(widest * scale), ['--total-scale-factor' as string]: scale, ['--scale-factor' as string]: scale, ['--scale-round-x' as string]: '1px', ['--scale-round-y' as string]: '1px' }}>
+    {sizes.map((size, index) => <div key={index} className="pdf-page" data-page={index + 1} aria-label={`${label} ${index + 1}`} ref={(element) => register(index + 1, element)} style={{ width: Math.floor(size.width * scale), height: Math.floor(size.height * scale) }} />)}
+  </div>
+})
 
 /** A PDF as a column of pages. Only the pages near the screen hold a canvas and a text layer. */
 export default function PdfView({ bridge, name, dark, t }: Props) {
@@ -110,6 +124,8 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
     if (!entry) return
     entry.cancel()
     rendered.current.delete(pageNumber)
+    // Without this, PDF.js keeps the images and fonts it decoded for every page that was ever shown (T97).
+    try { entry.page?.cleanup() } catch { /* The document is already closing. */ }
     const host = pageElements.current.get(pageNumber)
     if (!host) return
     for (const canvas of host.querySelectorAll('canvas')) { canvas.width = 0; canvas.height = 0 }
@@ -122,14 +138,23 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
     const host = pageElements.current.get(pageNumber)
     const scale = zoomRef.current.scale
     if (!lib || !document || !host) return
-    if (rendered.current.get(pageNumber)?.scale === scale) return
-    release(pageNumber)
+    const previous = rendered.current.get(pageNumber)
+    if (previous?.scale === scale) return
+    // A page drawn at another size stays on screen, stretched, until this size is ready. Clearing it first
+    // flashed every visible page white on each zoom step and each change of the pane's width (T97).
+    previous?.cancel()
+    const redraw = Boolean(previous) && host.querySelector('canvas') !== null
+    // Links are placed in pixels of the old size, so they go at once; the text layer scales with the page.
+    if (redraw) host.querySelector('.pdf-links')?.remove()
+    else release(pageNumber)
     let cancelled = false
+    let pending: HTMLCanvasElement | null = null
     const cancels: (() => void)[] = []
-    const entry: Rendered = { scale, cancel: () => { cancelled = true; for (const cancel of cancels) cancel() }, divs: [], starts: [] }
+    const entry: Rendered = { scale, cancel: () => { cancelled = true; for (const cancel of cancels) cancel(); if (pending && !pending.isConnected) { pending.width = 0; pending.height = 0 } }, divs: [], starts: [], page: previous?.page }
     rendered.current.set(pageNumber, entry)
     try {
       const pdfPage = await document.getPage(pageNumber)
+      entry.page = pdfPage
       if (cancelled) return
       const viewport = pdfPage.getViewport({ scale })
       const actual = pdfPage.getViewport({ scale: 1 })
@@ -145,7 +170,13 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
       textLayer.className = 'textLayer'
       const linkLayer = window.document.createElement('div')
       linkLayer.className = 'pdf-links'
-      host.replaceChildren(canvas, textLayer, linkLayer)
+      pending = canvas
+      const show = () => {
+        const old = Array.from(host.querySelectorAll('canvas'))
+        host.replaceChildren(canvas, textLayer, linkLayer)
+        for (const stale of old) if (stale !== canvas) { stale.width = 0; stale.height = 0 }
+      }
+      if (!redraw) show()
       const task = pdfPage.render({ canvas, viewport, transform: ratio !== 1 ? [ratio, 0, 0, ratio, 0, 0] : undefined })
       cancels.push(() => task.cancel())
       const content = await pdfPage.getTextContent()
@@ -154,6 +185,7 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
       cancels.push(() => layer.cancel())
       await Promise.all([task.promise, layer.render()])
       if (cancelled) return
+      if (redraw) show()
       // `textDivs` has one element per text item that produced one; match them back to the items by their text.
       const joined = joinTextItems(content.items)
       const strings = layer.textContentItemsStr
@@ -313,9 +345,11 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
       if (scale !== zoomRef.current.scale) setZoom({ fit: true, scale })
     }
     fit()
-    const observer = new ResizeObserver(fit)
+    // Dragging the window edge or a pane reports a new width every frame; the pages are drawn once it settles.
+    let timer = 0
+    const observer = new ResizeObserver(() => { window.clearTimeout(timer); timer = window.setTimeout(fit, FIT_SETTLE_MS) })
     observer.observe(root)
-    return () => observer.disconnect()
+    return () => { window.clearTimeout(timer); observer.disconnect() }
   }, [phase, zoom.fit, sizes.length])
 
   // Which pages are on screen. The observer is rebuilt when the pages change size, so its targets are current.
@@ -423,7 +457,7 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
     })
   }
 
-  const widest = sizes.reduce((width, size) => Math.max(width, size.width), 0)
+  const registerPage = useRef((pageNumber: number, element: HTMLDivElement | null) => { if (element) pageElements.current.set(pageNumber, element); else pageElements.current.delete(pageNumber) }).current
   return <div className="pdf-view" data-dark={dark} data-tint={tint}>
     <div ref={scroller} className="editor-root pdf-scroller" tabIndex={0} aria-label={`${t('PDF 文档')} ${name}`} onScroll={onScroll}>
       {phase === 'loading' && <p className="pdf-message" role="status">{t('正在打开 PDF…')}</p>}
@@ -432,9 +466,7 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
         <label>{wrongPassword ? t('密码不正确，请重新输入') : t('这个 PDF 已加密，请输入密码')}<input type="password" autoFocus autoComplete="off" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
         <button type="submit" disabled={!password}>{t('打开')}</button>
       </form>}
-      {phase === 'ready' && <div className="pdf-pages" style={{ width: Math.floor(widest * zoom.scale), ['--total-scale-factor' as string]: zoom.scale, ['--scale-factor' as string]: zoom.scale, ['--scale-round-x' as string]: '1px', ['--scale-round-y' as string]: '1px' }}>
-        {sizes.map((size, index) => <div key={index} className="pdf-page" data-page={index + 1} aria-label={`${t('页码')} ${index + 1}`} ref={(element) => { if (element) pageElements.current.set(index + 1, element); else pageElements.current.delete(index + 1) }} style={{ width: Math.floor(size.width * zoom.scale), height: Math.floor(size.height * zoom.scale) }} />)}
-      </div>}
+      {phase === 'ready' && <PdfPages sizes={sizes} scale={zoom.scale} label={t('页码')} register={registerPage} />}
     </div>
     {phase === 'ready' && <div className="pdf-bar" role="toolbar" aria-label={t('PDF 控制')}>
       <button type="button" className="icon-button" title={t('上一页')} aria-label={t('上一页')} disabled={page <= 1} onClick={() => scrollToPage(page - 1)}><ChevronUp aria-hidden="true" /></button>

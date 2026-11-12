@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Schema } from '@milkdown/kit/prose/model'
-import { findInDoc, findInText, isFindPatternValid, replacementFor } from '../src/features/editor/find'
+import { findInDoc } from '../src/features/editor/find'
+import { findInText, isFindPatternValid, replacementFor } from '../src/features/editor/findText'
 import { lineDiff } from '../src/features/document/lineDiff'
 
 const schema = new Schema({ nodes: { doc: { content: 'block+' }, paragraph: { group: 'block', content: 'inline*' }, text: { group: 'inline' }, image: { group: 'inline', inline: true, atom: true } } })

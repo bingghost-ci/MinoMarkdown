@@ -85,6 +85,15 @@ export function useAiAssistant(input: AiAssistantInput) {
     void stop()
   }, [config.enabled])
 
+  // The text of an answer that is still arriving, see `AiStream`. An entry goes once its turn is shown as
+  // finished, never before, so the answer is not blank between the two.
+  const stream = useRef(createAiStream()).current
+  useEffect(() => {
+    const streaming = new Set<number>()
+    for (const list of conversations.values()) for (const turn of list) if (turn.status === 'streaming') streaming.add(turn.id)
+    stream.retain(streaming)
+  }, [conversations])
+
   function updateTurn(forDocument: number, id: number, patch: Partial<AiTurn>) {
     setConversations((current) => {
       const list = current.get(forDocument)
@@ -124,7 +133,12 @@ export function useAiAssistant(input: AiAssistantInput) {
     let text = ''
     const step = async (messages: ChatMessage[], visible: boolean) => {
       if (state.cancelled) throw new Error('AI_CANCELLED')
-      const chat = client.chat(messages, visible ? (_piece, whole) => { text = whole; updateTurn(forDocument, answer.id, { text: whole, progress: undefined }) } : undefined)
+      const chat = client.chat(messages, visible ? (_piece, whole) => {
+        // The first piece replaces the progress line; every piece after it reaches only the answer being written.
+        if (!stream.has(answer.id)) updateTurn(forDocument, answer.id, { progress: undefined })
+        text = whole
+        stream.set(answer.id, whole)
+      } : undefined)
       state.requestId = chat.requestId
       try { return await chat.done } finally { state.requestId = null }
     }
@@ -307,7 +321,27 @@ export function useAiAssistant(input: AiAssistantInput) {
 
   // Heading-based questions are only worked out while the empty drawer shows them.
   const suggestions = !open || turns.length > 0 ? [] : suggested.get(documentId) ?? localSuggestions(input.getHeadings(), input.language)
-  return { saveNote, available: transport !== null, config, open, setOpen, toggleOpen, consentOpen, setConsentOpen, confirmConsent, setEnabled, saveConfig, setKey, clearKey, pickModel, fetchModels, fetchedModels: listed?.source === modelSource ? listed.ids : null, modelsBusy, modelsError: modelsFailure?.source === modelSource ? modelsFailure.text : null, turns, busy, ask, runPreset, runSelection, stop, clear, insertAnswer, suggestions, refreshSuggestions, canReplace: answerReplacesSelection }
+  return { stream, saveNote, available: transport !== null, config, open, setOpen, toggleOpen, consentOpen, setConsentOpen, confirmConsent, setEnabled, saveConfig, setKey, clearKey, pickModel, fetchModels, fetchedModels: listed?.source === modelSource ? listed.ids : null, modelsBusy, modelsError: modelsFailure?.source === modelSource ? modelsFailure.text : null, turns, busy, ask, runPreset, runSelection, stop, clear, insertAnswer, suggestions, refreshSuggestions, canReplace: answerReplacesSelection }
 }
 
 export type AiAssistant = ReturnType<typeof useAiAssistant>
+
+/**
+ * The text of answers that are still arriving. It grows many times a second, so it is kept out of React state:
+ * a state update would run the whole workspace hook and render the app for every piece. Only the answer being
+ * written subscribes; the finished text is stored in the turn as before (T95).
+ */
+export type AiStream = { subscribe(listener: () => void): () => void; get(turnId: number): string | undefined }
+
+function createAiStream() {
+  const texts = new Map<number, string>()
+  const listeners = new Set<() => void>()
+  const changed = () => { for (const listener of listeners) listener() }
+  return {
+    subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener) } },
+    get: (turnId: number) => texts.get(turnId),
+    has: (turnId: number) => texts.has(turnId),
+    set(turnId: number, text: string) { texts.set(turnId, text); changed() },
+    retain(turnIds: ReadonlySet<number>) { for (const turnId of [...texts.keys()]) if (!turnIds.has(turnId)) texts.delete(turnId) },
+  }
+}

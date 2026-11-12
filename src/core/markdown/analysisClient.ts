@@ -2,6 +2,11 @@ import { prepareMarkdown, type PreparedMarkdown } from './codec'
 import type { AnalysisRequest } from './analysis.worker'
 import type { ExportPageOptions, RenderedExport, ResolvedImage } from '../../features/export/renderHtml'
 import { countWords, WORD_COUNT_SYNC_LIMIT_CHARS } from '../../features/document/wordCount'
+import { hydrateMarkdown, type HydratedMarkdown } from '../../features/document/hydrate'
+// These three are part of the app shell already, so importing them lazily would split nothing off.
+import { imageUrlsIn, rewriteImageUrls } from '../../features/export/snapshot'
+import { renderTextHtml } from '../../features/text/textDocument'
+import { mermaidSources } from './diagrams'
 
 type Pending = { resolve: (value: never) => void; reject: (error: Error) => void }
 
@@ -31,7 +36,7 @@ function analysisWorker(): Worker | null {
   return worker
 }
 
-function run<T>(kind: AnalysisRequest['kind'], source: string, assetKey?: string, extra: Pick<AnalysisRequest, 'title' | 'images' | 'diagrams' | 'page' | 'captions' | 'name' | 'delimiter'> = {}): Promise<T> {
+function run<T>(kind: AnalysisRequest['kind'], source: string, assetKey?: string, extra: Pick<AnalysisRequest, 'title' | 'images' | 'diagrams' | 'page' | 'captions' | 'name' | 'delimiter' | 'replacements'> = {}): Promise<T> {
   const target = analysisWorker()
   if (!target) return Promise.reject(new Error('WORKER_UNAVAILABLE'))
   const id = nextId++
@@ -48,15 +53,29 @@ export async function prepareMarkdownAsync(source: string): Promise<PreparedMark
   catch { return prepareMarkdown(source) }
 }
 
+/** `prepareMarkdownAsync` plus the rewriting of local image references, which costs a parse of its own (T92). */
+export async function hydrateMarkdownAsync(source: string, assetKey: string): Promise<HydratedMarkdown> {
+  if (source.length <= SYNC_LIMIT_CHARS) return hydrateMarkdown(source, assetKey)
+  try { return await run<HydratedMarkdown>('hydrate', source, assetKey) }
+  catch { return hydrateMarkdown(source, assetKey) }
+}
+
+/** `rewriteImageUrls` off the main thread. An unsafe reference still throws `INVALID_ASSET`. */
+export async function rewriteImageUrlsAsync(markdown: string, replacements: ReadonlyMap<string, string>): Promise<string> {
+  if (replacements.size === 0) return markdown
+  if (markdown.length <= SYNC_LIMIT_CHARS) return rewriteImageUrls(markdown, replacements)
+  return workerOr(() => run<string>('rewrite-images', markdown, undefined, { replacements: new Map(replacements) }), async () => rewriteImageUrls(markdown, replacements))
+}
+
 export async function renderPreviewAsync(source: string, assetKey?: string, captions = true): Promise<string> {
   try { return await run<string>('preview', source, assetKey, { captions }) }
-  catch { return (await import('../../features/preview/renderMarkdownPreview')).renderMarkdownPreview(source, assetKey, captions) }
+  catch { return (await import('../../features/preview/renderMarkdownPreview')).renderMarkdownPreview(source, assetKey, captions, undefined, await (await import('./renderMath')).loadMathRenderer(source)) }
 }
 
 /** The reading page of a text file (T83): escaped text with paragraphs and chapter headings, never Markdown. */
 export async function renderTextPreviewAsync(source: string): Promise<string> {
   try { return await run<string>('text-preview', source) }
-  catch { return (await import('../../features/text/textDocument')).renderTextHtml(source) }
+  catch { return renderTextHtml(source) }
 }
 
 /** The reading page of a source or data file (T85): highlighted lines, or a table when `delimiter` is given. */
@@ -86,17 +105,19 @@ export function renderExportAsync(markdown: string, title: string, images: Map<s
   )
 }
 
-export function imageUrlsInAsync(markdown: string): Promise<string[]> {
+export async function imageUrlsInAsync(markdown: string): Promise<string[]> {
+  // Every Markdown image contains this marker, so most documents need no round trip at all.
+  if (!markdown.includes('![')) return []
   return workerOr(
     () => run<string[]>('image-urls', markdown),
-    async () => (await import('../../features/export/snapshot')).imageUrlsIn(markdown),
+    async () => imageUrlsIn(markdown),
   )
 }
 
 export function mermaidSourcesAsync(markdown: string): Promise<string[]> {
   return workerOr(
     () => run<string[]>('mermaid-sources', markdown),
-    async () => (await import('./diagrams')).mermaidSources(markdown),
+    async () => mermaidSources(markdown),
   )
 }
 

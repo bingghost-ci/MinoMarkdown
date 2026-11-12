@@ -33,7 +33,7 @@ impl StagingStore {
 
 #[tauri::command(async)]
 pub fn stage_binary(window: WebviewWindow, store: State<'_, StagingStore>, request: Request<'_>) -> Result<String, String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     let InvokeBody::Raw(bytes) = request.body() else { return Err("INVALID_ASSET".into()) };
     if bytes.is_empty() || bytes.len() > MAX_ITEM { return Err("IMAGE_TOO_LARGE".into()); }
     store.put(bytes.clone())
@@ -41,7 +41,7 @@ pub fn stage_binary(window: WebviewWindow, store: State<'_, StagingStore>, reque
 
 #[tauri::command(async)]
 pub fn read_staged(window: WebviewWindow, store: State<'_, StagingStore>, id: String) -> Result<Response, String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     Ok(Response::new(store.take(&id)?))
 }
 

@@ -9,6 +9,7 @@ import { remarkMathBlockPlugin, remarkMathPlugin } from '../node_modules/@milkdo
 import { prepareMarkdown } from '../src/core/markdown/codec'
 import { analyzeMarkdown, protectedFragments } from '../src/core/markdown/compatibility'
 import { CREPE_INLINE_MATH_RULE, STRICT_INLINE_MATH_RULE } from '../src/core/markdown/math'
+import { loadMathRenderer } from '../src/core/markdown/renderMath'
 import { remarkDemoteCurrencyPlugin } from '../src/features/editor/mathEditor'
 import { safeTextHandler } from '../src/features/editor/markdownStringify'
 import { embedMathStyles } from '../src/features/export/katexStyles'
@@ -98,7 +99,13 @@ describe('formulas in preview and export', () => {
     expect(html).toContain('class="katex"')
     expect(html).toContain('katex-display')
     expect(html).not.toContain('language-math')
-    expect(renderMarkdownPreview('行内 $x^2$\n')).toContain('class="katex"')
+    expect(renderMarkdownPreview('行内 $x^2$\n', undefined, true, undefined, await loadMathRenderer('行内 $x^2$\n'))).toContain('class="katex"')
+    // KaTeX is loaded only for a document that can hold a formula; without it a formula stays as its source (T98).
+    expect(await loadMathRenderer('# 没有公式\n\n普通段落\n')).toBeUndefined()
+    expect(await loadMathRenderer('```math\nx\n```\n')).toBeTypeOf('function')
+    const unloaded = renderMarkdownPreview('行内 $x^2$\n')
+    expect(unloaded).not.toContain('class="katex"')
+    expect(unloaded).toContain('x^2')
   })
 
   it('leaves a price and a math code fence alone', async () => {

@@ -1,5 +1,6 @@
-use sha2::{Digest, Sha256};
-use std::{fs::{self, File, OpenOptions}, io::{Read, Write}, path::Path, sync::atomic::{AtomicU64, Ordering}};
+#[cfg(not(target_os = "macos"))]
+use std::fs::OpenOptions;
+use std::{fs::{self, File}, io::{Read, Write}, path::Path, sync::atomic::{AtomicU64, Ordering}};
 #[cfg(any(test, not(target_os = "macos")))]
 use std::path::PathBuf;
 
@@ -57,11 +58,18 @@ impl Drop for Temporary {
 }
 
 fn revision(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    super::sha256_hex(bytes)
 }
 
 pub fn commit(path: &Path, bytes: &[u8], expected: Option<&str>) -> Result<String, String> {
     commit_with_fault(path, bytes, expected, Fault::None)
+}
+
+/// Writes one of the app's own records (settings, recent files, the assistant's configuration) over whatever
+/// is there now. `limit` is the most the existing file may hold.
+pub fn replace_record(path: &Path, bytes: &[u8], limit: u64) -> Result<(), String> {
+    let expected = super::bounded_file::read_canonical_parent(path, limit).ok().map(|old| super::sha256_hex(&old));
+    commit_canonical_parent(path, bytes, expected.as_deref()).map(|_| ())
 }
 
 pub fn commit_canonical_parent(path: &Path, bytes: &[u8], expected: Option<&str>) -> Result<String, String> {
@@ -125,7 +133,7 @@ fn commit_with_fault(path: &Path, bytes: &[u8], expected: Option<&str>, fault: F
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
-    use std::{ffi::{CString, OsStr}, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::{MetadataExt, OpenOptionsExt}}}};
+    use std::{ffi::{CString, OsStr}, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::MetadataExt}}};
 
     fn name(value: &OsStr) -> Result<CString, String> {
         CString::new(value.as_bytes()).map_err(|_| "INVALID_PATH".into())
@@ -156,10 +164,47 @@ mod macos {
         }
     }
 
+    /// Earlier versions kept beside a file: the one that was just replaced.
+    const KEPT_BACKUPS: usize = 1;
+
+    /// Removes the backups of `file_name` beyond the newest `keep`. Every replaced version used to stay as a
+    /// hidden file for ever: hundreds beside the settings file, and a full copy of a document for each save (T101).
+    ///
+    /// Only regular files named exactly `.mino-backup-<file_name>-<16 hex digits>.bak` are candidates, so the
+    /// backups of a file whose name merely starts the same way are not touched, and nothing is followed or
+    /// opened. `previous`, the version just replaced, always stays. Errors are ignored: the save has succeeded.
+    fn prune_backups(directory: &File, file_name: &OsStr, previous: &CString, keep: usize) {
+        let prefix = [b".mino-backup-".as_slice(), file_name.as_bytes(), b"-"].concat();
+        let descriptor = unsafe { libc::dup(directory.as_raw_fd()) };
+        if descriptor < 0 { return; }
+        let stream = unsafe { libc::fdopendir(descriptor) };
+        if stream.is_null() { unsafe { libc::close(descriptor); } return; }
+        unsafe { libc::rewinddir(stream); }
+        let mut older: Vec<(i64, i64, CString)> = Vec::new();
+        loop {
+            let entry = unsafe { libc::readdir(stream) };
+            if entry.is_null() { break; }
+            let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+            let Some(hash) = name.to_bytes().strip_prefix(prefix.as_slice()).and_then(|rest| rest.strip_suffix(b".bak")) else { continue };
+            if hash.len() != 16 || !hash.iter().all(u8::is_ascii_hexdigit) || name == previous.as_c_str() { continue; }
+            let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+            if unsafe { libc::fstatat(directory.as_raw_fd(), name.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW) } != 0 { continue; }
+            if stat.st_mode & libc::S_IFMT != libc::S_IFREG { continue; }
+            // A backup is a link made at the moment its version was replaced, which is when its status changed.
+            older.push((stat.st_ctime, stat.st_ctime_nsec, name.to_owned()));
+        }
+        unsafe { libc::closedir(stream); }
+        older.sort();
+        let surplus = (older.len() + 1).saturating_sub(keep.max(1));
+        for (_, _, name) in older.into_iter().take(surplus) {
+            unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0); }
+        }
+    }
+
     pub(super) fn commit(path: &Path, bytes: &[u8], expected: Option<&str>, fault: Fault, canonical_parent: bool) -> Result<String, String> {
         let parent = fs::canonicalize(path.parent().ok_or("INVALID_PATH")?).map_err(|_| "IO_ERROR")?;
         if canonical_parent && parent != path.parent().ok_or("INVALID_PATH")? { return Err("OUT_OF_SCOPE".into()); }
-        let directory = OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(&parent).map_err(|_| "OUT_OF_SCOPE")?;
+        let directory = crate::fs::open_directory(&parent)?;
         let directory_meta = directory.metadata().map_err(|_| "IO_ERROR")?;
         let entry = name(path.file_name().ok_or("INVALID_PATH")?)?;
         let original = if let Some(expected) = expected {
@@ -203,6 +248,7 @@ mod macos {
             return Err("TARGET_EXISTS".into());
         }
         if fault == Fault::Replace { return Err("IO_ERROR".into()); }
+        let mut previous = None;
         if let Some(expected) = expected {
             let backup = name(OsStr::new(&format!(".mino-backup-{}-{}.bak", path.file_name().ok_or("INVALID_PATH")?.to_string_lossy(), &expected[..16])))?;
             let linked = unsafe { libc::linkat(directory.as_raw_fd(), entry.as_ptr(), directory.as_raw_fd(), backup.as_ptr(), 0) };
@@ -214,6 +260,7 @@ mod macos {
             let moved = unsafe { libc::renameat(directory.as_raw_fd(), cleanup.entry.as_ptr(), directory.as_raw_fd(), entry.as_ptr()) };
             if moved < 0 { return Err("IO_ERROR".into()); }
             cleanup.active = false;
+            previous = Some(backup);
         } else {
             let linked = unsafe { libc::linkat(directory.as_raw_fd(), cleanup.entry.as_ptr(), directory.as_raw_fd(), entry.as_ptr(), 0) };
             if linked < 0 {
@@ -226,6 +273,10 @@ mod macos {
         let current_parent = fs::symlink_metadata(&parent).map_err(|_| "COMMIT_UNCERTAIN")?;
         if !current_parent.is_dir() || current_parent.dev() != directory_meta.dev() || current_parent.ino() != directory_meta.ino() {
             return Err("COMMIT_UNCERTAIN".into());
+        }
+        // The write is complete and durable. Tidying up comes last and cannot fail the save.
+        if let Some(previous) = &previous {
+            prune_backups(&directory, path.file_name().ok_or("INVALID_PATH")?, previous, KEPT_BACKUPS);
         }
         Ok(revision(bytes))
     }
@@ -329,5 +380,87 @@ mod tests {
         assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o640);
         assert_eq!(fs::read(dir.join(format!(".mino-backup-记录.md-{}.bak", &original_hash[..16]))).unwrap(), b"old");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    fn backups(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).filter(|name| name.starts_with(".mino-backup-")).collect();
+        names.sort();
+        names
+    }
+
+    /// Saves `versions` one after another, checking after each that the version it replaced can still be recovered.
+    #[cfg(target_os = "macos")]
+    fn save_in_turn(dir: &Path, path: &Path, versions: &[&[u8]], record: bool) {
+        fs::write(path, versions[0]).unwrap();
+        for pair in versions.windows(2) {
+            let expected = revision(pair[0]);
+            let saved = if record { commit_canonical_parent(path, pair[1], Some(&expected)) } else { commit(path, pair[1], Some(&expected)) };
+            assert_eq!(saved.unwrap(), revision(pair[1]));
+            assert_eq!(fs::read(path).unwrap(), pair[1]);
+            assert_eq!(fs::read(dir.join(format!(".mino-backup-记录.md-{}.bak", &expected[..16]))).unwrap(), pair[0]);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_document_keeps_the_version_it_last_replaced() {
+        let (dir, path) = sample();
+        let versions: [&[u8]; 7] = [b"v0", b"v1", b"v2", b"v3", b"v4", b"v5", b"v6"];
+        save_in_turn(&dir, &path, &versions, false);
+        // Six saves replaced v0 to v5; only the last of those remains.
+        assert_eq!(backups(&dir), vec![format!(".mino-backup-记录.md-{}.bak", &revision(b"v5")[..16])]);
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 2, "the document, one backup, and no staging file");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_record_the_app_keeps_for_itself_keeps_one_earlier_version() {
+        let (dir, _) = sample();
+        // Records are written through their canonical folder, as the app data folder is.
+        let dir = fs::canonicalize(dir).unwrap();
+        let path = dir.join("记录.md");
+        // Backups left by earlier versions of the app, which never removed any, go at the first write.
+        for stale in 0..40u8 { fs::write(dir.join(format!(".mino-backup-记录.md-{:016x}.bak", u64::from(stale) + 1)), [stale]).unwrap(); }
+        save_in_turn(&dir, &path, &[b"one", b"two", b"three", b"two", b"three"], true);
+        assert_eq!(backups(&dir), vec![format!(".mino-backup-记录.md-{}.bak", &revision(b"two")[..16])]);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn pruning_touches_only_this_files_own_backups_and_never_fails_the_save() {
+        let (dir, path) = sample();
+        let outside = dir.join("outside.txt");
+        fs::write(&outside, b"not a backup").unwrap();
+        // Another file's backup whose name begins the same way; names that are not `<16 hex digits>.bak`;
+        // and a folder and a link that are named exactly like a backup but are not files.
+        let decoys = [".mino-backup-记录.md-extra-0123456789abcdef.bak", ".mino-backup-记录.md-0123.bak", ".mino-backup-记录.md-0123456789abcdeg.bak", ".mino-backup-记录.md-0123456789abcdef.bak.txt", ".mino-backup-记录.mdx-0123456789abcdef.bak"];
+        for decoy in decoys { fs::write(dir.join(decoy), b"keep").unwrap(); }
+        let folder = dir.join(".mino-backup-记录.md-aaaaaaaaaaaaaaaa.bak");
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("inside"), b"keep").unwrap();
+        let link = dir.join(".mino-backup-记录.md-bbbbbbbbbbbbbbbb.bak");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        save_in_turn(&dir, &path, &[b"v0", b"v1", b"v2", b"v3", b"v4", b"v5", b"v6"], false);
+        for decoy in decoys { assert_eq!(fs::read(dir.join(decoy)).unwrap(), b"keep", "{decoy}"); }
+        assert_eq!(fs::read(folder.join("inside")).unwrap(), b"keep");
+        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert_eq!(fs::read(&outside).unwrap(), b"not a backup");
+        // Its own backups were still pruned to the latest.
+        assert!(backups(&dir).contains(&format!(".mino-backup-记录.md-{}.bak", &revision(b"v5")[..16])));
+        assert_eq!(backups(&dir).len(), 1 + decoys.len() + 2);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// T91 timing, compared before and after a change: `cargo test --release --lib -- --ignored --nocapture timing_sha256`.
+    #[test]
+    #[ignore]
+    fn timing_sha256_64_mib() {
+        let bytes: Vec<u8> = (0..64 * 1024 * 1024u32).map(|index| (index.wrapping_mul(2654435761) >> 24) as u8).collect();
+        let mut runs: Vec<u128> = (0..5).map(|_| { let started = std::time::Instant::now(); std::hint::black_box(revision(&bytes)); started.elapsed().as_millis() }).collect();
+        runs.sort();
+        println!("timing_sha256_64_mib median_ms={} digest={}", runs[2], &revision(&bytes)[..16]);
     }
 }

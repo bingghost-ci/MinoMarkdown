@@ -108,6 +108,22 @@ function unsupportedIssues(tree: Root, body: string): CompatibilityIssue[] {
   return issues
 }
 
+/** The 1-based line of an offset in `text`. */
+function lineCounter(text: string): (offset: number) => number {
+  const breaks: number[] = []
+  for (let at = text.indexOf('\n'); at >= 0; at = text.indexOf('\n', at + 1)) breaks.push(at)
+  return (offset) => {
+    let low = 0
+    let high = breaks.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if (breaks[middle] < offset) low = middle + 1
+      else high = middle
+    }
+    return low + 1
+  }
+}
+
 function splitSource(source: string): Pick<DocumentAnalysis, 'body' | 'frontMatter' | 'bom' | 'newline' | 'trailingNewline' | 'issues'> {
   const issues: CompatibilityIssue[] = []
   const bom = source.startsWith('\uFEFF')
@@ -203,7 +219,10 @@ export function analyzeMarkdown(bytes: Uint8Array): DocumentAnalysis {
     const tree = parseTree(parts.body)
     fragments = collectFragments(tree)
     const frontMatterLines = parts.frontMatter.split('\n').length - 1
-    issues.push(...unsupportedIssues(tree, parts.body).map((issue) => issue.offset === undefined ? issue : { ...issue, line: parts.body.slice(0, issue.offset).split('\n').length + frontMatterLines }))
+    const found = unsupportedIssues(tree, parts.body)
+    // One pass over the text for all issues: counting lines up to each offset separately was quadratic (T92).
+    const lineOf = found.some((issue) => issue.offset !== undefined) ? lineCounter(parts.body) : null
+    issues.push(...found.map((issue) => issue.offset === undefined ? issue : { ...issue, line: lineOf!(issue.offset) + frontMatterLines }))
     if (issues.length === 0) {
       semantics = projectNode(tree)
       const normalized = processor.stringify(tree)

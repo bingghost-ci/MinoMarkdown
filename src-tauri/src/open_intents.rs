@@ -25,11 +25,8 @@ fn kind_for(path: &Path) -> Option<Kind> {
         _ => None,
     }
 }
-fn mime_for(path: &Path) -> Option<&'static str> {
-    match path.extension().and_then(|e| e.to_str())?.to_ascii_lowercase().as_str() {
-        "png" => Some("image/png"), "jpg" | "jpeg" => Some("image/jpeg"), "gif" => Some("image/gif"), "webp" => Some("image/webp"), _ => None,
-    }
-}
+/// The same table as for images beside a document, asked by extension alone.
+fn mime_for(path: &Path) -> Option<&'static str> { path.extension().and_then(|extension| extension.to_str()).and_then(crate::documents::asset_mime) }
 fn enqueue(store: &IntentStore, path: PathBuf, allow_image: bool, owner: &str) -> bool {
     // A path can enter this queue only from a native OS open/drop event.
     // Reject a symlink at the dropped root before resolving its canonical path.
@@ -71,14 +68,14 @@ fn take_intent(store: &IntentStore, token: &str, owner: &str) -> Result<Intent, 
 }
 #[tauri::command]
 pub fn take_open_intents(window: WebviewWindow, store: State<'_, IntentStore>) -> Result<Vec<IntentSummary>, String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     let tokens = store.queue.lock().map_err(|_| "IO_ERROR")?.remove(window.label()).unwrap_or_default();
     let map = store.pending.lock().map_err(|_| "IO_ERROR")?;
     Ok(tokens.into_iter().filter_map(|token| map.get(&token).map(|intent| IntentSummary { name: intent.path.file_name().unwrap_or_default().to_string_lossy().into_owned(), kind: match intent.kind { Kind::Document => "document", Kind::Image => "image", Kind::Folder => "folder" }, token })).collect())
 }
 #[tauri::command(async)]
 pub fn open_intent_workspace(window: WebviewWindow, intents: State<'_, IntentStore>, workspaces: State<'_, WorkspaceStore>, token: String) -> Result<WorkspaceRoot, String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     let intent = take_intent(&intents, &token, window.label())?;
     if intent.kind != Kind::Folder { return Err("OUT_OF_SCOPE".into()); }
     let metadata = fs::symlink_metadata(&intent.path).map_err(|_| "NOT_FOUND")?;
@@ -87,14 +84,14 @@ pub fn open_intent_workspace(window: WebviewWindow, intents: State<'_, IntentSto
 }
 #[tauri::command(async)]
 pub fn open_intent_document(window: WebviewWindow, intents: State<'_, IntentStore>, documents: State<'_, DocumentStore>, token: String) -> Result<OpenDocument, String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     let intent = take_intent(&intents, &token, window.label())?;
     if intent.kind != Kind::Document { return Err("OUT_OF_SCOPE".into()); }
     open_granted_path(&documents, &intent.path)
 }
 #[tauri::command(async)]
 pub fn read_intent_image(window: WebviewWindow, intents: State<'_, IntentStore>, staging: State<'_, crate::staging::StagingStore>, token: String) -> Result<ImageIntent, String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     let intent = take_intent(&intents, &token, window.label())?;
     if intent.kind != Kind::Image { return Err("OUT_OF_SCOPE".into()); }
     let mime = mime_for(&intent.path).ok_or("INVALID_IMAGE")?;
@@ -104,7 +101,7 @@ pub fn read_intent_image(window: WebviewWindow, intents: State<'_, IntentStore>,
 }
 #[tauri::command]
 pub fn discard_open_intent(window: WebviewWindow, intents: State<'_, IntentStore>, token: String) -> Result<(), String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     let _ = take_intent(&intents, &token, window.label())?;
     Ok(())
 }

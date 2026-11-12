@@ -1,17 +1,27 @@
+import { memo } from 'react'
 import type { DocumentWorkspace } from '../useDocumentWorkspace'
+import { pick } from '../stable'
 import { samples, uiPreview } from '../useDocumentWorkspace'
 import { translateStatus } from '../i18n'
 import { extensionOf } from '../../features/document/kinds'
 
-export function StatusBar({ workspace: w }: { workspace: DocumentWorkspace }) {
+const statusBarKeys = ['document', 'pdfPages', 'previewPartial', 'settings', 'status', 't', 'wordCounts'] as const satisfies readonly (keyof DocumentWorkspace)[]
+
+/** Renders again only when something it reads changes, not on every render of the app (T95). */
+export function StatusBar({ workspace }: { workspace: DocumentWorkspace }) {
+  return <StatusBarView {...pick(workspace, statusBarKeys)} />
+}
+
+const StatusBarView = memo(function StatusBarView(w: Pick<DocumentWorkspace, (typeof statusBarKeys)[number]>) {
   const { document, pdfPages, settings, status, t, wordCounts } = w
   // What the document is, and for text how it is stored on disk (T82).
   const kindLabel = document.kind === 'pdf' ? 'PDF' : document.kind === 'text' ? t('纯文本') : document.kind === 'code' ? extensionOf(document.name).toUpperCase() : null
   const encoding = document.kind !== 'pdf' && document.encoding && (document.kind !== 'markdown' || document.encoding !== 'UTF-8') ? ` · ${document.encoding}` : ''
+  const message = translateStatus(status, settings.language)
   return <>
-      <footer className="app-status"><span className="status-message" role="status" title={translateStatus(status, settings.language)}>{translateStatus(status, settings.language)}</span><span className="status-mode">{document.kind === 'pdf' ? (pdfPages === null ? '' : `${pdfPages} ${t('页')}`) : `${wordCounts.selected !== null ? `${t('已选')} ${wordCounts.selected} / ` : ''}${wordCounts.total} ${t('字')}`}</span><span className="status-mode">{w.previewPartial ? t('正在加载余下内容…') : kindLabel !== null ? `${kindLabel}${encoding}` : `${document.deferredVisual ? t('快速阅读') : document.mode === 'source-protected' ? t('源码保护') : 'Markdown'}${encoding}`}</span></footer>
+      <footer className="app-status"><span className="status-message" role="status" title={message}>{message}</span><span className="status-mode">{document.kind === 'pdf' ? (pdfPages === null ? '' : `${pdfPages} ${t('页')}`) : `${wordCounts.selected !== null ? `${t('已选')} ${wordCounts.selected} / ` : ''}${wordCounts.total} ${t('字')}`}</span><span className="status-mode">{w.previewPartial ? t('正在加载余下内容…') : kindLabel !== null ? `${kindLabel}${encoding}` : `${document.deferredVisual ? t('快速阅读') : document.mode === 'source-protected' ? t('源码保护') : 'Markdown'}${encoding}`}</span></footer>
   </>
-}
+})
 
 export function VerificationPanel({ workspace: w }: { workspace: DocumentWorkspace }) {
   const { busy, checkRoundTrip, document, selectSample, t } = w

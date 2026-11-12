@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use image::{ImageFormat, ImageReader};
 use std::{
     collections::HashMap,
-    fs::{self, OpenOptions},
+    fs,
     path::{Path, PathBuf},
     sync::{atomic::{AtomicU64, Ordering}, Mutex},
 };
@@ -44,6 +44,9 @@ struct Grant {
     asset_key: String,
     /// Stat taken before the bytes behind `revision` were read; an unchanged stamp skips re-hashing.
     stamp: Option<FileStamp>,
+    /// The last content found on disk that differs from `revision`, with its stat. While a tab holds unsaved
+    /// edits it keeps asking, and the changed file is not read and hashed again until it changes once more (T100).
+    observed: Option<(FileStamp, String)>,
     kind: DocumentKind,
     /// How the text was stored, so a save writes it back the same way (T82).
     encoding: TextEncoding,
@@ -121,7 +124,10 @@ pub struct SaveResult {
     token: String,
     name: String,
     revision: String,
-    markdown: String,
+    /// The text as written, when saving changed it: pasted images now point at their files. Otherwise it is
+    /// the text the window sent, and sending megabytes of it back with every save would be wasted (T100).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    markdown: Option<String>,
     asset_paths: HashMap<String, String>,
     asset_relocations: HashMap<String, String>,
     asset_key: String,
@@ -140,16 +146,8 @@ pub struct DiskStatus {
     revision: Option<String>,
 }
 
-fn main_window(window: &WebviewWindow) -> Result<(), String> {
-    require_main(window.label())
-}
-
-fn require_main(label: &str) -> Result<(), String> {
-    if crate::is_workspace_window(label) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) }
-}
-
 fn digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::fs::sha256_hex(bytes)
 }
 
 fn filename(path: &Path) -> String {
@@ -194,9 +192,8 @@ pub(crate) fn read_selected_image_bytes(path: &Path) -> Result<Vec<u8>, String> 
 
 #[cfg(target_os = "macos")]
 fn open_parent_directory(parent: &Path) -> Result<fs::File, String> {
-    use std::os::unix::fs::OpenOptionsExt;
     if fs::canonicalize(parent).map_err(|_| "NOT_FOUND")? != parent { return Err("OUT_OF_SCOPE".into()); }
-    OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(parent).map_err(|_| "OUT_OF_SCOPE".into())
+    crate::fs::open_directory(parent)
 }
 
 #[cfg(target_os = "macos")]
@@ -241,7 +238,7 @@ fn digest_stream(mut file: impl std::io::Read, limit: u64) -> Result<(String, u6
         if head.len() < 1024 { head.extend_from_slice(&buffer[..count.min(1024 - head.len())]); }
         hasher.update(&buffer[..count]);
     }
-    Ok((format!("{:x}", hasher.finalize()), total, head))
+    Ok((crate::fs::hex(&hasher.finalize()), total, head))
 }
 
 struct Loaded { text: String, revision: String, stamp: Option<FileStamp>, kind: DocumentKind, encoding: TextEncoding, size: u64 }
@@ -289,7 +286,7 @@ pub(crate) fn open_granted_path(store: &DocumentStore, path: &Path) -> Result<Op
     let loaded = read_document(path)?;
     let token = format!("doc-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
     let asset_key = random_key()?;
-    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { path: path.to_path_buf(), revision: loaded.revision.clone(), stamp: loaded.stamp, asset_key: asset_key.clone(), kind: loaded.kind, encoding: loaded.encoding });
+    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { observed: None, path: path.to_path_buf(), revision: loaded.revision.clone(), stamp: loaded.stamp, asset_key: asset_key.clone(), kind: loaded.kind, encoding: loaded.encoding });
     Ok(opened(token, path, loaded, asset_key))
 }
 
@@ -310,7 +307,7 @@ fn read_range(grant: &Grant, offset: u64, length: u64) -> Result<Vec<u8>, String
 
 #[tauri::command(async)]
 pub fn read_document_range(window: WebviewWindow, store: State<'_, DocumentStore>, token: String, offset: u64, length: u64) -> Result<tauri::ipc::Response, String> {
-    main_window(&window)?;
+    crate::require_workspace_window(&window)?;
     read_range(&store.grant(&token)?, offset, length).map(tauri::ipc::Response::new)
 }
 
@@ -338,7 +335,7 @@ fn text_file_name(name: &str) -> bool {
 
 #[tauri::command]
 pub async fn choose_unsaved_action(app: AppHandle, window: WebviewWindow) -> Result<&'static str, String> {
-    main_window(&window)?;
+    crate::require_workspace_window(&window)?;
     let english = crate::settings::initial_language(&app) == "en-US";
     let result = app.dialog().message(if english { "This document has unsaved changes." } else { "当前文档有未保存修改。" })
         .title(if english { "Close or Switch Document" } else { "关闭或切换文档" })
@@ -361,7 +358,7 @@ pub async fn choose_unsaved_action(app: AppHandle, window: WebviewWindow) -> Res
 
 #[tauri::command]
 pub async fn open_document(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>) -> Result<Option<OpenDocument>, String> {
-    main_window(&window)?;
+    crate::require_workspace_window(&window)?;
     // Every supported kind first, so the panel shows them all at once; the narrower filters follow.
     let all: Vec<&str> = [file_kinds::MARKDOWN_EXTENSIONS, file_kinds::TEXT_EXTENSIONS, file_kinds::CODE_EXTENSIONS, file_kinds::PDF_EXTENSIONS].concat();
     let english = crate::settings::initial_language(&app) == "en-US";
@@ -378,19 +375,26 @@ pub async fn open_document(app: AppHandle, window: WebviewWindow, store: State<'
 
 #[tauri::command]
 pub fn release_document(window: WebviewWindow, store: State<'_, DocumentStore>, token: String) -> Result<(), String> {
-    main_window(&window)?;
+    crate::require_workspace_window(&window)?;
     store.release(&token)
 }
 
 #[tauri::command(async)]
 pub fn check_document_revision(window: WebviewWindow, store: State<'_, DocumentStore>, token: String) -> Result<DiskStatus, String> {
-    main_window(&window)?;
+    crate::require_workspace_window(&window)?;
     let grant = store.grant(&token)?;
     let (status, stamp) = disk_status(&grant)?;
     // A touched-but-identical file must not be re-hashed on every poll.
     if status.kind == "same" && stamp != grant.stamp {
         if let Some(current) = store.0.lock().map_err(|_| "IO_ERROR")?.get_mut(&token) {
             if current.revision == grant.revision { current.stamp = stamp; }
+        }
+    }
+    // Nor a changed one. This only answers the next poll; a save still reads and compares the file itself.
+    let seen = match (status.kind, &status.revision, stamp) { ("changed", Some(revision), Some(stamp)) => Some((stamp, revision.clone())), _ => None };
+    if seen != grant.observed {
+        if let Some(current) = store.0.lock().map_err(|_| "IO_ERROR")?.get_mut(&token) {
+            if current.revision == grant.revision { current.observed = seen; }
         }
     }
     Ok(status)
@@ -406,6 +410,9 @@ fn disk_status(grant: &Grant) -> Result<(DiskStatus, Option<FileStamp>), String>
     let stamp = Some(FileStamp::of(&meta));
     if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > grant.kind.max_bytes() { return Ok((DiskStatus { kind: "changed", revision: None }, stamp)); }
     if grant.stamp.is_some() && stamp == grant.stamp { return Ok((DiskStatus { kind: "same", revision: Some(grant.revision.clone()) }, stamp)); }
+    if let Some((seen, revision)) = &grant.observed {
+        if stamp.as_ref() == Some(seen) { return Ok((DiskStatus { kind: "changed", revision: Some(revision.clone()) }, stamp)); }
+    }
     let file = match fs::File::open(&grant.path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok((DiskStatus { kind: "deleted", revision: None }, None)),
@@ -421,7 +428,7 @@ fn disk_status(grant: &Grant) -> Result<(DiskStatus, Option<FileStamp>), String>
 
 #[tauri::command(async)]
 pub fn read_disk_version(window: WebviewWindow, store: State<'_, DocumentStore>, token: String) -> Result<String, String> {
-    main_window(&window)?;
+    crate::require_workspace_window(&window)?;
     let grant = store.grant(&token)?;
     if !grant.kind.is_text() { return Err("READ_ONLY".into()); }
     read_markdown(&grant.path).map(|(markdown, _)| markdown)
@@ -429,10 +436,10 @@ pub fn read_disk_version(window: WebviewWindow, store: State<'_, DocumentStore>,
 
 #[tauri::command(async)]
 pub fn reload_document(window: WebviewWindow, store: State<'_, DocumentStore>, token: String) -> Result<OpenDocument, String> {
-    main_window(&window)?;
+    crate::require_workspace_window(&window)?;
     let grant = store.grant(&token)?;
     let loaded = read_document(&grant.path)?;
-    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { path: grant.path.clone(), revision: loaded.revision.clone(), stamp: loaded.stamp, asset_key: grant.asset_key.clone(), kind: loaded.kind, encoding: loaded.encoding });
+    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { observed: None, path: grant.path.clone(), revision: loaded.revision.clone(), stamp: loaded.stamp, asset_key: grant.asset_key.clone(), kind: loaded.kind, encoding: loaded.encoding });
     Ok(opened(token, &grant.path, loaded, grant.asset_key))
 }
 
@@ -482,7 +489,7 @@ fn copy_encoding(grant: &Grant, kind: DocumentKind, force_utf8: Option<bool>) ->
 
 #[tauri::command]
 pub async fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, token: String, markdown: String, assets: Vec<StagedAsset>, force_utf8: Option<bool>) -> Result<Option<String>, String> {
-    main_window(&window)?;
+    crate::require_workspace_window(&window)?;
     let assets = staged_uploads(&staging, assets)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let grant = store.grant(&token)?;
@@ -505,7 +512,7 @@ pub async fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: St
 
 #[tauri::command]
 pub async fn save_as_document(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, token: String, markdown: String, assets: Vec<StagedAsset>, force_utf8: Option<bool>) -> Result<Option<SaveResult>, String> {
-    main_window(&window)?;
+    crate::require_workspace_window(&window)?;
     let assets = staged_uploads(&staging, assets)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let grant = store.grant(&token)?;
@@ -525,8 +532,8 @@ pub async fn save_as_document(app: AppHandle, window: WebviewWindow, store: Stat
     let revision = atomic_write::commit(&path, &text_encoding::encode(&persisted, encoding)?, None)?;
     let new_token = format!("doc-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
     let asset_key = random_key()?;
-    store.0.lock().map_err(|_| "IO_ERROR")?.insert(new_token.clone(), Grant { stamp: stamp_of(&path), path: path.clone(), revision: revision.clone(), asset_key: asset_key.clone(), kind, encoding });
-    Ok(Some(SaveResult { token: new_token, name: filename(&path), revision, markdown: persisted, asset_paths, asset_relocations, asset_key, kind: kind.as_str(), encoding: encoding.label() }))
+    store.0.lock().map_err(|_| "IO_ERROR")?.insert(new_token.clone(), Grant { observed: None, stamp: stamp_of(&path), path: path.clone(), revision: revision.clone(), asset_key: asset_key.clone(), kind, encoding });
+    Ok(Some(SaveResult { token: new_token, name: filename(&path), revision, markdown: Some(persisted), asset_paths, asset_relocations, asset_key, kind: kind.as_str(), encoding: encoding.label() }))
 }
 
 fn image_extension(bytes: &[u8], mime: &str) -> Option<&'static str> {
@@ -539,7 +546,12 @@ fn image_extension(bytes: &[u8], mime: &str) -> Option<&'static str> {
     }
 }
 
+#[cfg(test)]
+thread_local! { pub(crate) static IMAGES_VALIDATED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
 pub(crate) fn validate_image(bytes: &[u8], mime: &str) -> Result<&'static str, String> {
+    #[cfg(test)]
+    IMAGES_VALIDATED.with(|count| count.set(count.get() + 1));
     let extension = image_extension(bytes, mime).ok_or("INVALID_IMAGE")?;
     let format = match extension { "png" => ImageFormat::Png, "jpg" => ImageFormat::Jpeg, "gif" => ImageFormat::Gif, "webp" => ImageFormat::WebP, _ => return Err("INVALID_IMAGE".into()) };
     let dimensions = ImageReader::with_format(std::io::Cursor::new(bytes), format).into_dimensions().map_err(|_| "INVALID_IMAGE")?;
@@ -588,7 +600,7 @@ pub async fn save_document(
     force_utf8: Option<bool>,
     suggested_name: Option<String>,
 ) -> Result<Option<SaveResult>, String> {
-    main_window(&window)?;
+    crate::require_workspace_window(&window)?;
     let assets = staged_uploads(&staging, assets)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let grant = match token.as_ref() {
@@ -609,7 +621,9 @@ pub async fn save_document(
     };
     let kind = DocumentKind::of(&path).filter(|kind| kind.is_text()).ok_or("UNSUPPORTED_FILE_TYPE")?;
     let encoding = match &grant { Some(grant) if force_utf8 != Some(true) => grant.encoding, _ => TextEncoding::UTF8 };
-    text_encoding::encode(&markdown, encoding)?;
+    // Checked before any attachment is written, so a refused save leaves nothing behind. These are also the
+    // bytes to write unless saving the attachments changes the text.
+    let encoded = text_encoding::encode(&markdown, encoding)?;
     let parent = fs::canonicalize(path.parent().ok_or("INVALID_PATH")?).map_err(|_| "INVALID_PATH")?;
     if let Some(grant) = &grant { if parent != grant.path.parent().ok_or("INVALID_PATH")? { return Err("OUT_OF_SCOPE".into()); } }
     let path = parent.join(path.file_name().ok_or("INVALID_PATH")?);
@@ -623,12 +637,13 @@ pub async fn save_document(
         _ => {}
     }
     let (persisted, asset_paths) = save_assets(kind, &parent, &markdown, assets)?;
-    let bytes = text_encoding::encode(&persisted, encoding)?;
+    let rewritten = persisted != markdown;
+    let bytes = if rewritten { text_encoding::encode(&persisted, encoding)? } else { encoded };
     let revision = atomic_write::commit(&path, &bytes, grant.as_ref().map(|item| item.revision.as_str()))?;
     let token = token.unwrap_or_else(|| format!("doc-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed)));
     let asset_key = match &grant { Some(grant) => grant.asset_key.clone(), None => random_key()? };
-    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { stamp: stamp_of(&path), path: path.clone(), revision: revision.clone(), asset_key: asset_key.clone(), kind, encoding });
-    Ok(Some(SaveResult { token, name: filename(&path), revision, markdown: persisted, asset_paths, asset_relocations: HashMap::new(), asset_key, kind: kind.as_str(), encoding: encoding.label() }))
+    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { observed: None, stamp: stamp_of(&path), path: path.clone(), revision: revision.clone(), asset_key: asset_key.clone(), kind, encoding });
+    Ok(Some(SaveResult { token, name: filename(&path), revision, markdown: rewritten.then_some(persisted), asset_paths, asset_relocations: HashMap::new(), asset_key, kind: kind.as_str(), encoding: encoding.label() }))
 }
 
 pub(crate) fn asset_mime(relative: &str) -> Option<&'static str> {
@@ -705,7 +720,7 @@ fn read_asset_from_directory(parent: &Path, parts: &[&str]) -> Result<Vec<u8>, S
 
 #[tauri::command]
 pub async fn export_html(app: AppHandle, window: WebviewWindow, html: String) -> Result<Option<String>, String> {
-    main_window(&window)?;
+    crate::require_workspace_window(&window)?;
     if html.len() > 100 * 1024 * 1024 { return Err("EXPORT_TOO_LARGE".into()); }
     let selected = app.dialog().file().add_filter("HTML", &["html"]).blocking_save_file();
     let Some(selected) = selected else { return Ok(None); };
@@ -720,21 +735,6 @@ pub async fn export_html(app: AppHandle, window: WebviewWindow, html: String) ->
     Ok(Some(filename(&path)))
 }
 
-#[tauri::command]
-pub async fn export_source_markdown(app: AppHandle, window: WebviewWindow, markdown: String) -> Result<Option<String>, String> {
-    main_window(&window)?;
-    if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
-    let selected = app.dialog().file().add_filter("Markdown", &["md"]).blocking_save_file();
-    let Some(selected) = selected else { return Ok(None); };
-    let path = selected.into_path().map_err(|_| "INVALID_PATH")?;
-    if !markdown_path(&path) { return Err("UNSUPPORTED_FILE_TYPE".into()); }
-    let parent = fs::canonicalize(path.parent().ok_or("INVALID_PATH")?).map_err(|_| "INVALID_PATH")?;
-    let path = parent.join(path.file_name().ok_or("INVALID_PATH")?);
-    if path.exists() { return Err("TARGET_EXISTS".into()); }
-    atomic_write::commit(&path, markdown.as_bytes(), None)?;
-    Ok(Some(filename(&path)))
-}
-
 /// A name the frontend may suggest for a note: one Markdown file name, no path.
 fn note_name(name: &str) -> bool {
     !name.is_empty() && name.chars().count() <= 120 && !name.starts_with('.') && name.to_ascii_lowercase().ends_with(".md")
@@ -746,7 +746,7 @@ fn note_name(name: &str) -> bool {
 /// dialog granted; an existing file is never replaced.
 #[tauri::command]
 pub async fn save_note_beside(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, token: Option<String>, name: String, markdown: String) -> Result<Option<String>, String> {
-    main_window(&window)?;
+    crate::require_workspace_window(&window)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     if !note_name(&name) { return Err("INVALID_NAME".into()); }
     let mut dialog = app.dialog().file().add_filter("Markdown", &["md"]).set_file_name(&name);
@@ -806,8 +806,8 @@ mod tests {
     fn a_forged_document_token_and_non_main_window_are_rejected() {
         let store = DocumentStore::default();
         assert!(matches!(store.grant("forged"), Err(code) if code == "OUT_OF_SCOPE"));
-        assert!(require_main("main").is_ok());
-        assert!(matches!(require_main("print"), Err(code) if code == "OUT_OF_SCOPE"));
+        assert!(crate::require_workspace_label("main").is_ok());
+        assert!(matches!(crate::require_workspace_label("print"), Err(code) if code == "OUT_OF_SCOPE"));
     }
 
     #[test]
@@ -819,7 +819,7 @@ mod tests {
         fs::write(dir.join("outside.png"), b"outside").unwrap();
         let store = DocumentStore::default();
         let key = random_key().unwrap();
-        store.0.lock().unwrap().insert("doc-1".into(), Grant { path: dir.join("note.md"), revision: String::new(), stamp: None, asset_key: key.clone(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 });
+        store.0.lock().unwrap().insert("doc-1".into(), Grant { observed: None, path: dir.join("note.md"), revision: String::new(), stamp: None, asset_key: key.clone(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 });
         let (bytes, mime) = read_keyed_asset(&store, &format!("/{key}/assets/%E5%9B%BE%201.png")).unwrap();
         assert_eq!((bytes.as_slice(), mime), (b"pixels".as_slice(), "image/png"));
         assert!(read_keyed_asset(&store, &format!("/{key}/assets/page.html")).is_err());
@@ -835,7 +835,7 @@ mod tests {
         let path = dir.join("entry.md");
         fs::write(&path, b"first").unwrap();
         // The revision deliberately does not match the bytes: "same" proves the file was not read.
-        let grant = Grant { path: path.clone(), revision: "recorded".into(), stamp: stamp_of(&path), asset_key: String::new(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 };
+        let grant = Grant { observed: None, path: path.clone(), revision: "recorded".into(), stamp: stamp_of(&path), asset_key: String::new(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 };
         let (status, _) = disk_status(&grant).unwrap();
         assert_eq!((status.kind, status.revision.as_deref()), ("same", Some("recorded")));
         fs::write(&path, b"second, longer").unwrap();
@@ -843,11 +843,41 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
     #[test]
+    fn a_save_that_left_the_text_as_sent_does_not_send_it_back() {
+        let result = |markdown: Option<String>| serde_json::to_value(SaveResult { token: "doc-1".into(), name: "a.md".into(), revision: "r".into(), markdown, asset_paths: HashMap::new(), asset_relocations: HashMap::new(), asset_key: "k".into(), kind: "markdown", encoding: "UTF-8".into() }).unwrap();
+        assert!(result(None).get("markdown").is_none());
+        assert_eq!(result(Some("![x](assets/image-1.png)".into()))["markdown"], "![x](assets/image-1.png)");
+        // Saving without new images leaves the text as it was given; with one, the reference is rewritten.
+        let dir = sample_dir();
+        let (kept, paths) = save_assets(DocumentKind::Markdown, &dir, "plain text", vec![]).unwrap();
+        assert_eq!((kept.as_str(), paths.len()), ("plain text", 0));
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn a_changed_file_is_not_read_again_until_it_changes_again() {
+        let dir = sample_dir();
+        let path = dir.join("entry.md");
+        fs::write(&path, b"changed on disk").unwrap();
+        // The remembered revision deliberately does not match the bytes: getting it back proves the file was not read.
+        let mut grant = Grant { observed: Some((stamp_of(&path).unwrap(), "seen before".into())), path: path.clone(), revision: digest(b"what the tab opened"), stamp: None, asset_key: String::new(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 };
+        let (status, _) = disk_status(&grant).unwrap();
+        assert_eq!((status.kind, status.revision.as_deref()), ("changed", Some("seen before")));
+        // Another change is read: the stat no longer matches what was remembered.
+        fs::write(&path, b"changed once more, and longer").unwrap();
+        let (status, stamp) = disk_status(&grant).unwrap();
+        assert_eq!((status.kind, status.revision), ("changed", Some(digest(b"changed once more, and longer"))));
+        // Changed back to what the tab holds: the same, whatever was remembered.
+        fs::write(&path, b"what the tab opened").unwrap();
+        grant.observed = Some((stamp.unwrap(), digest(b"changed once more, and longer")));
+        assert_eq!(disk_status(&grant).unwrap().0.kind, "same");
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
     fn external_change_and_delete_are_detected_from_content() {
         let dir = sample_dir();
         let path = dir.join("entry.md");
         fs::write(&path, b"first").unwrap();
-        let grant = Grant { path: path.clone(), revision: digest(b"first"), stamp: None, asset_key: String::new(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 };
+        let grant = Grant { observed: None, path: path.clone(), revision: digest(b"first"), stamp: None, asset_key: String::new(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 };
         assert_eq!(disk_status(&grant).unwrap().0.kind, "same");
         fs::write(&path, b"second").unwrap();
         assert_eq!(disk_status(&grant).unwrap().0.kind, "changed");
@@ -1030,7 +1060,7 @@ mod tests {
             assert_eq!(target_kind(Path::new(name), source).err().as_deref(), Some("UNSUPPORTED_FILE_TYPE"), "{name}");
         }
         let big5 = TextEncoding { encoding: encoding_rs::BIG5, bom: false, exact: true };
-        let grant = Grant { path: "/a/b.txt".into(), revision: String::new(), stamp: None, asset_key: String::new(), kind: DocumentKind::Text, encoding: big5 };
+        let grant = Grant { observed: None, path: "/a/b.txt".into(), revision: String::new(), stamp: None, asset_key: String::new(), kind: DocumentKind::Text, encoding: big5 };
         assert_eq!(copy_encoding(&grant, DocumentKind::Text, None), big5);
         assert_eq!(copy_encoding(&grant, DocumentKind::Text, Some(false)), big5);
         assert_eq!(copy_encoding(&grant, DocumentKind::Text, Some(true)), TextEncoding::UTF8);
@@ -1101,7 +1131,7 @@ mod tests {
         fs::write(dir.join("assets/good.png"), b"safe bytes").unwrap();
         fs::write(dir.join("outside.png"), b"outside").unwrap();
         std::os::unix::fs::symlink(dir.join("outside.png"), dir.join("assets/link.png")).unwrap();
-        let grant = Grant { path: dir.join("note.md"), revision: String::new(), stamp: None, asset_key: String::new(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 };
+        let grant = Grant { observed: None, path: dir.join("note.md"), revision: String::new(), stamp: None, asset_key: String::new(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 };
         assert_eq!(read_scoped_asset(&grant,"assets/good.png").unwrap(),b"safe bytes");
         assert_eq!(read_scoped_asset(&grant,"assets/../outside.png").err().as_deref(),Some("OUT_OF_SCOPE"));
         assert_eq!(read_scoped_asset(&grant,"assets/nested/good.png").err().as_deref(),Some("NOT_FOUND"));

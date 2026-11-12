@@ -1,6 +1,5 @@
 use crate::{documents::{document_identity, DocumentStore}, file_kinds::DocumentKind, fs::{app_data::ensure_dir, atomic_write, bounded_file::read_canonical_parent}};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::{path::{Path, PathBuf}, sync::Mutex, time::{SystemTime, UNIX_EPOCH}};
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 
@@ -27,7 +26,7 @@ struct Entry { key: String, page: u32, offset: f64, at: u64 }
 #[serde(rename_all = "camelCase")]
 struct Record { schema_version: u32, entries: Vec<Entry> }
 
-fn key_of(path: &Path) -> String { format!("{:x}", Sha256::digest(path.to_string_lossy().as_bytes())) }
+fn key_of(path: &Path) -> String { crate::fs::sha256_hex(path.to_string_lossy().as_bytes()) }
 
 fn valid(position: &Position) -> bool { position.page <= 1_000_000 && position.offset.is_finite() && (0.0..=1.0).contains(&position.offset) }
 
@@ -47,7 +46,7 @@ fn storage(app: &AppHandle) -> Result<PathBuf, String> { Ok(ensure_dir(&app.path
 
 fn load(path: &Path) -> (Record, Option<String>) {
     let bytes = read_canonical_parent(path, MAX_FILE).ok();
-    let expected = bytes.as_ref().map(|bytes| format!("{:x}", Sha256::digest(bytes)));
+    let expected = bytes.as_ref().map(|bytes| crate::fs::sha256_hex(bytes));
     let record = bytes.and_then(|bytes| serde_json::from_slice::<Record>(&bytes).ok()).filter(|record| record.schema_version == 1).unwrap_or_default();
     (record, expected)
 }
@@ -61,14 +60,14 @@ fn tracked(store: &DocumentStore, token: &str) -> Result<String, String> {
 
 #[tauri::command(async)]
 pub fn get_reading_position(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, token: String) -> Result<Option<Position>, String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     let key = tracked(&store, &token)?;
     Ok(lookup(&load(&storage(&app)?).0, &key))
 }
 
 #[tauri::command(async)]
 pub fn set_reading_position(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, token: String, position: Position) -> Result<(), String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     if !valid(&position) { return Err("INVALID_POSITION".into()); }
     let key = tracked(&store, &token)?;
     let _guard = WRITE_LOCK.lock().map_err(|_| "IO_ERROR")?;

@@ -21,14 +21,14 @@ function Slider({ label, value, min, max, step, onChange, small, large }: { labe
 
 /** The popover beside the floating buttons (T65): size, style, texture, layout and fonts in one place. */
 export function AppearancePanel({ workspace: w }: { workspace: DocumentWorkspace }) {
-  const { setPanel, setSettings, settings, style, t } = w
+  const { setPanel, updateSettings, settings, style, t } = w
   const root = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => { if (!(event.target as HTMLElement).closest('.float-controls')) setPanel(null) }
     window.document.addEventListener('pointerdown', onPointerDown)
     return () => window.document.removeEventListener('pointerdown', onPointerDown)
   }, [])
-  const update = (patch: Partial<typeof settings>) => setSettings((current) => ({ ...current, ...patch }))
+  const update = updateSettings
   return <div ref={root} className="appearance-panel" role="dialog" aria-label={t('字体与风格')}>
     <section><h3>{t('字号')}<output>{settings.editorFontSize}</output></h3>
       <Slider label={t('字号')} value={settings.editorFontSize} min={MIN_EDITOR_FONT_SIZE} max={MAX_EDITOR_FONT_SIZE} step={1} onChange={(value) => update({ editorFontSize: value })} small="A" large="A" />

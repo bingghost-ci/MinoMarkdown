@@ -1,13 +1,21 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import type { DocumentWorkspace } from '../useDocumentWorkspace'
+import { pick } from '../stable'
 import { ChevronDown, ChevronRight, FilePlus2, FolderOpen, FileText, Folder, FolderPlus, MoreHorizontal, Pencil, RefreshCw, Trash2, X, PanelLeftClose } from 'lucide-react'
 import { PaneResizer } from './PaneResizer'
 import { PANE_MAX, SIDEBAR_MIN } from '../readingSettings'
 import type { WorkspaceEntry } from '../useDocumentWorkspace'
 import { translateStatus } from '../i18n'
 
-export function FileSidebar({ workspace: w }: { workspace: DocumentWorkspace }) {
-  const { openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, chooseWorkspace, closeWorkspace, createEntry, desktop, document, loadChildren, newEntryName, newEntryType, openWorkspaceEntry, renameEntry, renameName, renaming, selectedEntry, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, selectedDirectory, setSelectedEntry, settings, sidebarOpen, sidebarRoot, t, toggleDirectory, trashEntry, tree, workspaces } = w
+const fileSidebarKeys = ['openSearchHit', 'runWorkspaceSearch', 'searchQuery', 'searchState', 'setSearchQuery', 'chooseWorkspace', 'closeWorkspace', 'createEntry', 'desktop', 'activeEntryToken', 'loadChildren', 'newEntryName', 'newEntryType', 'openWorkspaceEntry', 'renameEntry', 'renameName', 'renaming', 'selectedEntry', 'setNewEntryName', 'setNewEntryType', 'setRenameName', 'setRenaming', 'setSelectedDirectory', 'selectedDirectory', 'setSelectedEntry', 'updateSettings', 'settings', 'sidebarOpen', 't', 'toggleDirectory', 'trashEntry', 'tree', 'workspaces'] as const satisfies readonly (keyof DocumentWorkspace)[]
+
+/** Renders again only when something it reads changes, not on every render of the app (T95). */
+export function FileSidebar({ workspace }: { workspace: DocumentWorkspace }) {
+  return <FileSidebarView {...pick(workspace, fileSidebarKeys)} />
+}
+
+const FileSidebarView = memo(function FileSidebarView(w: Pick<DocumentWorkspace, (typeof fileSidebarKeys)[number]>) {
+  const { openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, chooseWorkspace, closeWorkspace, createEntry, desktop, activeEntryToken, loadChildren, newEntryName, newEntryType, openWorkspaceEntry, renameEntry, renameName, renaming, selectedEntry, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, selectedDirectory, setSelectedEntry, settings, sidebarOpen, t, toggleDirectory, trashEntry, tree, workspaces } = w
   // The menu a right click on a folder's title opens; it goes away on any click, on Escape and when the window loses focus.
   const [rootMenu, setRootMenu] = useState<{ token: string; x: number; y: number } | null>(null)
   useEffect(() => {
@@ -37,7 +45,7 @@ export function FileSidebar({ workspace: w }: { workspace: DocumentWorkspace }) 
     if (!state?.expanded) return null
     return <div role="group">
       {state.entries.map((entry) => <div key={entry.token}>
-        <button type="button" role="treeitem" data-tree-item aria-level={depth + 1} aria-expanded={entry.directory ? (tree[entry.token]?.expanded ?? false) : undefined} aria-selected={document.entryToken === entry.token || selectedEntry?.token === entry.token} className="tree-entry" style={{ paddingLeft: `${12 + depth * 16}px` }} onClick={() => { setSelectedEntry({ ...entry, parentToken: token }); setSelectedDirectory(entry.directory ? entry.token : token); if (entry.directory) toggleDirectory(entry.token); else void openWorkspaceEntry(entry.token) }} onKeyDown={(event) => treeKeyDown(event, entry)}>
+        <button type="button" role="treeitem" data-tree-item aria-level={depth + 1} aria-expanded={entry.directory ? (tree[entry.token]?.expanded ?? false) : undefined} aria-selected={activeEntryToken === entry.token || selectedEntry?.token === entry.token} className="tree-entry" style={{ paddingLeft: `${12 + depth * 16}px` }} onClick={() => { setSelectedEntry({ ...entry, parentToken: token }); setSelectedDirectory(entry.directory ? entry.token : token); if (entry.directory) toggleDirectory(entry.token); else void openWorkspaceEntry(entry.token) }} onKeyDown={(event) => treeKeyDown(event, entry)}>
           <span className="tree-chevron" aria-hidden="true">{entry.directory ? tree[entry.token]?.expanded ? <ChevronDown /> : <ChevronRight /> : null}</span>
           {entry.directory ? <Folder className="tree-icon" aria-hidden="true" /> : <FileText className="tree-icon" aria-hidden="true" />}
           <span className="tree-name">{entry.name}</span>
@@ -51,9 +59,9 @@ export function FileSidebar({ workspace: w }: { workspace: DocumentWorkspace }) 
   }
 
   return <>
-        {sidebarOpen && <aside id="document-sidebar" ref={sidebarRoot} className="document-sidebar" aria-label={t('文件浏览器')} style={{ width: settings.sidebarWidth }}>
-          <PaneResizer edge="right" width={settings.sidebarWidth} min={SIDEBAR_MIN} max={PANE_MAX} fallback={230} label={t('调整文件栏宽度')} onCommit={(sidebarWidth) => w.setSettings((current) => ({ ...current, sidebarWidth }))} />
-          <div className="sidebar-heading"><h2>{t('文件')}</h2>{workspaces.length > 0 && <button type="button" className="icon-button" title={t('再打开一个文件夹')} aria-label={t('再打开一个文件夹')} onClick={() => void chooseWorkspace()} disabled={!desktop}><FolderOpen aria-hidden="true" /></button>}<button type="button" className="icon-button" title={t('隐藏文件栏')} aria-label={t('隐藏文件栏')} onClick={() => w.setSettings((current) => ({ ...current, showSidebar: false }))}><PanelLeftClose aria-hidden="true" /></button></div>
+        {sidebarOpen && <aside id="document-sidebar" className="document-sidebar" aria-label={t('文件浏览器')} style={{ width: settings.sidebarWidth }}>
+          <PaneResizer edge="right" width={settings.sidebarWidth} min={SIDEBAR_MIN} max={PANE_MAX} fallback={230} label={t('调整文件栏宽度')} onCommit={(sidebarWidth) => w.updateSettings({ sidebarWidth })} />
+          <div className="sidebar-heading"><h2>{t('文件')}</h2>{workspaces.length > 0 && <button type="button" className="icon-button" title={t('再打开一个文件夹')} aria-label={t('再打开一个文件夹')} onClick={() => void chooseWorkspace()} disabled={!desktop}><FolderOpen aria-hidden="true" /></button>}<button type="button" className="icon-button" title={t('隐藏文件栏')} aria-label={t('隐藏文件栏')} onClick={() => w.updateSettings({ showSidebar: false })}><PanelLeftClose aria-hidden="true" /></button></div>
           {workspaces.length === 0 && <div className="sidebar-open"><button type="button" onClick={() => void chooseWorkspace()} disabled={!desktop}>{t('打开文件夹')}</button></div>}
           {workspaces.length > 0 && <>
             <div className="workspace-search" role="search"><input type="search" aria-label={t('搜索文件夹')} placeholder={t('搜索文件夹')} value={searchQuery}
@@ -97,4 +105,4 @@ export function FileSidebar({ workspace: w }: { workspace: DocumentWorkspace }) 
       </div>}
     </aside>}
   </>
-}
+})

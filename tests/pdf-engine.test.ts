@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { defaultFindOptions } from '../src/features/editor/find'
+import { defaultFindOptions } from '../src/features/editor/findText'
 import { assemblePdfText, closePdf, clampScale, fitWidthScale, joinTextItems, looksScanned, MAX_CANVAS_PIXELS, MAX_SCALE, MIN_SCALE, openPdf, outputScale, pageAtOffset, pageHeading, pdfOutline, PdfTextCache, RANGE_CHUNK, resolveDestination, searchPages, zoomedScale, type PdfLibrary, type PdfSource } from '../src/features/pdf/pdfEngine'
 
 // The same build the app loads. In Node it runs its worker code on the calling thread.

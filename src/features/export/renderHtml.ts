@@ -7,11 +7,12 @@ import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
 import { remarkDemoteCurrency } from '../../core/markdown/math'
-import { rehypeRenderMath, withMathClasses } from '../../core/markdown/renderMath'
+import { loadMathRenderer, rehypeRenderMath, withMathClasses } from '../../core/markdown/renderMath'
 import { rehypeEmbedDiagrams } from '../../core/markdown/diagrams'
 import { rehypeFigures } from '../../core/markdown/figures'
 import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
 import { loadCodeParsers, rehypeHighlightCode } from '../../core/markdown/highlight'
+import { base64 } from './appAssets'
 
 export type ResolvedImage = { bytes: Uint8Array; mime: string }
 export type ImageResolver = (url: string) => Promise<ResolvedImage | null>
@@ -36,13 +37,6 @@ function escapeHtml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
 }
 
-function base64(bytes: Uint8Array): string {
-  let output = ''
-  for (let offset = 0; offset < bytes.length; offset += 8192) {
-    output += String.fromCharCode(...bytes.subarray(offset, offset + 8192))
-  }
-  return btoa(output)
-}
 
 function embedImages(resolveImage: ImageResolver) {
   return () => async (tree: Root) => {
@@ -124,7 +118,7 @@ export async function renderExport(markdown: string, title: string, resolveImage
     .use(embedImages(resolveImage))
     .use(remarkRehype)
     .use(rehypeSanitize, withMathClasses({ ...defaultSchema, protocols: { ...defaultSchema.protocols, src: ['data'] } }))
-    .use(rehypeRenderMath, report)
+    .use(rehypeRenderMath, await loadMathRenderer(markdown), report)
     .use(rehypeEmbedDiagrams, { diagrams, report })
     .use(rehypeHighlightCode, { parsers: await loadCodeParsers(markdown) })
     .use(rehypeNumericColumns)
@@ -135,8 +129,4 @@ export async function renderExport(markdown: string, title: string, resolveImage
   const css = (page.stylesheet ?? fallbackStylesheet).replace(/<\/style/gi, '<\\/style')
   const html = `<!doctype html>\n<html lang="${page.lang === 'en' ? 'en' : 'zh-CN'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src ${page.fontsEmbedded ? 'data:' : "'none'"}"><title>${escapeHtml(title)}</title><style>${css}</style></head><body><main class="mino-page"><article class="mino-doc">${body}</article></main></body></html>`
   return { html, omittedHtml: report.omittedHtml, hasMath: report.hasMath, failedDiagrams: report.failedDiagrams }
-}
-
-export async function renderHtml(markdown: string, title: string, resolveImage: ImageResolver): Promise<string> {
-  return (await renderExport(markdown, title, resolveImage)).html
 }

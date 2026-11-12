@@ -111,9 +111,19 @@ pub const MENU_ITEMS: &[(&str, Option<&str>)] = &[
     ("transform-half-punct", None),
 ];
 
+/// A menu item with the label and shortcut this file gives its id.
+pub fn item(app: &AppHandle, id: &str, english: bool) -> tauri::Result<tauri::menu::MenuItem<tauri::Wry>> {
+    tauri::menu::MenuItem::with_id(app, id, label(id, english), true, accelerator(id))
+}
+
 pub fn accelerator(id: &str) -> Option<&'static str> {
     MENU_ITEMS.iter().find(|(item, _)| *item == id).and_then(|(_, shortcut)| *shortcut)
 }
+
+/// The language the menu is in, without reading the settings file again.
+pub fn english() -> bool { ENGLISH.load(Ordering::Relaxed) }
+/// Records the language the menu was just built in.
+pub fn built_in(english: bool) { ENGLISH.store(english, Ordering::Relaxed); }
 
 pub fn set_language(app: &AppHandle, language: &str) {
     let english = language == "en-US";
@@ -158,10 +168,22 @@ pub fn set_document_kind(app: &AppHandle, kind: &str) {
     }
 }
 
+/// The kind the menu was last set for. Every window reports its kind each time it is focused; when the kind
+/// is the one already applied there is nothing to change, and walking the menu to set some sixty items to the
+/// state they already have is skipped (T99).
+static APPLIED_KIND: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+fn kind_changes(kind: &str) -> bool {
+    let Ok(mut applied) = APPLIED_KIND.lock() else { return true };
+    if *applied == kind { return false; }
+    kind.clone_into(&mut applied);
+    true
+}
+
 #[tauri::command]
 pub fn set_menu_state(app: AppHandle, window: tauri::WebviewWindow, kind: String) -> Result<(), String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     if !matches!(kind.as_str(), "markdown" | "text" | "code" | "pdf") { return Err("INVALID_KIND".into()); }
+    if !kind_changes(&kind) { return Ok(()); }
     let handle = app.clone();
     app.run_on_main_thread(move || set_document_kind(&handle, &kind)).map_err(|_| "IO_ERROR".into())
 }
@@ -240,6 +262,24 @@ extern "C" fn should_terminate(_: *mut objc2::runtime::AnyObject, _: objc2::runt
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn the_menu_is_set_again_only_when_the_kind_of_document_changes() {
+        // The first report of a kind applies it; the same kind again, as on every window focus, does not.
+        assert!(kind_changes("pdf"));
+        assert!(!kind_changes("pdf"));
+        assert!(!kind_changes("pdf"));
+        assert!(kind_changes("markdown"));
+        assert!(!kind_changes("markdown"));
+        assert!(kind_changes("pdf"));
+    }
+    #[test]
+    fn the_language_the_menu_was_built_in_is_remembered() {
+        built_in(true);
+        assert!(english());
+        built_in(false);
+        assert!(!english());
+    }
 
     #[test]
     fn reading_mode_has_its_shortcut_and_both_labels() {

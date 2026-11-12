@@ -1,11 +1,11 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import './helpers/bundled-font-css'
 import { describe, expect, it } from 'vitest'
 import {
-  bundledFaces, bundledFamilies, choiceFamily, cjkFonts, codeFonts, codeFontStack, CODE_FONT_STACK, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, facesForText, familiesIn, fontFaceCss, fontStack, isFontChoice, isSystemFontName, latinFonts, systemFontId, systemFontName, withoutBundledFonts,
-  FANGSONG_FAMILY, GARAMOND_FAMILY, HUOSONG_FAMILY, INTER_FAMILY, KAI_FAMILY, LITERATA_FAMILY, MONO_FAMILY, SANS_FAMILY, SERIF_FAMILY, SOURCE_SERIF_FAMILY, type FontFace,
+  bundledFamilies, choiceFamily, cjkFonts, codeFonts, codeFontStack, CODE_FONT_STACK, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, familiesIn, fontStack, isFontChoice, isSystemFontName, latinFonts, systemFontId, systemFontName, withoutBundledFonts,
+  FANGSONG_FAMILY, GARAMOND_FAMILY, HUOSONG_FAMILY, INTER_FAMILY, KAI_FAMILY, LITERATA_FAMILY, MONO_FAMILY, SANS_FAMILY, SERIF_FAMILY, SOURCE_SERIF_FAMILY,
 } from '../src/features/reading/fonts'
+import { bundledFaces, facesForText, fontFaceCss, type FontFace } from '../src/features/reading/fontFaces'
 import { FONT_BUDGET_BYTES } from '../vite.config'
 
 /** Where each bundled family's files live, relative to the project root. */
@@ -361,3 +361,35 @@ describe('T90 code fonts', () => {
   })
 })
 
+describe('the generated font files (T98)', () => {
+  it('are what the generator makes from the installed font packages', async () => {
+    // @ts-expect-error The generator is a plain Node script without type declarations.
+    const generator = await import('../scripts/generate-font-table.mjs') as { buildCss: () => string; buildTable: () => string; outputs: { css: string; table: string } }
+    expect(readFileSync(generator.outputs.table, 'utf8')).toBe(generator.buildTable())
+    expect(readFileSync(generator.outputs.css, 'utf8')).toBe(generator.buildCss())
+  })
+
+  it('register every face under a family the app knows, and every family the app knows has faces', () => {
+    expect(new Set(bundledFaces.map((face) => face.family))).toEqual(bundledFamilies)
+    expect(bundledFamilies.size).toBe(12)
+  })
+
+  it('give the page the same rules the app used to write from the face list, with each file found by the build', () => {
+    const css = readFileSync('src/features/reading/bundledFonts.css', 'utf8')
+    const rules = css.split('\n').filter((line) => line.startsWith('@font-face'))
+    expect(rules).toHaveLength(bundledFaces.length)
+    // The style sheet names each file by its path; the table has the same faces in the same order.
+    const paths = rules.map((rule) => /src:url\(\.\.\/\.\.\/\.\.\/([^)]+)\)/.exec(rule)![1])
+    expect(paths.map((path) => path.split('/').pop())).toEqual(bundledFaces.map((face) => face.file))
+    for (const path of paths) expect(existsSync(path), path).toBe(true)
+    expect(rules.map((rule) => rule.replace(/src:url\([^)]+\)/, 'src:url(FILE)'))).toEqual(fontFaceCss(bundledFaces, () => 'FILE').split('\n'))
+  })
+
+  it('works out a face\'s ranges when they are asked for, once', () => {
+    const face = bundledFaces.find((item) => item.family === SERIF_FAMILY)!
+    expect(Object.getOwnPropertyDescriptor(face, 'ranges')?.get).toBeTypeOf('function')
+    expect(face.ranges).toBe(face.ranges)
+    expect(face.ranges![0]).toHaveLength(2)
+    expect(face.ranges!.length).toBe(face.unicodeRange!.split(',').length)
+  })
+})

@@ -153,5 +153,3 @@ export function resolveStyleId(theme: string, dayTheme: string, nightTheme: stri
   const id = theme === 'system' ? (systemDark ? nightTheme : dayTheme) : theme
   return migrateStyleId(id) ?? (systemDark ? 'dark' : 'white')
 }
-
-export const groupLabels: Record<StyleGroup, string> = { plain: '素色', paper: '纸张', eye: '护眼', night: '夜间' }

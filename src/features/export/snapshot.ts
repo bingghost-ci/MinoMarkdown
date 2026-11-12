@@ -5,7 +5,9 @@ import { unified } from 'unified'
 
 type ImageNode = { type: string; url?: string; identifier?: string; position?: { start: { offset?: number }; end: { offset?: number } }; children?: unknown[] }
 
-function parse(markdown: string): { images: ImageNode[]; imageReferences: ImageNode[]; linkReferences: Set<string>; definitions: Map<string, ImageNode> } {
+type Parsed = { images: ImageNode[]; imageReferences: ImageNode[]; linkReferences: Set<string>; definitions: Map<string, ImageNode> }
+
+function parse(markdown: string): Parsed {
   const tree = unified().use(remarkParse).use(remarkGfm).parse(markdown) as Root
   const images: ImageNode[] = []
   const imageReferences: ImageNode[] = []
@@ -25,7 +27,10 @@ function parse(markdown: string): { images: ImageNode[]; imageReferences: ImageN
 export function imageUrlsIn(markdown: string): string[] {
   // Every Markdown image, inline or by reference, contains this marker.
   if (!markdown.includes('![')) return []
-  const { images, imageReferences, definitions } = parse(markdown)
+  return urlsOf(parse(markdown))
+}
+
+function urlsOf({ images, imageReferences, definitions }: Parsed): string[] {
   const urls = new Set(images.map((node) => node.url).filter((url): url is string => Boolean(url)))
   for (const reference of imageReferences) {
     const url = definitions.get(reference.identifier?.toLowerCase() ?? '')?.url
@@ -62,7 +67,28 @@ export function snapshotResources<T>(urls: readonly string[], pending: ReadonlyM
 
 export function rewriteImageUrls(markdown: string, replacements: ReadonlyMap<string, string>): string {
   if (replacements.size === 0) return markdown
-  const { images, imageReferences, linkReferences, definitions } = parse(markdown)
+  return rewrite(markdown, replacements, parse(markdown))
+}
+
+/**
+ * Finds the images of `markdown` and rewrites those `replacement` gives a new URL for, parsing once (T92).
+ * `replaced` maps each new URL to the one it stands for.
+ */
+export function replaceImageUrls(markdown: string, replacement: (url: string) => string | null): { markdown: string; replaced: Map<string, string> } {
+  const replaced = new Map<string, string>()
+  if (!markdown.includes('![')) return { markdown, replaced }
+  const parsed = parse(markdown)
+  const replacements = new Map<string, string>()
+  for (const url of urlsOf(parsed)) {
+    const next = replacement(url)
+    if (next === null) continue
+    replaced.set(next, url)
+    replacements.set(url, next)
+  }
+  return { markdown: replacements.size ? rewrite(markdown, replacements, parsed) : markdown, replaced }
+}
+
+function rewrite(markdown: string, replacements: ReadonlyMap<string, string>, { images, imageReferences, linkReferences, definitions }: Parsed): string {
   const edits: { start: number; end: number; value: string }[] = []
   function position(node: ImageNode): { start: number; end: number } {
     const start = node.position?.start.offset

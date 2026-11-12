@@ -41,6 +41,30 @@ function fontBudget(): Plugin {
   }
 }
 
+// The window appears only after the entry chunk has run, so what it holds is paid for at every launch.
+// The editor, the source editor, PDF.js, Mermaid and KaTeX load when a document needs them; an import that
+// pulls one of them back into the entry chunk, or lets the chunk outgrow its budget, fails the build (T98).
+// 622,951 bytes when the budget was set (T104), plus a tenth.
+export const ENTRY_BUDGET_BYTES = 685_000
+const ENTRY_FORBIDDEN = /node_modules\/(?:@codemirror|@lezer|@milkdown|prosemirror-[a-z]+|katex|mermaid|pdfjs-dist)\//
+function entryBudget(): Plugin {
+  return {
+    name: 'entry-budget',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      for (const [file, chunk] of Object.entries(bundle)) {
+        if (chunk.type !== 'chunk' || !chunk.isEntry) continue
+        // A style sheet leaves an empty module behind; only code counts.
+        const heavy = Object.keys(chunk.modules).filter((id) => ENTRY_FORBIDDEN.test(id) && !/\.css(?:\?|$)/.test(id))
+        if (heavy.length) this.error(`${file}: the entry chunk must not contain ${heavy[0]} (and ${heavy.length - 1} more); import it lazily`)
+        const bytes = new TextEncoder().encode(chunk.code).length
+        if (bytes > ENTRY_BUDGET_BYTES) this.error(`${file}: the entry chunk is ${bytes} bytes, over its budget of ${ENTRY_BUDGET_BYTES}`)
+        this.info(`entry chunk: ${bytes} bytes of ${ENTRY_BUDGET_BYTES}`)
+      }
+    },
+  }
+}
+
 // micromark's entity decoder has a `browser` build that calls `document.createElement` while loading. Inside
 // the analysis worker that stopped the worker from starting, and the app then quietly did all analysis on the
 // main thread. The alias below selects the DOM-free build; this fails the build if the other one comes back.
@@ -56,7 +80,7 @@ function workerWithoutDom(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), woff2OnlyKatex(), fontBudget(), pdfAssets(), ...(sourceMapDir ? [moveSourceMapsOutOfDist(sourceMapDir)] : [])],
+  plugins: [react(), woff2OnlyKatex(), fontBudget(), entryBudget(), pdfAssets(), ...(sourceMapDir ? [moveSourceMapsOutOfDist(sourceMapDir)] : [])],
   build: { sourcemap: sourceMapDir ? 'hidden' : false },
   // Code highlighting loads language parsers on demand inside the analysis worker, which needs code splitting.
   worker: { format: 'es', plugins: () => [workerWithoutDom()] },
@@ -71,6 +95,6 @@ export default defineConfig({
     // loading leaves the worker's "terminated" rejection unhandled there. In the app that happens inside the
     // worker thread and never reaches the page. Nothing else is ignored.
     onUnhandledError(error) { if (error.message === 'Worker was terminated' && String(error.stack).includes('pdf.worker')) return false },
-    css: { include: [/katex\.min\.css/, /@fontsource\/noto-(?:serif|sans)-sc\/\d+\.css/, /@fontsource-variable\/[^/]+\/wght(?:-italic)?\.css/] },
+    css: { include: [/katex\.min\.css/] },
   },
 })

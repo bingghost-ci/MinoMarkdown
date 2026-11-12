@@ -1,0 +1,52 @@
+{
+  "runtime": "node v22.23.2",
+  "documents": {
+    "100KiB": {
+      "chars": 43890,
+      "prepareMarkdownMs": 143,
+      "imageUrlsInMs": 0
+    },
+    "1MiB": {
+      "chars": 449394,
+      "prepareMarkdownMs": 1490,
+      "imageUrlsInMs": 0
+    },
+    "3MiB": {
+      "chars": 1348182,
+      "prepareMarkdownMs": 9,
+      "imageUrlsInMs": 0
+    }
+  },
+  "images": {
+    "twentyImageDocument": {
+      "prepareMarkdownMs": 7,
+      "imageUrlsInMs": 1,
+      "found": 20
+    },
+    "twentyOneMiBAsNumberArrayJson": {
+      "ms": 485,
+      "jsonMiB": 71
+    }
+  },
+  "dist": {
+    "totalKiB": 56218,
+    "largest": "chill-huosong-400-D50KeQ5R.woff2",
+    "largestKiB": 12278,
+    "katexFiles": 19
+  },
+  "t91": {
+    "rewriteImageUrls1MiB20ImagesMs": 375,
+    "imageUrlsIn1MiB20ImagesMs": 350,
+    "findInText1MiBSingleCharMs": 1,
+    "findInText1MiBSingleCharMatches": 13618,
+    "dollarSerializeFirstMs": 193,
+    "dollarSerializeLaterMs": 140,
+    "analyze2000FormulaIssuesMs": 559,
+    "analyze2000FormulaIssues": 2000
+  },
+  "entry": {
+    "file": "assets/index-BFt0kis7.js",
+    "bytes": 3122055,
+    "analysisWorkerBytes": 779682
+  }
+}

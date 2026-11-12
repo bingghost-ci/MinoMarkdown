@@ -1,4 +1,4 @@
-import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
+import { Plugin, PluginKey, type Transaction } from '@milkdown/kit/prose/state'
 import type { Node as ProseNode } from '@milkdown/kit/prose/model'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import { NUMERIC_CLASS, numericColumns } from '../../core/markdown/numericColumns'
@@ -33,13 +33,34 @@ export function numericDecorations(doc: ProseNode): DecorationSet {
   return DecorationSet.create(doc, decorations)
 }
 
+function inTable(doc: ProseNode, from: number, to: number): boolean {
+  const start = doc.resolve(Math.min(from, doc.content.size))
+  for (let depth = start.depth; depth > 0; depth--) if (start.node(depth).type.name === 'table') return true
+  let found = false
+  doc.nodesBetween(from, Math.min(to, doc.content.size), (node) => { if (node.type.name === 'table') found = true; return !found && !node.isTextblock })
+  return found
+}
+
+/** Whether a transaction removed, added or changed anything inside a table. */
+export function touchesTable(tr: Transaction): boolean {
+  let touched = false
+  tr.mapping.maps.forEach((map, step) => {
+    map.forEach((oldStart, oldEnd, newStart, newEnd) => {
+      touched ||= inTable(tr.docs[step], oldStart, oldEnd) || inTable(tr.docs[step + 1] ?? tr.doc, newStart, newEnd)
+    })
+  })
+  return touched
+}
+
 const key = new PluginKey<DecorationSet>('mino-numeric-columns')
 
 export const numericColumnsPlugin = new Plugin<DecorationSet>({
   key,
   state: {
     init: (_, state) => numericDecorations(state.doc),
-    apply: (tr, previous) => tr.docChanged ? numericDecorations(tr.doc) : previous,
+    // Typing outside tables only moves the decorations; reading every cell of every table on each key press
+    // made typing slower the more tables a document had (T96).
+    apply: (tr, previous) => !tr.docChanged ? previous : touchesTable(tr) ? numericDecorations(tr.doc) : previous.map(tr.mapping, tr.doc),
   },
   props: { decorations: (state) => key.getState(state) },
 })

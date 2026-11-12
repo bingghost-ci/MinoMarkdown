@@ -1,6 +1,5 @@
 use crate::{documents::{DocumentStore, OpenDocument, draft_target, open_granted_path, validate_selected_file}, fs::{app_data::ensure_dir, atomic_write, bounded_file::read_canonical_parent}, workspace::{WorkspaceStore, WorkspaceRoot, workspace_path, register_workspace}};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::{collections::HashSet, fs, path::{Path, PathBuf}, sync::Mutex, time::{SystemTime, UNIX_EPOCH}};
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 
@@ -15,7 +14,6 @@ struct RecentFile { schema_version: u32, entries: Vec<RecentEntry> }
 #[serde(rename_all = "camelCase")]
 pub struct RecentSummary { id: String, name: String, kind: String, available: bool, last_opened: u64 }
 
-fn require_main(window: &WebviewWindow) -> Result<(), String> { if crate::is_workspace_window(window.label()) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
 fn storage(app: &AppHandle) -> Result<PathBuf, String> { Ok(ensure_dir(&app.path().app_data_dir().map_err(|_| "IO_ERROR")?)?.join("recent.json")) }
 #[cfg(target_os = "macos")]
 fn note_system_recent(app: &AppHandle, path: PathBuf) {
@@ -38,7 +36,7 @@ pub fn refresh_menu(app: &AppHandle) {
         use tauri::menu::{IsMenuItem, MenuItem};
         let menu = handle.state::<RecentMenu>();
         if let Ok(existing) = menu.0.items() { for item in existing { let _ = menu.0.remove(&item); } }
-        let english = crate::settings::initial_language(&handle) == "en-US";
+        let english = crate::native_menu::english();
         if items.is_empty() {
             if let Ok(item) = MenuItem::with_id(&handle, "no-recent", crate::native_menu::label("no-recent", english), false, None::<&str>) { let _ = menu.0.append(&item as &dyn IsMenuItem<tauri::Wry>); }
             return;
@@ -49,7 +47,7 @@ pub fn refresh_menu(app: &AppHandle) {
     });
 }
 
-fn hash(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
+fn hash(bytes: &[u8]) -> String { crate::fs::sha256_hex(bytes) }
 fn id_for(entry: &RecentEntry) -> String { hash(format!("{}:{}", entry.kind, entry.path).as_bytes())[..24].into() }
 fn load(path: &Path) -> RecentFile {
     read_canonical_parent(path, 64 * 1024).ok().and_then(|bytes| serde_json::from_slice::<RecentFile>(&bytes).ok()).filter(|record| record.schema_version == 1).unwrap_or(RecentFile { schema_version: 1, entries: vec![] })
@@ -66,8 +64,7 @@ fn remember_at(path: &Path, target: &Path, kind: &str) -> Result<(), String> {
     }
     record.entries.truncate(20);
     let bytes = serde_json::to_vec(&record).map_err(|_| "IO_ERROR")?;
-    let expected = read_canonical_parent(path, 64 * 1024).ok().map(|bytes| hash(&bytes));
-    atomic_write::commit_canonical_parent(path, &bytes, expected.as_deref()).map(|_| ())
+    atomic_write::replace_record(path, &bytes, 64 * 1024)
 }
 fn summaries(record: RecentFile) -> Vec<RecentSummary> {
     record.entries.into_iter().filter(|entry| entry.kind == "file" || entry.kind == "folder").map(|entry| {
@@ -80,10 +77,8 @@ fn find(app: &AppHandle, id: &str, kind: &str) -> Result<RecentEntry, String> {
     load(&storage(app)?).entries.into_iter().find(|entry| entry.kind == kind && id_for(entry) == id).ok_or("NOT_FOUND".into())
 }
 #[tauri::command(async)]
-pub fn list_recent(app: AppHandle, window: WebviewWindow) -> Result<Vec<RecentSummary>, String> { require_main(&window)?; Ok(summaries(load(&storage(&app)?))) }
-#[tauri::command(async)]
 pub fn remember_recent_document(app: AppHandle, window: WebviewWindow, documents: State<'_, DocumentStore>, token: String) -> Result<(), String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     let path = PathBuf::from(draft_target(&documents, &token)?);
     remember_at(&storage(&app)?, &path, "file")?;
     refresh_menu(&app);
@@ -93,53 +88,21 @@ pub fn remember_recent_document(app: AppHandle, window: WebviewWindow, documents
 }
 #[tauri::command(async)]
 pub fn remember_recent_workspace(app: AppHandle, window: WebviewWindow, workspaces: State<'_, WorkspaceStore>, token: String) -> Result<(), String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     remember_at(&storage(&app)?, &workspace_path(&workspaces, &token)?, "folder")?;
     refresh_menu(&app);
     Ok(())
 }
 #[tauri::command(async)]
-pub fn remove_recent(app: AppHandle, window: WebviewWindow, id: String) -> Result<(), String> {
-    require_main(&window)?;
-    let path = storage(&app)?;
-    let _lock = RECENT_LOCK.lock().map_err(|_| "IO_ERROR")?;
-    let mut record = load(&path);
-    record.entries.retain(|entry| id_for(entry) != id);
-    let bytes = serde_json::to_vec(&record).map_err(|_| "IO_ERROR")?;
-    let expected = read_canonical_parent(&path, 64 * 1024).ok().map(|bytes| hash(&bytes));
-    atomic_write::commit_canonical_parent(&path, &bytes, expected.as_deref())?;
-    refresh_menu(&app);
-    Ok(())
-}
-#[tauri::command(async)]
-pub fn reorder_recent(app: AppHandle, window: WebviewWindow, ids: Vec<String>) -> Result<(), String> {
-    require_main(&window)?;
-    let path = storage(&app)?;
-    let _lock = RECENT_LOCK.lock().map_err(|_| "IO_ERROR")?;
-    let mut record = load(&path);
-    if ids.len() != record.entries.len() || ids.len() > 20 { return Err("INVALID_ORDER".into()); }
-    let mut ordered = Vec::with_capacity(ids.len());
-    for id in ids {
-        let Some(index) = record.entries.iter().position(|entry| id_for(entry) == id) else { return Err("INVALID_ORDER".into()); };
-        ordered.push(record.entries.remove(index));
-    }
-    record.entries = ordered;
-    let bytes = serde_json::to_vec(&record).map_err(|_| "IO_ERROR")?;
-    let expected = read_canonical_parent(&path, 64 * 1024).ok().map(|bytes| hash(&bytes));
-    atomic_write::commit_canonical_parent(&path, &bytes, expected.as_deref())?;
-    refresh_menu(&app);
-    Ok(())
-}
-#[tauri::command(async)]
 pub fn choose_recent_file(app: AppHandle, window: WebviewWindow, documents: State<'_, DocumentStore>, id: String) -> Result<Option<OpenDocument>, String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     let entry = find(&app, &id, "file")?;
     let path = validate_selected_file(Path::new(&entry.path))?;
     Ok(Some(open_granted_path(&documents, &path)?))
 }
 #[tauri::command(async)]
 pub fn choose_recent_workspace(app: AppHandle, window: WebviewWindow, workspaces: State<'_, WorkspaceStore>, id: String) -> Result<Option<WorkspaceRoot>, String> {
-    require_main(&window)?;
+    crate::require_workspace_window(&window)?;
     let entry = find(&app, &id, "folder")?;
     let path = PathBuf::from(entry.path);
     let meta = fs::symlink_metadata(&path).map_err(|_| "NOT_FOUND")?;
@@ -162,8 +125,7 @@ fn load_session(path: &Path) -> SessionRecord {
 fn write_session(path: &Path, record: &SessionRecord) -> Result<(), String> {
     let _lock = RECENT_LOCK.lock().map_err(|_| "IO_ERROR")?;
     let bytes = serde_json::to_vec(record).map_err(|_| "IO_ERROR")?;
-    let expected = read_canonical_parent(path, 256 * 1024).ok().map(|bytes| hash(&bytes));
-    atomic_write::commit_canonical_parent(path, &bytes, expected.as_deref()).map(|_| ())
+    atomic_write::replace_record(path, &bytes, 256 * 1024)
 }
 /// Keeps only tabs that can reopen, with `active` still pointing at the same tab. Open or repeated paths don't count as missing.
 fn session_plan(record: SessionRecord, open: &HashSet<PathBuf>) -> (Vec<PathBuf>, Option<usize>, usize) {

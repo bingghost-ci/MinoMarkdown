@@ -2,6 +2,7 @@ import { codeFontStack, fontStack } from '../features/reading/fonts'
 import type { Measure, PageMargin, PageSize, ParagraphSpacing, TableStyle, Typography } from '../features/reading/css'
 import type { DocumentScript } from '../features/reading/script'
 import { readingStyle, resolveStyleId, type ReadingStyle, type StyleId, type ThemeId } from '../features/reading/styles'
+import { DEFAULT_EDITOR_FONT_SIZE } from './textZoom'
 
 /** The reading-related settings; `settings.rs` keeps the same whitelist and defaults. */
 export type ReadingSettings = {
@@ -35,7 +36,7 @@ export type ReadingSettings = {
 
 /** New installs; `settings.rs` fills missing fields of older files so their look does not change. */
 export const defaultReadingSettings: ReadingSettings = {
-  theme: 'system', dayTheme: 'white', nightTheme: 'dark', cjkFont: 'auto', latinFont: 'auto', codeFont: 'auto', editorFontSize: 16, editorLineHeight: 'comfortable',
+  theme: 'system', dayTheme: 'white', nightTheme: 'dark', cjkFont: 'auto', latinFont: 'auto', codeFont: 'auto', editorFontSize: DEFAULT_EDITOR_FONT_SIZE, editorLineHeight: 'comfortable',
   paragraphSpacing: 'standard', measure: '36', textAlign: 'left', firstLineIndent: false, tableStyle: 'three-line', textureStrength: 60, latinLayout: 'auto',
   imageCaptions: true, imageDimming: true, openInReadingMode: true, exportStyle: 'current', pdfMode: 'print', pageSize: 'a4', pageMargin: 'standard',
 }

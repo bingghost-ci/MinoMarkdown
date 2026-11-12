@@ -2,7 +2,6 @@ use crate::fs::atomic_write;
 use crate::fs::bounded_file::read_canonical_parent;
 use crate::fs::app_data::ensure_dir;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::{path::{Path, PathBuf}, sync::Mutex};
 #[cfg(test)]
 use std::fs;
@@ -107,12 +106,11 @@ fn write_at(path: &Path, settings: &Settings) -> Result<(), String> {
     if !valid(settings) { return Err("INVALID_SETTINGS".into()); }
     let _lock = SETTINGS_LOCK.lock().map_err(|_| "IO_ERROR")?;
     let bytes = serde_json::to_vec(settings).map_err(|_| "IO_ERROR")?;
-    let expected = read_canonical_parent(path, 64 * 1024).ok().map(|old| format!("{:x}", Sha256::digest(old)));
-    atomic_write::commit_canonical_parent(path, &bytes, expected.as_deref()).map(|_| ())
+    atomic_write::replace_record(path, &bytes, 64 * 1024)
 }
 #[tauri::command(async)]
 pub fn get_settings(app: AppHandle, window: WebviewWindow) -> Result<Settings, String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     Ok(read_at(&path(&app)?))
 }
 fn merged(current: &Settings, patch: serde_json::Map<String, serde_json::Value>) -> Result<Settings, String> {
@@ -124,18 +122,23 @@ fn merged(current: &Settings, patch: serde_json::Map<String, serde_json::Value>)
     let next: Settings = serde_json::from_value(serde_json::Value::Object(fields)).map_err(|_| "INVALID_SETTINGS")?;
     if valid(&next) { Ok(next) } else { Err("INVALID_SETTINGS".into()) }
 }
+/// Whether a change of settings shows in the native menu: only its language does.
+fn menu_follows(current: &Settings, next: &Settings) -> bool { current.language != next.language }
 /// Applies only the fields a window changed, so one window cannot write back another window's stale values.
 #[tauri::command(async)]
 pub fn update_settings(app: AppHandle, window: WebviewWindow, patch: serde_json::Map<String, serde_json::Value>) -> Result<Settings, String> {
-    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    crate::require_workspace_window(&window)?;
     let file = path(&app)?;
-    let next = { let _merge = MERGE_LOCK.lock().map_err(|_| "IO_ERROR")?; let next = merged(&read_at(&file), patch)?; write_at(&file, &next)?; next };
-    let menu_app = app.clone();
-    let language = next.language.clone();
-    // Native menu items may only be changed from the main thread.
-    let _ = app.run_on_main_thread(move || crate::native_menu::set_language(&menu_app, &language));
-    crate::recent::refresh_menu(&app);
-    let _ = app.emit("language-changed", &next.language);
+    let (next, relabel) = { let _merge = MERGE_LOCK.lock().map_err(|_| "IO_ERROR")?; let current = read_at(&file); let next = merged(&current, patch)?; write_at(&file, &next)?; let relabel = menu_follows(&current, &next); (next, relabel) };
+    // Most patches are a window size, a pane width or a font size, several a second while one is dragged.
+    // The menu shows none of those, so it is rewritten only when the language changes (T99).
+    if relabel {
+        let menu_app = app.clone();
+        let language = next.language.clone();
+        // Native menu items may only be changed from the main thread.
+        let _ = app.run_on_main_thread(move || crate::native_menu::set_language(&menu_app, &language));
+        crate::recent::refresh_menu(&app);
+    }
     let _ = app.emit("settings-changed", &next);
     Ok(next)
 }
@@ -179,6 +182,17 @@ mod tests {
         assert_eq!(read_at(&file), expanded);
         assert_eq!(fs::read(draft).unwrap(),b"draft kept");
         fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn only_a_change_of_language_reaches_the_native_menu() {
+        let current = Settings::default();
+        let patch = |value: serde_json::Value| value.as_object().unwrap().clone();
+        // What a window sends while it is resized, a pane is dragged or a slider moves.
+        for change in [serde_json::json!({"windowWidth": 1300, "windowHeight": 900}), serde_json::json!({"sidebarWidth": 300}), serde_json::json!({"editorFontSize": 18}), serde_json::json!({"theme": "dark"}), serde_json::json!({"language": current.language})] {
+            assert!(!menu_follows(&current, &merged(&current, patch(change.clone())).unwrap()), "{change}");
+        }
+        let other = if current.language == "en-US" { "zh-CN" } else { "en-US" };
+        assert!(menu_follows(&current, &merged(&current, patch(serde_json::json!({"language": other}))).unwrap()));
     }
     #[test]
     fn patches_only_touch_named_fields_and_reject_unknown_ones() {

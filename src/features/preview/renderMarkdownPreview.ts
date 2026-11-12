@@ -7,7 +7,7 @@ import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
 import { remarkDemoteCurrency } from '../../core/markdown/math'
-import { rehypeRenderMath, withMathClasses } from '../../core/markdown/renderMath'
+import { rehypeRenderMath, withMathClasses, type MathRenderer } from '../../core/markdown/renderMath'
 import { assetUrl } from '../editor/assetUrl'
 import { localAssetPath } from '../export/snapshot'
 import { rehypeFigures } from '../../core/markdown/figures'
@@ -51,8 +51,11 @@ function blockImages(assetKey?: string) {
 
 const previewSchema = withMathClasses({ ...defaultSchema, protocols: { ...defaultSchema.protocols, src: [...(defaultSchema.protocols?.src ?? []), 'mino-asset'] } })
 
-/** `parsers` come from `loadCodeParsers`; without them code blocks render as plain text. */
-export function renderMarkdownPreview(markdown: string, assetKey?: string, captions = true, parsers?: CodeParsers): string {
+/**
+ * `parsers` come from `loadCodeParsers` and `math` from `loadMathRenderer`; without them code blocks render as
+ * plain text and formulas as their source.
+ */
+export function renderMarkdownPreview(markdown: string, assetKey?: string, captions = true, parsers?: CodeParsers, math?: MathRenderer): string {
   return String(unified()
     .use(remarkParse)
     .use(remarkGfm)
@@ -62,7 +65,7 @@ export function renderMarkdownPreview(markdown: string, assetKey?: string, capti
     .use(blockImages, assetKey)
     .use(remarkRehype)
     .use(rehypeSanitize, previewSchema)
-    .use(rehypeRenderMath)
+    .use(rehypeRenderMath, math)
     .use(rehypeHighlightCode, { parsers })
     .use(rehypeNumericColumns)
     .use(rehypeFigures, { captions })

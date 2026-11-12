@@ -1,9 +1,9 @@
-import './helpers/bundled-font-css'
 import { describe, expect, it } from 'vitest'
-import { buildExportStyle, HTML_FONT_BUDGET, PRINT_FONT_BUDGET, withoutBundledFonts } from '../src/features/export/exportStyle'
+import { buildExportStyle, HTML_FONT_BUDGET, PRINT_FONT_BUDGET } from '../src/features/export/exportStyle'
 import { renderExport } from '../src/features/export/renderHtml'
 import { PAGE_RADIUS } from '../src/features/reading/css'
-import { fontStack, KAI_FAMILY, MONO_FAMILY, SERIF_FAMILY, SOURCE_SERIF_FAMILY, type FontFace } from '../src/features/reading/fonts'
+import { fontStack, KAI_FAMILY, MONO_FAMILY, SERIF_FAMILY, SOURCE_SERIF_FAMILY, withoutBundledFonts } from '../src/features/reading/fonts'
+import type { FontFace } from '../src/features/reading/fontFaces'
 import { readingStyle } from '../src/features/reading/styles'
 import { defaultReadingSettings, documentTypography } from '../src/app/readingSettings'
 
@@ -19,9 +19,11 @@ const faces = [
 function input(overrides: Partial<Parameters<typeof buildExportStyle>[0]> = {}) {
   const style = overrides.style ?? readingStyle('paper')
   const read: string[] = []
+  const papers: string[] = []
   return {
     read,
-    value: { style, typography: documentTypography(defaultReadingSettings, style), exportStyle: 'current' as const, pdfMode: 'print' as const, pageSize: 'a4' as const, pageMargin: 'standard' as const, text: '读书 Reading', mode: 'html' as const, faces, readAsset: async (path: string) => { read.push(path); return new Uint8Array([1, 2, 3]) }, ...overrides },
+    papers,
+    value: { style, typography: documentTypography(defaultReadingSettings, style), exportStyle: 'current' as const, pdfMode: 'print' as const, pageSize: 'a4' as const, pageMargin: 'standard' as const, text: '读书 Reading', mode: 'html' as const, faces, readAsset: async (path: string) => { (path.endsWith('.png') ? papers : read).push(path); return new Uint8Array([1, 2, 3]) }, ...overrides },
   }
 }
 const docFont = (stylesheet: string) => /--doc-font:([^;]*);/.exec(stylesheet)![1]
@@ -36,6 +38,28 @@ function externalReferences(html: string): string[] {
 }
 
 describe('export style', () => {
+  it('carries the paper of its style inside the page, read from the app\'s files (T98)', async () => {
+    const { papers, value } = input()
+    const result = await buildExportStyle(value)
+    expect(papers).toEqual(['/src/assets/paper/paper-fibers.png', '/src/assets/paper/paper-laid.png', '/src/assets/paper/paper-grain.png'])
+    expect(/--paper-texture:(.*?);--paper-texture-size/.exec(result.stylesheet)![1]).toBe(Array.from({ length: 3 }, () => 'url("data:image/png;base64,AQID")').join(', '))
+    expect(result.stylesheet).not.toContain('/src/assets/')
+    expect(externalReferences(result.stylesheet)).toEqual([])
+    // A style without a texture reads nothing, and neither does the plain white page.
+    const white = input({ style: readingStyle('white') })
+    expect((await buildExportStyle(white.value)).stylesheet).toContain('--paper-texture:none;')
+    expect(white.papers).toEqual([])
+    const plain = input({ exportStyle: 'plain' })
+    expect((await buildExportStyle(plain.value)).stylesheet).toContain('--paper-texture:none;')
+    expect(plain.papers).toEqual([])
+    // A layer that cannot be read: the page keeps its color, loses its grain, and still points at no file.
+    const broken = input({ readAsset: async (path: string) => { if (path.endsWith('.png')) throw new Error('ASSET_NOT_FOUND'); return new Uint8Array([1, 2, 3]) } })
+    const fallback = await buildExportStyle(broken.value)
+    expect(fallback.stylesheet).toContain('--paper-texture:none;')
+    expect(fallback.fontsEmbedded).toBe(true)
+    expect(externalReferences(fallback.stylesheet)).toEqual([])
+  })
+
   it('embeds only the font subsets whose ranges cover characters of the document', async () => {
     const { read, value } = input()
     const result = await buildExportStyle(value)

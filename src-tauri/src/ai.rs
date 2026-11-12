@@ -2,7 +2,6 @@
 //! The API key lives in the macOS Keychain and never reaches `ai.json`, error codes or events.
 use crate::fs::{app_data::ensure_dir, atomic_write, bounded_file::read_canonical_parent};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::{collections::{BTreeMap, BTreeSet, HashMap}, io::Read, path::{Path, PathBuf}, sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc, Mutex}, time::{Duration, Instant}};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewWindow};
 
@@ -160,8 +159,7 @@ fn read_at(path: &Path) -> AiConfig {
 fn write_at(path: &Path, config: &AiConfig) -> Result<(), String> {
     if !valid(config) { return Err("AI_INVALID_CONFIG".into()); }
     let bytes = serde_json::to_vec(config).map_err(|_| "IO_ERROR")?;
-    let expected = read_canonical_parent(path, CONFIG_LIMIT_BYTES).ok().map(|old| format!("{:x}", Sha256::digest(old)));
-    atomic_write::commit_canonical_parent(path, &bytes, expected.as_deref()).map(|_| ())
+    atomic_write::replace_record(path, &bytes, CONFIG_LIMIT_BYTES)
 }
 
 fn update_at(path: &Path, patch: serde_json::Value) -> Result<AiConfig, String> {
@@ -599,10 +597,6 @@ fn run_chat(config: &AiConfig, state: &AiState, ticket: &Ticket, request: ChatRe
 // ---------------------------------------------------------------------------------------------
 // Commands
 
-fn guard(window: &WebviewWindow) -> Result<(), String> {
-    if crate::is_workspace_window(window.label()) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) }
-}
-
 fn publish(app: &AppHandle, view: AiConfigView) -> AiConfigView {
     let _ = app.emit("ai-config-changed", &view);
     view
@@ -610,27 +604,27 @@ fn publish(app: &AppHandle, view: AiConfigView) -> AiConfigView {
 
 #[tauri::command(async)]
 pub fn ai_get_config(app: AppHandle, window: WebviewWindow, state: tauri::State<AiState>) -> Result<AiConfigView, String> {
-    guard(&window)?;
+    crate::require_workspace_window(&window)?;
     Ok(view(read_at(&path(&app)?), state.secrets.as_ref()))
 }
 
 #[tauri::command(async)]
 pub fn ai_set_config(app: AppHandle, window: WebviewWindow, state: tauri::State<AiState>, patch: serde_json::Value) -> Result<AiConfigView, String> {
-    guard(&window)?;
+    crate::require_workspace_window(&window)?;
     let next = update_at(&path(&app)?, patch)?;
     Ok(publish(&app, view(next, state.secrets.as_ref())))
 }
 
 #[tauri::command(async)]
 pub fn ai_set_key(app: AppHandle, window: WebviewWindow, state: tauri::State<AiState>, key: String, provider: Option<String>) -> Result<AiConfigView, String> {
-    guard(&window)?;
+    crate::require_workspace_window(&window)?;
     let saved = store_key(read_at(&path(&app)?), state.secrets.as_ref(), provider.as_deref(), &key)?;
     Ok(publish(&app, saved))
 }
 
 #[tauri::command(async)]
 pub fn ai_clear_key(app: AppHandle, window: WebviewWindow, state: tauri::State<AiState>, provider: Option<String>) -> Result<AiConfigView, String> {
-    guard(&window)?;
+    crate::require_workspace_window(&window)?;
     let cleared = remove_key(read_at(&path(&app)?), state.secrets.as_ref(), provider.as_deref())?;
     Ok(publish(&app, cleared))
 }
@@ -638,7 +632,7 @@ pub fn ai_clear_key(app: AppHandle, window: WebviewWindow, state: tauri::State<A
 /// The model ids the selected provider offers, sorted. Passes the same gates as a chat and sends no document content.
 #[tauri::command(async)]
 pub fn ai_list_models(app: AppHandle, window: WebviewWindow, state: tauri::State<AiState>) -> Result<Vec<String>, String> {
-    guard(&window)?;
+    crate::require_workspace_window(&window)?;
     list_models(&read_at(&path(&app)?), state.secrets.as_ref(), TIMING)
 }
 
@@ -666,7 +660,7 @@ fn chat_blocking(app: &AppHandle, label: &str, request: serde_json::Value) -> Re
 /// Resolves when the stream has ended. The reply itself arrives through `ai-stream` events.
 #[tauri::command]
 pub async fn ai_chat(app: AppHandle, window: WebviewWindow, request: serde_json::Value) -> Result<(), String> {
-    guard(&window)?;
+    crate::require_workspace_window(&window)?;
     let label = window.label().to_owned();
     // A stream can last minutes, so it runs on the blocking pool and leaves the command threads free.
     tauri::async_runtime::spawn_blocking(move || chat_blocking(&app, &label, request)).await.map_err(|_| "AI_NETWORK".to_string())?
@@ -675,7 +669,7 @@ pub async fn ai_chat(app: AppHandle, window: WebviewWindow, request: serde_json:
 /// Stops a running request. An id that is not in flight is ignored.
 #[tauri::command(async)]
 pub fn ai_cancel(window: WebviewWindow, state: tauri::State<AiState>, request_id: String) -> Result<(), String> {
-    guard(&window)?;
+    crate::require_workspace_window(&window)?;
     state.cancel(&request_id);
     Ok(())
 }

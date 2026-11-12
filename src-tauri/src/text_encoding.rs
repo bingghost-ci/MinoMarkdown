@@ -222,4 +222,14 @@ mod tests {
         assert_eq!(TextEncoding { encoding: GB18030, bom: false, exact: true }.label(), "GB18030");
         assert_eq!(TextEncoding { encoding: BIG5, bom: false, exact: true }.label(), "Big5");
     }
+
+    /// T91 timing, compared before and after a change: `cargo test --release --lib -- --ignored --nocapture timing_decode`.
+    #[test]
+    #[ignore]
+    fn timing_decode_utf8_20_mib() {
+        let bytes = SAMPLE.repeat(20 * 1024 * 1024 / SAMPLE.len()).into_bytes();
+        let mut runs: Vec<u128> = (0..5).map(|_| { let started = std::time::Instant::now(); std::hint::black_box(decode(&bytes).unwrap().text.len()); started.elapsed().as_millis() }).collect();
+        runs.sort();
+        println!("timing_decode_utf8_20_mib median_ms={} bytes={}", runs[2], bytes.len());
+    }
 }

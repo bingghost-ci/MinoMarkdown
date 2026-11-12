@@ -1,5 +1,6 @@
 export const MIN_EDITOR_FONT_SIZE = 13
 export const MAX_EDITOR_FONT_SIZE = 22
+/** The size a new installation starts with and "reset zoom" returns to. `settings.rs` has the same default. */
 export const DEFAULT_EDITOR_FONT_SIZE = 15
 
 export type ZoomAction = 'zoom-in' | 'zoom-out' | 'zoom-reset'
