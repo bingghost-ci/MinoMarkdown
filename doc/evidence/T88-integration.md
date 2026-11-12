@@ -28,3 +28,8 @@
 - `npm run test`：498 项 PASS，1 项跳过。
 - `cargo test --lib --manifest-path src-tauri/Cargo.toml`：130 项 PASS，2 项忽略。
 - `npm run build`、`./build.sh`：结果见 [T89](T89-formats-verification.md)。
+
+## 2026-11-12 用户首次实机反馈后的修改
+
+用户报告 AI 的“选中文字”操作对 PDF 无效。原因是取选区的函数只认编辑器。现在 PDF 视图记住页面上最近一次选中的文字（点进 AI 栏不会丢，点回页面空白处才清除），作为选区交给助手；前后文为空。没有自动化测试，实机 PENDING。“改写”“续写”的结果不能写回 PDF。
+

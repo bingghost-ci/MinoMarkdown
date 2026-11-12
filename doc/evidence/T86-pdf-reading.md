@@ -36,3 +36,12 @@
 - `npm run test`：498 项 PASS，1 项跳过。
 - `cargo test --lib --manifest-path src-tauri/Cargo.toml`：130 项 PASS，2 项忽略。
 - `npm run build`、`./build.sh`：结果见 [T89](T89-formats-verification.md)。
+
+## 2026-11-12 用户首次实机反馈后的修改
+
+用户用 `./build.sh` 的包打开了真实 PDF：第一本正常显示（说明打包后 CSP 下的 worker、文字层可用）。报告的问题与处理：
+
+- **同时打开第二本报错** “PDFWorker.create - the worker is being destroyed”。原因：所有文档共用一个 worker 端口，一本关闭或切换标签（视图会卸载重建）时端口处于销毁中，下一本建不起来。改为每个文档一个 worker（`openPdf` 的 `createWorker`），`closePdf` 结束文档并终止它的 worker。Vitest 新增 `opens a second document while the first is open, and another after one is closed`；离屏 WebKit 里用真实 worker 连续开、关、再开四次均为 3 页并能取到第 2 页文字。
+- **换风格对 PDF 没有作用**。PDF 的字体和版式是文件自带的，改不了；能跟随风格的是纸色。浅色风格把页面以 `multiply` 叠在纸色上（白变纸色，墨色不变）；夜间风格把页面反相并保持色相后以 `screen` 叠在纸色上（白变纸色，黑字变浅色）。控制条的调色板按钮可切回 PDF 原本的颜色，替代了原来的“页面调暗”。没有使用 PDF.js 自带的 `pageColors`：它依赖 WebKit 不支持的 canvas 滤镜，实测不生效。夜间风格下图片也会被反相，这是这种做法的代价。纸张纹理不作用于 PDF。样张：`doc/evidence/formats/pdf-styles.png`（羊皮卷、淡黑、豆沙绿）。
+- **字体、字号设置对 PDF 没有作用**：未改，属于格式本身的限制；PDF 的大小用缩放调整。
+

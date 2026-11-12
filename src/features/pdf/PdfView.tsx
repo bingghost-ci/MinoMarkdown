@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ChevronDown, ChevronUp, Maximize2, Moon, ZoomIn, ZoomOut } from 'lucide-react'
+import { ChevronDown, ChevronUp, Maximize2, Palette, ZoomIn, ZoomOut } from 'lucide-react'
 import type { FindOptions } from '../editor/find'
 import type { OutlineItem } from '../outline/outline'
-import { assemblePdfText, clampScale, fitWidthScale, joinTextItems, loadPdfLibrary, openPdf, outputScale, pageAtOffset, pdfOutline, PdfTextCache, resolveDestination, searchPages, zoomedScale, type PdfDocument, type PdfLibrary, type PdfMatch, type PdfSource, type PdfText } from './pdfEngine'
+import { closePdf, assemblePdfText, clampScale, fitWidthScale, joinTextItems, loadPdfLibrary, openPdf, outputScale, pageAtOffset, pdfOutline, PdfTextCache, resolveDestination, searchPages, zoomedScale, type PdfDocument, type PdfLibrary, type PdfMatch, type PdfSource, type PdfText } from './pdfEngine'
 
 export type PdfPosition = { page: number; offset: number }
 export type PdfZoomAction = 'zoom-in' | 'zoom-out' | 'zoom-reset'
@@ -15,6 +15,8 @@ export type PdfHandle = {
   goToPage: (page: number) => void
   find: (query: string, options: FindOptions) => Promise<FindCount>
   findStep: (direction: 1 | -1) => FindCount
+  /** The text last selected on a page, for the assistant's selection actions; null when nothing is selected. */
+  selection: () => string | null
   /** The text of the document for the AI assistant, up to `maxChars`. */
   text: (maxChars: number) => Promise<PdfText>
 }
@@ -37,12 +39,12 @@ type Rendered = { scale: number; cancel: () => void; divs: HTMLElement[]; starts
 
 const PAGE_GAP = 14
 const VIEW_PADDING = 24
-const DIM_KEY = 'mino-pdf-dim'
+const TINT_KEY = 'mino-pdf-tint'
 const HIGHLIGHT = 'mino-pdf-find'
 const HIGHLIGHT_CURRENT = 'mino-pdf-find-current'
 
-function storedDim(): boolean {
-  try { return window.localStorage.getItem(DIM_KEY) !== '0' } catch { return true }
+function storedTint(): boolean {
+  try { return window.localStorage.getItem(TINT_KEY) !== '0' } catch { return true }
 }
 
 type HighlightRegistry = { set: (name: string, highlight: unknown) => void; delete: (name: string) => void }
@@ -73,7 +75,8 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
   zoomRef.current = zoom
   const [page, setPage] = useState(1)
   const [pageInput, setPageInput] = useState('1')
-  const [dim, setDim] = useState(storedDim)
+  const [tint, setTint] = useState(storedTint)
+  const selected = useRef<string | null>(null)
   const [password, setPassword] = useState('')
   const [wrongPassword, setWrongPassword] = useState(false)
   const passwordReply = useRef<((value: string | null) => void) | null>(null)
@@ -242,15 +245,16 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
     let opened: PdfDocument | null = null
     void (async () => {
       try {
-        const lib = await loadPdfLibrary()
+        const { library: lib, createWorker } = await loadPdfLibrary()
         if (disposed) return
         library.current = lib
         const document = await openPdf(lib, bridgeRef.current.source, {
+          createWorker,
           onPassword: (wrong) => new Promise((resolve) => { if (disposed) { resolve(null); return } passwordReply.current = resolve; setWrongPassword(wrong); setPassword(''); setPhase('password') }),
           onReadError: (code) => { if (!disposed) { setError(code === 'CHANGED' ? t('磁盘上的 PDF 已经变化，正在重新载入…') : t('读取 PDF 失败，文件可能已被移动或删除。')); setPhase('error') } },
         })
         opened = document
-        if (disposed) { void document.loadingTask.destroy().catch(() => undefined); return }
+        if (disposed) { void closePdf(document).catch(() => undefined); return }
         pdf.current = document
         texts.current = new PdfTextCache(document)
         const first = (await document.getPage(1)).getViewport({ scale: 1 })
@@ -277,10 +281,25 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
       const api = highlights()
       api?.registry.delete(HIGHLIGHT)
       api?.registry.delete(HIGHLIGHT_CURRENT)
-      void (pdf.current ?? opened)?.loadingTask.destroy().catch(() => undefined)
+      const closing = pdf.current ?? opened
+      if (closing) void closePdf(closing).catch(() => undefined)
       pdf.current = null
       bridgeRef.current.onOutline([])
     }
+  }, [])
+
+  // Remember the text selected on a page. Clicking in the assistant's pane moves the selection away, and the
+  // text must still be there when its button is pressed; clicking on the page itself clears it.
+  useEffect(() => {
+    const onSelection = () => {
+      const selection = window.document.getSelection()
+      const anchor = selection?.anchorNode ?? null
+      if (!anchor || !scroller.current?.contains(anchor)) return
+      const text = selection?.toString().trim() ?? ''
+      selected.current = text ? text : null
+    }
+    window.document.addEventListener('selectionchange', onSelection)
+    return () => window.document.removeEventListener('selectionchange', onSelection)
   }, [])
 
   // Fit-width follows the pane; a fixed zoom does not.
@@ -369,6 +388,7 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
         showMatch()
         return count()
       },
+      selection: () => selected.current,
       text: async (maxChars) => {
         const document = pdf.current
         const cache = texts.current
@@ -396,15 +416,15 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
     setPassword('')
   }
 
-  function toggleDim() {
-    setDim((current) => {
-      try { window.localStorage.setItem(DIM_KEY, current ? '0' : '1') } catch { /* The choice then lasts for this window only. */ }
+  function toggleTint() {
+    setTint((current) => {
+      try { window.localStorage.setItem(TINT_KEY, current ? '0' : '1') } catch { /* The choice then lasts for this window only. */ }
       return !current
     })
   }
 
   const widest = sizes.reduce((width, size) => Math.max(width, size.width), 0)
-  return <div className="pdf-view" data-dim={dark && dim}>
+  return <div className="pdf-view" data-dark={dark} data-tint={tint}>
     <div ref={scroller} className="editor-root pdf-scroller" tabIndex={0} aria-label={`${t('PDF 文档')} ${name}`} onScroll={onScroll}>
       {phase === 'loading' && <p className="pdf-message" role="status">{t('正在打开 PDF…')}</p>}
       {phase === 'error' && <p className="pdf-message" role="alert">{error}</p>}
@@ -425,7 +445,7 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
       <span className="pdf-zoom" aria-live="polite">{Math.round(zoom.scale * 100)}%</span>
       <button type="button" className="icon-button" title={t('放大')} aria-label={t('放大')} disabled={clampScale(zoom.scale * 1.15) === zoom.scale} onClick={() => changeZoom('zoom-in')}><ZoomIn aria-hidden="true" /></button>
       <button type="button" className="icon-button" title={t('适应宽度')} aria-label={t('适应宽度')} aria-pressed={zoom.fit} onClick={() => changeZoom('zoom-reset')}><Maximize2 aria-hidden="true" /></button>
-      {dark && <button type="button" className="icon-button" title={t('页面调暗')} aria-label={t('页面调暗')} aria-pressed={dim} onClick={toggleDim}><Moon aria-hidden="true" /></button>}
+      <button type="button" className="icon-button" title={tint ? t('显示 PDF 原本的颜色') : t('按阅读风格着色')} aria-label={t('按阅读风格着色')} aria-pressed={tint} onClick={toggleTint}><Palette aria-hidden="true" /></button>
     </div>}
   </div>
 }

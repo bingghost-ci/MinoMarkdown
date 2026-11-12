@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { defaultFindOptions } from '../src/features/editor/find'
-import { assemblePdfText, clampScale, fitWidthScale, joinTextItems, looksScanned, MAX_CANVAS_PIXELS, MAX_SCALE, MIN_SCALE, openPdf, outputScale, pageAtOffset, pageHeading, pdfOutline, PdfTextCache, RANGE_CHUNK, resolveDestination, searchPages, zoomedScale, type PdfLibrary, type PdfSource } from '../src/features/pdf/pdfEngine'
+import { assemblePdfText, closePdf, clampScale, fitWidthScale, joinTextItems, looksScanned, MAX_CANVAS_PIXELS, MAX_SCALE, MIN_SCALE, openPdf, outputScale, pageAtOffset, pageHeading, pdfOutline, PdfTextCache, RANGE_CHUNK, resolveDestination, searchPages, zoomedScale, type PdfLibrary, type PdfSource } from '../src/features/pdf/pdfEngine'
 
 // The same build the app loads. In Node it runs its worker code on the calling thread.
 const library = await import('pdfjs-dist/legacy/build/pdf.mjs') as unknown as PdfLibrary
@@ -70,6 +70,22 @@ describe('T86 opening a PDF through checked ranges', () => {
   it('rejects a file that is not a PDF', async () => {
     const { source } = sourceOf('not-a.pdf')
     await expect(openPdf(library, source)).rejects.toMatchObject({ name: 'InvalidPDFException' })
+  })
+})
+
+describe('T86 several documents at once', () => {
+  it('opens a second document while the first is open, and another after one is closed', async () => {
+    const first = await openPdf(library, sourceOf('sample.pdf').source)
+    const second = await openPdf(library, sourceOf('scanned.pdf').source)
+    expect([first.numPages, second.numPages]).toEqual([3, 2])
+    // Not awaited on purpose: switching tabs closes one view and opens the next in the same moment.
+    const closing = closePdf(first)
+    const third = await openPdf(library, sourceOf('sample.pdf').source)
+    expect(third.numPages).toBe(3)
+    await closing
+    expect((await new PdfTextCache(second).all(1000)).length).toBe(2)
+    await closePdf(second)
+    await closePdf(third)
   })
 })
 

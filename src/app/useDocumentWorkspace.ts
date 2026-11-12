@@ -2121,6 +2121,11 @@ export function useDocumentWorkspace() {
   function aiSelection() {
     const current = documentRef.current
     if (current.mode === 'visual') return adapter.current?.selectionContext() ?? null
+    if (current.kind === 'pdf') {
+      // The words selected on a PDF page; the text around them is not known, so the selection goes alone.
+      const selection = pdfView.current?.selection() ?? null
+      return selection ? { selection, before: '', after: '' } : null
+    }
     const element = sourceEditor.current
     if (!element || element.selectionStart === element.selectionEnd) return null
     const text = element.value

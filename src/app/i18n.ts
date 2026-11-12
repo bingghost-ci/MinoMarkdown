@@ -1,6 +1,8 @@
 export type Language = 'zh-CN' | 'en-US'
 
 const english: Record<string, string> = {
+  "按阅读风格着色": "Use the reading style's colors",
+  "显示 PDF 原本的颜色": "Show the PDF's own colors",
   "代码与数据": "Source & data",
   "只读": "Read-only",
   "文档预览": "Document preview",

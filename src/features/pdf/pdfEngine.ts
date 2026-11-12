@@ -24,20 +24,31 @@ export const PDF_ASSET_ROOT = '/pdfjs/'
 /** How much of the file one request asks for. Rust serves at most 8 MiB per call. */
 export const RANGE_CHUNK = 256 * 1024
 
-let browserLibrary: Promise<PdfLibrary> | null = null
+export type PdfRuntime = { library: PdfLibrary; /** Starts a worker for one document. */ createWorker: () => Worker }
+let browserRuntime: Promise<PdfRuntime> | null = null
 
-/** PDF.js with its worker, for the app. The legacy build runs on the WebKit of every supported macOS. */
-export function loadPdfLibrary(): Promise<PdfLibrary> {
-  browserLibrary ??= (async () => {
+/**
+ * PDF.js and a way to start its worker, for the app. The legacy build runs on the WebKit of every supported
+ * macOS. Each document gets a worker of its own: with one shared worker, closing a document (or switching
+ * away from its tab) left the worker "being destroyed" and the next PDF could not open.
+ */
+export function loadPdfLibrary(): Promise<PdfRuntime> {
+  browserRuntime ??= (async () => {
     const [library, worker] = await Promise.all([
       import('pdfjs-dist/legacy/build/pdf.mjs') as unknown as Promise<PdfLibrary>,
       import('pdfjs-dist/legacy/build/pdf.worker.mjs?worker'),
     ])
-    library.GlobalWorkerOptions.workerPort = new worker.default()
-    return library
+    return { library, createWorker: () => new worker.default() }
   })()
-  browserLibrary.catch(() => { browserLibrary = null })
-  return browserLibrary
+  browserRuntime.catch(() => { browserRuntime = null })
+  return browserRuntime
+}
+
+const closers = new WeakMap<object, () => Promise<void>>()
+
+/** Ends a document opened by `openPdf` and stops the worker that served it. */
+export function closePdf(document: PdfDocument): Promise<void> {
+  return closers.get(document)?.() ?? document.loadingTask.destroy()
 }
 
 export type OpenOptions = {
@@ -45,6 +56,8 @@ export type OpenOptions = {
   onPassword?: (wrongPassword: boolean) => Promise<string | null>
   /** Called when a range could not be read; the document cannot continue after that. */
   onReadError?: (code: string) => void
+  /** A worker for this document alone. Without one the library uses its own (in tests, the calling thread). */
+  createWorker?: () => Worker
 }
 
 /**
@@ -66,7 +79,7 @@ export async function openPdf(library: PdfLibrary, source: PdfSource, options: O
         const code = error instanceof Error ? error.message : String(error)
         options.onReadError?.(code)
         fail(new Error(code))
-        void task.destroy().catch(() => undefined)
+        void stop()
       })
     }
   }
@@ -79,7 +92,15 @@ export async function openPdf(library: PdfLibrary, source: PdfSource, options: O
     }
   }
   const base = typeof location === 'undefined' ? PDF_ASSET_ROOT : new URL(PDF_ASSET_ROOT, location.href).href
+  const port = options.createWorker?.() ?? null
+  const worker = port ? library.PDFWorker.create({ port }) : undefined
+  const stop = async () => {
+    await task.destroy().catch(() => undefined)
+    worker?.destroy()
+    port?.terminate()
+  }
   const task = library.getDocument({
+    worker,
     range: new Transport(source.size, null),
     rangeChunkSize: RANGE_CHUNK,
     disableAutoFetch: true,
@@ -98,7 +119,7 @@ export async function openPdf(library: PdfLibrary, source: PdfSource, options: O
     if (!ask) { update(new Error('PDF_PASSWORD')); return }
     void ask(reason === library.PasswordResponses.INCORRECT_PASSWORD).then((password) => update(password ?? new Error('PDF_PASSWORD')), () => update(new Error('PDF_PASSWORD')))
   }
-  task.promise.catch(() => undefined)
+  task.promise.then((document) => { closers.set(document, stop) }, () => { void stop() })
   return Promise.race([task.promise, failure])
 }
 
