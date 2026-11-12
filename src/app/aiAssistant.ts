@@ -28,6 +28,11 @@ export type AiAssistantInput = {
   documentId: number
   language: AiLanguage
   getDocument: () => AiDocument
+  /**
+   * Called before the document is read for a question. A PDF has its text extracted here (T88); it rejects
+   * with `PDF_NO_TEXT` for a scan, and then nothing is sent.
+   */
+  prepareDocument?: () => Promise<void>
   getHeadings: () => { level: number; text: string }[]
   getSelection: () => AiSelection | null
   /** Renders an answer with the preview pipeline, so it is sanitized the same way. */
@@ -136,8 +141,24 @@ export function useAiAssistant(input: AiAssistantInput) {
     }
   }
 
+  async function documentReady(): Promise<boolean> {
+    const prepare = inputRef.current.prepareDocument
+    if (!prepare) return true
+    try { await prepare(); return true }
+    catch (error) {
+      inputRef.current.onStatus(error instanceof Error && error.message === 'PDF_NO_TEXT' ? '这个 PDF 没有文字层（可能是扫描件），无法分析；Mino 不做文字识别。' : '还不能读取这个文档的文字，请等它打开后再试。')
+      return false
+    }
+  }
+  async function ask(question: string, shown: string = question): Promise<void> {
+    if (await documentReady()) await askNow(question, shown)
+  }
+  async function runPreset(id: AiPresetId): Promise<void> {
+    if (await documentReady()) await runPresetNow(id)
+  }
+
   /** A question about the whole document. A long document is cut to the budget and the cut is reported. */
-  function ask(question: string, shown: string = question) {
+  function askNow(question: string, shown: string = question) {
     const text = question.trim()
     if (!text) return Promise.resolve()
     const { title, markdown } = inputRef.current.getDocument()
@@ -151,13 +172,13 @@ export function useAiAssistant(input: AiAssistantInput) {
   }
 
   /** A preset. The summary of a long document reads it part by part and then combines the notes. */
-  function runPreset(id: AiPresetId) {
+  function runPresetNow(id: AiPresetId) {
     const preset = presets.find((item) => item.id === id)
     if (!preset) return Promise.resolve()
     const { title, markdown } = inputRef.current.getDocument()
     const { language } = inputRef.current
     const question = preset.prompt[language]
-    if (id !== 'summary' || markdown.length <= CONTEXT_BUDGET) return ask(question, preset.label)
+    if (id !== 'summary' || markdown.length <= CONTEXT_BUDGET) return askNow(question, preset.label)
     const plan = summaryParts(markdown)
     return exchange(preset.label, async (step, progress) => {
       const notes: string[] = []
@@ -208,6 +229,7 @@ export function useAiAssistant(input: AiAssistantInput) {
   /** Asks the model for three questions about the document; the heading-based ones show until then. */
   async function refreshSuggestions() {
     if (!client || busy || !config.enabled || !config.consented) return
+    if (!await documentReady()) return
     const forDocument = documentId
     const { title, markdown } = inputRef.current.getDocument()
     const { language } = inputRef.current

@@ -127,6 +127,45 @@ pub fn set_language(app: &AppHandle, language: &str) {
     }
 }
 
+/// Whether a menu item applies to the kind of document in front (T88). The frontend refuses the same actions
+/// on its own, so this only keeps the menu honest.
+pub fn enabled_for(id: &str, kind: &str) -> bool {
+    let formatting = id == "format" || id == "transform" || id.starts_with("format-") || id.starts_with("transform-");
+    match kind {
+        // A PDF is read-only: nothing to save, export, print from here or switch to source.
+        "pdf" => !(formatting || matches!(id, "save" | "save-as" | "export-md" | "export-text" | "export-html" | "print" | "toggle-source" | "toggle-reading")),
+        // Text and source files have no Markdown structure.
+        "text" | "code" => !(formatting || matches!(id, "export-md" | "export-text" | "toggle-source")),
+        _ => true,
+    }
+}
+
+/// Must run on the main thread.
+pub fn set_document_kind(app: &AppHandle, kind: &str) {
+    fn apply(item: &MenuItemKind<tauri::Wry>, kind: &str) {
+        match item {
+            MenuItemKind::MenuItem(item) => { let _ = item.set_enabled(enabled_for(item.id().as_ref(), kind)); }
+            MenuItemKind::Submenu(submenu) => {
+                let id = submenu.id().as_ref().to_owned();
+                if id == "format" || id == "transform" { let _ = submenu.set_enabled(enabled_for(&id, kind)); }
+                if let Ok(children) = submenu.items() { for child in &children { apply(child, kind); } }
+            }
+            _ => {}
+        }
+    }
+    if let Some(menu) = app.menu() {
+        if let Ok(items) = menu.items() { for item in &items { apply(item, kind); } }
+    }
+}
+
+#[tauri::command]
+pub fn set_menu_state(app: AppHandle, window: tauri::WebviewWindow, kind: String) -> Result<(), String> {
+    if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
+    if !matches!(kind.as_str(), "markdown" | "text" | "code" | "pdf") { return Err("INVALID_KIND".into()); }
+    let handle = app.clone();
+    app.run_on_main_thread(move || set_document_kind(&handle, &kind)).map_err(|_| "IO_ERROR".into())
+}
+
 fn relabel(item: &MenuItemKind<tauri::Wry>, english: bool) {
     match item {
         MenuItemKind::MenuItem(item) => {
@@ -209,6 +248,17 @@ mod tests {
         assert_eq!(label("toggle-reading", true), "Reading Mode");
         // ⌘E stays with inline code (doc/08 §8).
         assert_eq!(accelerator("format-inline-code"), Some("Cmd+E"));
+    }
+
+    #[test]
+    fn menu_items_follow_the_kind_of_document() {
+        for (id, _) in MENU_ITEMS { assert!(enabled_for(id, "markdown"), "{id}"); }
+        for id in ["save", "save-as", "export-md", "export-text", "export-html", "print", "toggle-source", "toggle-reading", "format", "format-bold", "transform-upper"] { assert!(!enabled_for(id, "pdf"), "{id}"); }
+        for id in ["new", "open", "open-folder", "close-tab", "find", "zoom-in", "zoom-out", "zoom-reset", "view-outline", "view-sidebar", "preferences", "quit", "new-window", "recover-drafts"] { for kind in ["pdf", "text", "code"] { assert!(enabled_for(id, kind), "{id} {kind}"); } }
+        for kind in ["text", "code"] {
+            for id in ["save", "save-as", "export-html", "print", "toggle-reading"] { assert!(enabled_for(id, kind), "{id} {kind}"); }
+            for id in ["export-md", "export-text", "toggle-source", "format", "format-heading1", "format-link", "transform", "transform-lower"] { assert!(!enabled_for(id, kind), "{id} {kind}"); }
+        }
     }
 
     #[test]

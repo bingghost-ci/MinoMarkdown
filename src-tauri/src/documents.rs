@@ -13,8 +13,12 @@ use crate::fs::atomic_write;
 use crate::fs::asset_directory::{AssetDirectory, PutResult};
 use crate::markdown_images;
 use crate::staging::{StagedAsset, StagingStore};
+use crate::file_kinds::{self, DocumentKind};
+use crate::text_encoding::{self, TextEncoding};
 
-const MAX_DOCUMENT: u64 = 20 * 1024 * 1024;
+const MAX_DOCUMENT: u64 = file_kinds::MAX_TEXT_BYTES;
+/// The most one `read_document_range` call returns.
+const MAX_RANGE: u64 = 8 * 1024 * 1024;
 const MAX_IMAGE: usize = 20 * 1024 * 1024;
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 static SAVE_LOCK: Mutex<()> = Mutex::new(());
@@ -40,6 +44,9 @@ struct Grant {
     asset_key: String,
     /// Stat taken before the bytes behind `revision` were read; an unchanged stamp skips re-hashing.
     stamp: Option<FileStamp>,
+    kind: DocumentKind,
+    /// How the text was stored, so a save writes it back the same way (T82).
+    encoding: TextEncoding,
 }
 
 fn random_key() -> Result<String, String> {
@@ -69,6 +76,12 @@ pub(crate) fn draft_target(store: &DocumentStore, token: &str) -> Result<String,
     Ok(store.grant(token)?.path.to_string_lossy().into_owned())
 }
 
+/// The file behind a token and what it was opened as, for records kept per file.
+pub(crate) fn document_identity(store: &DocumentStore, token: &str) -> Result<(PathBuf, DocumentKind), String> {
+    let grant = store.grant(token)?;
+    Ok((grant.path, grant.kind))
+}
+
 pub(crate) fn relocate_grants(store: &DocumentStore, old: &Path, new: &Path) -> Result<(), String> {
     let mut grants = store.0.lock().map_err(|_| "IO_ERROR")?;
     for grant in grants.values_mut() { if grant.path == old { grant.path = new.to_path_buf(); } }
@@ -88,6 +101,10 @@ pub struct OpenDocument {
     markdown: String,
     revision: String,
     asset_key: String,
+    /// `markdown`, `text`, `code` or `pdf`. A PDF has no text here; its bytes are read in ranges.
+    kind: &'static str,
+    encoding: String,
+    size: u64,
 }
 
 #[derive(Deserialize)]
@@ -108,6 +125,8 @@ pub struct SaveResult {
     asset_paths: HashMap<String, String>,
     asset_relocations: HashMap<String, String>,
     asset_key: String,
+    kind: &'static str,
+    encoding: String,
 }
 
 fn staged_uploads(staging: &StagingStore, assets: Vec<StagedAsset>) -> Result<Vec<AssetUpload>, String> {
@@ -191,47 +210,130 @@ fn open_child(directory: &fs::File, name: &std::ffi::OsStr, flags: libc::c_int) 
     Ok(unsafe { fs::File::from_raw_fd(fd) })
 }
 
-fn read_markdown(path: &Path) -> Result<(String, String), String> {
-    read_markdown_stamped(path).map(|(markdown, revision, _)| (markdown, revision))
+/// Opens a granted file for reading without following a link at its last component.
+fn open_no_follow(path: &Path) -> Result<fs::File, String> {
+    let parent = path.parent().ok_or("INVALID_PATH")?;
+    #[cfg(target_os = "macos")]
+    {
+        let directory = open_parent_directory(parent)?;
+        open_child(&directory, path.file_name().ok_or("INVALID_PATH")?, 0)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        if fs::canonicalize(parent).map_err(|_| "NOT_FOUND")? != parent { return Err("OUT_OF_SCOPE".into()); }
+        let meta = fs::symlink_metadata(path).map_err(|_| "NOT_FOUND")?;
+        if meta.file_type().is_symlink() { return Err("OUT_OF_SCOPE".into()); }
+        fs::File::open(path).map_err(|_| "IO_ERROR".into())
+    }
 }
 
-fn read_markdown_stamped(path: &Path) -> Result<(String, String, Option<FileStamp>), String> {
-    if !markdown_path(path) { return Err("UNSUPPORTED_FILE_TYPE".into()); }
-    let parent = path.parent().ok_or("INVALID_PATH")?;
-    let stamp;
-    #[cfg(target_os = "macos")]
-    let bytes = {
-        use std::io::Read;
-        let directory = open_parent_directory(parent)?;
-        let file = open_child(&directory, path.file_name().ok_or("INVALID_PATH")?, 0)?;
-        let meta = file.metadata().map_err(|_| "NOT_FOUND")?;
-        if !meta.is_file() || meta.len() > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
-        stamp = Some(FileStamp::of(&meta));
-        let mut bytes = Vec::new();
-        file.take(MAX_DOCUMENT + 1).read_to_end(&mut bytes).map_err(|_| "IO_ERROR")?;
-        if bytes.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
-        bytes
-    };
-    #[cfg(not(target_os = "macos"))]
-    let bytes = {
-    if fs::canonicalize(parent).map_err(|_| "NOT_FOUND")? != parent { return Err("OUT_OF_SCOPE".into()); }
-    let meta = fs::symlink_metadata(path).map_err(|_| "NOT_FOUND")?;
-    if meta.file_type().is_symlink() { return Err("OUT_OF_SCOPE".into()); }
-    if !meta.is_file() || meta.len() > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
-    stamp = Some(FileStamp::of(&meta));
-    fs::read(path).map_err(|_| "IO_ERROR")?
-    };
+/// SHA-256 of a file read in pieces, with its length and its first bytes. A file longer than `limit` is refused.
+fn digest_stream(mut file: impl std::io::Read, limit: u64) -> Result<(String, u64, Vec<u8>), String> {
+    let mut hasher = Sha256::new();
+    let mut head = Vec::new();
+    let mut total = 0u64;
+    let mut buffer = vec![0u8; 256 * 1024];
+    loop {
+        let count = file.read(&mut buffer).map_err(|_| "IO_ERROR")?;
+        if count == 0 { break; }
+        total += count as u64;
+        if total > limit { return Err("DOCUMENT_TOO_LARGE".into()); }
+        if head.len() < 1024 { head.extend_from_slice(&buffer[..count.min(1024 - head.len())]); }
+        hasher.update(&buffer[..count]);
+    }
+    Ok((format!("{:x}", hasher.finalize()), total, head))
+}
+
+struct Loaded { text: String, revision: String, stamp: Option<FileStamp>, kind: DocumentKind, encoding: TextEncoding, size: u64 }
+
+fn read_markdown(path: &Path) -> Result<(String, String), String> {
+    read_document(path).map(|loaded| (loaded.text, loaded.revision))
+}
+
+/// Reads a supported file as what its extension says it is, and checks that the content agrees (T81).
+fn read_document(path: &Path) -> Result<Loaded, String> {
+    use std::io::Read;
+    let kind = DocumentKind::of(path).ok_or("UNSUPPORTED_FILE_TYPE")?;
+    let limit = kind.max_bytes();
+    let file = open_no_follow(path)?;
+    let meta = file.metadata().map_err(|_| "NOT_FOUND")?;
+    if !meta.is_file() || meta.len() > limit { return Err("DOCUMENT_TOO_LARGE".into()); }
+    let stamp = Some(FileStamp::of(&meta));
+    if kind == DocumentKind::Pdf {
+        let (revision, size, head) = digest_stream(file, limit)?;
+        if !file_kinds::looks_like_pdf(&head) { return Err("UNSUPPORTED_FORMAT".into()); }
+        return Ok(Loaded { text: String::new(), revision, stamp, kind, encoding: TextEncoding::UTF8, size });
+    }
+    let mut bytes = Vec::new();
+    file.take(limit + 1).read_to_end(&mut bytes).map_err(|_| "IO_ERROR")?;
+    if bytes.len() as u64 > limit { return Err("DOCUMENT_TOO_LARGE".into()); }
     let revision = digest(&bytes);
-    let markdown = String::from_utf8(bytes).map_err(|_| "INVALID_ENCODING")?;
-    Ok((markdown, revision, stamp))
+    let size = bytes.len() as u64;
+    let decoded = text_encoding::decode(&bytes)?;
+    Ok(Loaded { text: decoded.text, revision, stamp, kind, encoding: decoded.encoding, size })
+}
+
+/// The revision of the file as it is on disk now, without decoding it.
+fn disk_revision(path: &Path, kind: DocumentKind) -> Result<String, String> {
+    let file = open_no_follow(path)?;
+    let meta = file.metadata().map_err(|_| "NOT_FOUND")?;
+    if !meta.is_file() { return Err("OUT_OF_SCOPE".into()); }
+    Ok(digest_stream(file, kind.max_bytes())?.0)
+}
+
+fn opened(token: String, path: &Path, loaded: Loaded, asset_key: String) -> OpenDocument {
+    OpenDocument { token, name: filename(path), markdown: loaded.text, revision: loaded.revision, asset_key, kind: loaded.kind.as_str(), encoding: loaded.encoding.label(), size: loaded.size }
 }
 
 pub(crate) fn open_granted_path(store: &DocumentStore, path: &Path) -> Result<OpenDocument, String> {
-    let (markdown, revision, stamp) = read_markdown_stamped(path)?;
+    let loaded = read_document(path)?;
     let token = format!("doc-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
     let asset_key = random_key()?;
-    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { path: path.to_path_buf(), revision: revision.clone(), stamp, asset_key: asset_key.clone() });
-    Ok(OpenDocument { token, name: filename(path), markdown, revision, asset_key })
+    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { path: path.to_path_buf(), revision: loaded.revision.clone(), stamp: loaded.stamp, asset_key: asset_key.clone(), kind: loaded.kind, encoding: loaded.encoding });
+    Ok(opened(token, path, loaded, asset_key))
+}
+
+/// One piece of a granted PDF (T86). The grant, the file's identity and the range are checked on every call,
+/// so the webview never holds a path and never reads a file that replaced the one the user opened.
+fn read_range(grant: &Grant, offset: u64, length: u64) -> Result<Vec<u8>, String> {
+    if grant.kind != DocumentKind::Pdf { return Err("OUT_OF_SCOPE".into()); }
+    if length == 0 || length > MAX_RANGE { return Err("INVALID_RANGE".into()); }
+    let file = open_no_follow(&grant.path)?;
+    let meta = file.metadata().map_err(|_| "NOT_FOUND")?;
+    if !meta.is_file() { return Err("OUT_OF_SCOPE".into()); }
+    if grant.stamp.is_some_and(|stamp| stamp != FileStamp::of(&meta)) { return Err("CHANGED".into()); }
+    if offset >= meta.len() { return Err("INVALID_RANGE".into()); }
+    let mut bytes = vec![0u8; length.min(meta.len() - offset) as usize];
+    std::os::unix::fs::FileExt::read_exact_at(&file, &mut bytes, offset).map_err(|_| "IO_ERROR")?;
+    Ok(bytes)
+}
+
+#[tauri::command(async)]
+pub fn read_document_range(window: WebviewWindow, store: State<'_, DocumentStore>, token: String, offset: u64, length: u64) -> Result<tauri::ipc::Response, String> {
+    main_window(&window)?;
+    read_range(&store.grant(&token)?, offset, length).map(tauri::ipc::Response::new)
+}
+
+/// File types offered when saving: a text or source file keeps its extension or becomes Markdown.
+fn save_dialog(app: &AppHandle, kind: DocumentKind, original: Option<&Path>, markdown_extensions: &[&str]) -> tauri_plugin_dialog::FileDialogBuilder<tauri::Wry> {
+    let dialog = app.dialog().file();
+    match (kind, original.and_then(file_kinds::extension)) {
+        (DocumentKind::Text, Some(extension)) => dialog.add_filter("Text", &[extension.as_str()]).add_filter("Markdown", &["md"]),
+        (DocumentKind::Code, Some(extension)) => dialog.add_filter("Source", &[extension.as_str()]).add_filter("Markdown", &["md"]),
+        _ => dialog.add_filter("Markdown", markdown_extensions),
+    }
+}
+
+/// What a file saved from a document of `source` kind may be: the same kind, or Markdown.
+fn target_kind(path: &Path, source: DocumentKind) -> Result<DocumentKind, String> {
+    let kind = DocumentKind::of(path).filter(|kind| kind.is_text()).ok_or("UNSUPPORTED_FILE_TYPE")?;
+    if kind == source || kind == DocumentKind::Markdown { Ok(kind) } else { Err("UNSUPPORTED_FILE_TYPE".into()) }
+}
+
+/// A file name the frontend may suggest for a first save: one supported text file name, no path.
+fn text_file_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().count() <= 120 && !name.starts_with('.') && file_kinds::is_text_path(Path::new(name))
+        && !name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':'))
 }
 
 #[tauri::command]
@@ -260,7 +362,15 @@ pub async fn choose_unsaved_action(app: AppHandle, window: WebviewWindow) -> Res
 #[tauri::command]
 pub async fn open_document(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>) -> Result<Option<OpenDocument>, String> {
     main_window(&window)?;
-    let selected = app.dialog().file().add_filter("Markdown", &["md", "markdown"]).blocking_pick_file();
+    // Every supported kind first, so the panel shows them all at once; the narrower filters follow.
+    let all: Vec<&str> = [file_kinds::MARKDOWN_EXTENSIONS, file_kinds::TEXT_EXTENSIONS, file_kinds::CODE_EXTENSIONS, file_kinds::PDF_EXTENSIONS].concat();
+    let english = crate::settings::initial_language(&app) == "en-US";
+    let selected = app.dialog().file()
+        .add_filter(if english { "All Supported Documents" } else { "所有支持的文档" }, &all)
+        .add_filter("Markdown", file_kinds::MARKDOWN_EXTENSIONS)
+        .add_filter(if english { "Plain Text" } else { "纯文本" }, file_kinds::TEXT_EXTENSIONS)
+        .add_filter("PDF", file_kinds::PDF_EXTENSIONS)
+        .blocking_pick_file();
     let Some(selected) = selected else { return Ok(None); };
     let path = validate_selected_file(&selected.into_path().map_err(|_| "INVALID_PATH")?)?;
     Ok(Some(open_granted_path(&store, &path)?))
@@ -294,14 +404,18 @@ fn disk_status(grant: &Grant) -> Result<(DiskStatus, Option<FileStamp>), String>
         Err(_) => return Err("IO_ERROR".into()),
     };
     let stamp = Some(FileStamp::of(&meta));
-    if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > MAX_DOCUMENT { return Ok((DiskStatus { kind: "changed", revision: None }, stamp)); }
+    if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > grant.kind.max_bytes() { return Ok((DiskStatus { kind: "changed", revision: None }, stamp)); }
     if grant.stamp.is_some() && stamp == grant.stamp { return Ok((DiskStatus { kind: "same", revision: Some(grant.revision.clone()) }, stamp)); }
-    let bytes = match fs::read(&grant.path) {
-        Ok(bytes) => bytes,
+    let file = match fs::File::open(&grant.path) {
+        Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok((DiskStatus { kind: "deleted", revision: None }, None)),
         Err(_) => return Err("IO_ERROR".into()),
     };
-    let revision = digest(&bytes);
+    let revision = match digest_stream(file, grant.kind.max_bytes()) {
+        Ok((revision, _, _)) => revision,
+        Err(code) if code == "DOCUMENT_TOO_LARGE" => return Ok((DiskStatus { kind: "changed", revision: None }, stamp)),
+        Err(code) => return Err(code),
+    };
     Ok((DiskStatus { kind: if revision == grant.revision { "same" } else { "changed" }, revision: Some(revision) }, stamp))
 }
 
@@ -309,6 +423,7 @@ fn disk_status(grant: &Grant) -> Result<(DiskStatus, Option<FileStamp>), String>
 pub fn read_disk_version(window: WebviewWindow, store: State<'_, DocumentStore>, token: String) -> Result<String, String> {
     main_window(&window)?;
     let grant = store.grant(&token)?;
+    if !grant.kind.is_text() { return Err("READ_ONLY".into()); }
     read_markdown(&grant.path).map(|(markdown, _)| markdown)
 }
 
@@ -316,9 +431,9 @@ pub fn read_disk_version(window: WebviewWindow, store: State<'_, DocumentStore>,
 pub fn reload_document(window: WebviewWindow, store: State<'_, DocumentStore>, token: String) -> Result<OpenDocument, String> {
     main_window(&window)?;
     let grant = store.grant(&token)?;
-    let (markdown, revision, stamp) = read_markdown_stamped(&grant.path)?;
-    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { path: grant.path.clone(), revision: revision.clone(), stamp, asset_key: grant.asset_key.clone() });
-    Ok(OpenDocument { token, name: filename(&grant.path), markdown, revision, asset_key: grant.asset_key })
+    let loaded = read_document(&grant.path)?;
+    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { path: grant.path.clone(), revision: loaded.revision.clone(), stamp: loaded.stamp, asset_key: grant.asset_key.clone(), kind: loaded.kind, encoding: loaded.encoding });
+    Ok(opened(token, &grant.path, loaded, grant.asset_key))
 }
 
 fn copy_assets_for_copy(source: &Path, target: &Path, markdown: &str) -> Result<(String, HashMap<String, String>), String> {
@@ -360,46 +475,58 @@ fn copy_assets_for_copy(source: &Path, target: &Path, markdown: &str) -> Result<
     Ok((markdown_images::rewrite_image_urls(markdown, &replacements)?, replacements))
 }
 
+/// A copy keeps the document's encoding unless it changes kind (a text file saved as Markdown is UTF-8).
+fn copy_encoding(grant: &Grant, kind: DocumentKind, force_utf8: Option<bool>) -> TextEncoding {
+    if force_utf8 == Some(true) || kind != grant.kind { TextEncoding::UTF8 } else { grant.encoding }
+}
+
 #[tauri::command]
-pub async fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, token: String, markdown: String, assets: Vec<StagedAsset>) -> Result<Option<String>, String> {
+pub async fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, token: String, markdown: String, assets: Vec<StagedAsset>, force_utf8: Option<bool>) -> Result<Option<String>, String> {
     main_window(&window)?;
     let assets = staged_uploads(&staging, assets)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let grant = store.grant(&token)?;
-    let selected = app.dialog().file().add_filter("Markdown", &["md"]).blocking_save_file();
+    if !grant.kind.is_text() { return Err("READ_ONLY".into()); }
+    let selected = save_dialog(&app, grant.kind, Some(&grant.path), &["md"]).blocking_save_file();
     let Some(selected) = selected else { return Ok(None); };
     let path = selected.into_path().map_err(|_| "INVALID_PATH")?;
-    if !markdown_path(&path) { return Err("UNSUPPORTED_FILE_TYPE".into()); }
+    let kind = target_kind(&path, grant.kind)?;
     let parent = fs::canonicalize(path.parent().ok_or("INVALID_PATH")?).map_err(|_| "INVALID_PATH")?;
     let path = parent.join(path.file_name().ok_or("INVALID_PATH")?);
     if path == grant.path || path.exists() { return Err("TARGET_EXISTS".into()); }
-    let (copied_markdown, _) = copy_assets_for_copy(&grant.path, &path, &markdown)?;
-    let (persisted, _) = save_assets(&parent, &copied_markdown, assets)?;
-    atomic_write::commit(&path, persisted.as_bytes(), None)?;
+    let encoding = copy_encoding(&grant, kind, force_utf8);
+    // Checked before any attachment is copied, so a refused save leaves nothing behind.
+    text_encoding::encode(&markdown, encoding)?;
+    let (copied_markdown, _) = if grant.kind == DocumentKind::Markdown { copy_assets_for_copy(&grant.path, &path, &markdown)? } else { (markdown, HashMap::new()) };
+    let (persisted, _) = save_assets(kind, &parent, &copied_markdown, assets)?;
+    atomic_write::commit(&path, &text_encoding::encode(&persisted, encoding)?, None)?;
     Ok(Some(filename(&path)))
 }
 
 #[tauri::command]
-pub async fn save_as_document(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, token: String, markdown: String, assets: Vec<StagedAsset>) -> Result<Option<SaveResult>, String> {
+pub async fn save_as_document(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, token: String, markdown: String, assets: Vec<StagedAsset>, force_utf8: Option<bool>) -> Result<Option<SaveResult>, String> {
     main_window(&window)?;
     let assets = staged_uploads(&staging, assets)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let grant = store.grant(&token)?;
-    let selected = app.dialog().file().add_filter("Markdown", &["md", "markdown"]).blocking_save_file();
+    if !grant.kind.is_text() { return Err("READ_ONLY".into()); }
+    let selected = save_dialog(&app, grant.kind, Some(&grant.path), &["md", "markdown"]).blocking_save_file();
     let Some(selected) = selected else { return Ok(None); };
     let selected = selected.into_path().map_err(|_| "INVALID_PATH")?;
-    if !markdown_path(&selected) { return Err("UNSUPPORTED_FILE_TYPE".into()); }
+    let kind = target_kind(&selected, grant.kind)?;
     let parent = fs::canonicalize(selected.parent().ok_or("INVALID_PATH")?).map_err(|_| "INVALID_PATH")?;
     let path = parent.join(selected.file_name().ok_or("INVALID_PATH")?);
     if path == grant.path || path.exists() { return Err("TARGET_EXISTS".into()); }
+    let encoding = copy_encoding(&grant, kind, force_utf8);
+    text_encoding::encode(&markdown, encoding)?;
     let _write_guard = SAVE_LOCK.lock().map_err(|_| "IO_ERROR")?;
-    let (copied_markdown, asset_relocations) = copy_assets_for_copy(&grant.path, &path, &markdown)?;
-    let (persisted, asset_paths) = save_assets(&parent, &copied_markdown, assets)?;
-    let revision = atomic_write::commit(&path, persisted.as_bytes(), None)?;
+    let (copied_markdown, asset_relocations) = if grant.kind == DocumentKind::Markdown { copy_assets_for_copy(&grant.path, &path, &markdown)? } else { (markdown, HashMap::new()) };
+    let (persisted, asset_paths) = save_assets(kind, &parent, &copied_markdown, assets)?;
+    let revision = atomic_write::commit(&path, &text_encoding::encode(&persisted, encoding)?, None)?;
     let new_token = format!("doc-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
     let asset_key = random_key()?;
-    store.0.lock().map_err(|_| "IO_ERROR")?.insert(new_token.clone(), Grant { stamp: stamp_of(&path), path: path.clone(), revision: revision.clone(), asset_key: asset_key.clone() });
-    Ok(Some(SaveResult { token: new_token, name: filename(&path), revision, markdown: persisted, asset_paths, asset_relocations, asset_key }))
+    store.0.lock().map_err(|_| "IO_ERROR")?.insert(new_token.clone(), Grant { stamp: stamp_of(&path), path: path.clone(), revision: revision.clone(), asset_key: asset_key.clone(), kind, encoding });
+    Ok(Some(SaveResult { token: new_token, name: filename(&path), revision, markdown: persisted, asset_paths, asset_relocations, asset_key, kind: kind.as_str(), encoding: encoding.label() }))
 }
 
 fn image_extension(bytes: &[u8], mime: &str) -> Option<&'static str> {
@@ -421,8 +548,10 @@ pub(crate) fn validate_image(bytes: &[u8], mime: &str) -> Result<&'static str, S
     Ok(extension)
 }
 
-fn save_assets(parent: &Path, markdown: &str, assets: Vec<AssetUpload>) -> Result<(String, HashMap<String, String>), String> {
+fn save_assets(kind: DocumentKind, parent: &Path, markdown: &str, assets: Vec<AssetUpload>) -> Result<(String, HashMap<String, String>), String> {
     let mut paths = HashMap::new();
+    // Only Markdown has images; a text or source file is written exactly as given.
+    if kind != DocumentKind::Markdown { return if assets.is_empty() { Ok((markdown.to_owned(), paths)) } else { Err("INVALID_ASSET".into()) }; }
     if assets.is_empty() { return Ok((markdown.to_owned(), paths)); }
     let mut prepared = Vec::new();
     for asset in assets {
@@ -456,6 +585,8 @@ pub async fn save_document(
     expected_revision: Option<String>,
     markdown: String,
     assets: Vec<StagedAsset>,
+    force_utf8: Option<bool>,
+    suggested_name: Option<String>,
 ) -> Result<Option<SaveResult>, String> {
     main_window(&window)?;
     let assets = staged_uploads(&staging, assets)?;
@@ -465,13 +596,20 @@ pub async fn save_document(
         None => None,
     };
     let path = if let Some(grant) = &grant {
+        if !grant.kind.is_text() { return Err("READ_ONLY".into()); }
         grant.path.clone()
     } else {
-        let selected = app.dialog().file().add_filter("Markdown", &["md"]).blocking_save_file();
-        let Some(selected) = selected else { return Ok(None); };
+        // A recovered draft of a text file suggests its own name, so it is not saved as Markdown by accident.
+        let suggested = suggested_name.filter(|name| text_file_name(name));
+        let suggested_kind = suggested.as_deref().and_then(|name| DocumentKind::of(Path::new(name))).unwrap_or(DocumentKind::Markdown);
+        let mut dialog = save_dialog(&app, suggested_kind, suggested.as_deref().map(Path::new), &["md"]);
+        if let Some(name) = &suggested { dialog = dialog.set_file_name(name); }
+        let Some(selected) = dialog.blocking_save_file() else { return Ok(None); };
         selected.into_path().map_err(|_| "INVALID_PATH")?
     };
-    if !markdown_path(&path) { return Err("UNSUPPORTED_FILE_TYPE".into()); }
+    let kind = DocumentKind::of(&path).filter(|kind| kind.is_text()).ok_or("UNSUPPORTED_FILE_TYPE")?;
+    let encoding = match &grant { Some(grant) if force_utf8 != Some(true) => grant.encoding, _ => TextEncoding::UTF8 };
+    text_encoding::encode(&markdown, encoding)?;
     let parent = fs::canonicalize(path.parent().ok_or("INVALID_PATH")?).map_err(|_| "INVALID_PATH")?;
     if let Some(grant) = &grant { if parent != grant.path.parent().ok_or("INVALID_PATH")? { return Err("OUT_OF_SCOPE".into()); } }
     let path = parent.join(path.file_name().ok_or("INVALID_PATH")?);
@@ -479,19 +617,18 @@ pub async fn save_document(
     match &grant {
         Some(grant) => {
             if expected_revision.as_deref() != Some(grant.revision.as_str()) { return Err("STALE_OPERATION".into()); }
-            let (_, disk_revision) = read_markdown(&path)?;
-            if disk_revision != grant.revision { return Err("CONFLICT".into()); }
+            if disk_revision(&path, kind)? != grant.revision { return Err("CONFLICT".into()); }
         }
         None if path.exists() => return Err("TARGET_EXISTS".into()),
         _ => {}
     }
-    let (persisted, asset_paths) = save_assets(&parent, &markdown, assets)?;
-    let bytes = persisted.as_bytes();
-    let revision = atomic_write::commit(&path, bytes, grant.as_ref().map(|item| item.revision.as_str()))?;
+    let (persisted, asset_paths) = save_assets(kind, &parent, &markdown, assets)?;
+    let bytes = text_encoding::encode(&persisted, encoding)?;
+    let revision = atomic_write::commit(&path, &bytes, grant.as_ref().map(|item| item.revision.as_str()))?;
     let token = token.unwrap_or_else(|| format!("doc-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed)));
     let asset_key = match &grant { Some(grant) => grant.asset_key.clone(), None => random_key()? };
-    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { stamp: stamp_of(&path), path: path.clone(), revision: revision.clone(), asset_key: asset_key.clone() });
-    Ok(Some(SaveResult { token, name: filename(&path), revision, markdown: persisted, asset_paths, asset_relocations: HashMap::new(), asset_key }))
+    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { stamp: stamp_of(&path), path: path.clone(), revision: revision.clone(), asset_key: asset_key.clone(), kind, encoding });
+    Ok(Some(SaveResult { token, name: filename(&path), revision, markdown: persisted, asset_paths, asset_relocations: HashMap::new(), asset_key, kind: kind.as_str(), encoding: encoding.label() }))
 }
 
 pub(crate) fn asset_mime(relative: &str) -> Option<&'static str> {
@@ -645,7 +782,7 @@ mod tests {
     fn image_is_written_as_separate_asset_and_reference_is_replaced() {
         let dir = sample_dir();
         let png = include_bytes!("../../tests/fixtures/assets/synthetic-2x2.png").to_vec();
-        let (markdown, paths) = save_assets(&dir, "before ![shot](blob:temporary) after", vec![AssetUpload {
+        let (markdown, paths) = save_assets(DocumentKind::Markdown, &dir, "before ![shot](blob:temporary) after", vec![AssetUpload {
             url: "blob:temporary".into(), mime: "image/png".into(), bytes: png.clone(),
         }]).unwrap();
         assert!(!markdown.contains("blob:"));
@@ -657,7 +794,7 @@ mod tests {
     #[test]
     fn invalid_image_never_produces_a_reference() {
         let dir = sample_dir();
-        let result = save_assets(&dir, "![shot](blob:temporary)", vec![AssetUpload {
+        let result = save_assets(DocumentKind::Markdown, &dir, "![shot](blob:temporary)", vec![AssetUpload {
             url: "blob:temporary".into(), mime: "image/png".into(), bytes: b"not a PNG".to_vec(),
         }]);
         assert!(result.is_err());
@@ -682,7 +819,7 @@ mod tests {
         fs::write(dir.join("outside.png"), b"outside").unwrap();
         let store = DocumentStore::default();
         let key = random_key().unwrap();
-        store.0.lock().unwrap().insert("doc-1".into(), Grant { path: dir.join("note.md"), revision: String::new(), stamp: None, asset_key: key.clone() });
+        store.0.lock().unwrap().insert("doc-1".into(), Grant { path: dir.join("note.md"), revision: String::new(), stamp: None, asset_key: key.clone(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 });
         let (bytes, mime) = read_keyed_asset(&store, &format!("/{key}/assets/%E5%9B%BE%201.png")).unwrap();
         assert_eq!((bytes.as_slice(), mime), (b"pixels".as_slice(), "image/png"));
         assert!(read_keyed_asset(&store, &format!("/{key}/assets/page.html")).is_err());
@@ -698,7 +835,7 @@ mod tests {
         let path = dir.join("entry.md");
         fs::write(&path, b"first").unwrap();
         // The revision deliberately does not match the bytes: "same" proves the file was not read.
-        let grant = Grant { path: path.clone(), revision: "recorded".into(), stamp: stamp_of(&path), asset_key: String::new() };
+        let grant = Grant { path: path.clone(), revision: "recorded".into(), stamp: stamp_of(&path), asset_key: String::new(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 };
         let (status, _) = disk_status(&grant).unwrap();
         assert_eq!((status.kind, status.revision.as_deref()), ("same", Some("recorded")));
         fs::write(&path, b"second, longer").unwrap();
@@ -710,7 +847,7 @@ mod tests {
         let dir = sample_dir();
         let path = dir.join("entry.md");
         fs::write(&path, b"first").unwrap();
-        let grant = Grant { path: path.clone(), revision: digest(b"first"), stamp: None, asset_key: String::new() };
+        let grant = Grant { path: path.clone(), revision: digest(b"first"), stamp: None, asset_key: String::new(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 };
         assert_eq!(disk_status(&grant).unwrap().0.kind, "same");
         fs::write(&path, b"second").unwrap();
         assert_eq!(disk_status(&grant).unwrap().0.kind, "changed");
@@ -793,6 +930,140 @@ mod tests {
     }
 
     #[test]
+    fn each_kind_opens_as_what_its_extension_says_and_binary_content_is_refused() {
+        let dir = sample_dir();
+        let store = DocumentStore::default();
+        let (gbk, _, _) = encoding_rs::GB18030.encode("第一章 起点\r\n\r\n这是一个用来检查编码识别的段落，里面有中文、English words 和数字 12345。\r\n");
+        fs::write(dir.join("novel.txt"), &gbk).unwrap();
+        fs::write(dir.join("config.json"), "{\"name\": \"mino\"}\n").unwrap();
+        fs::write(dir.join("manual.pdf"), b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n").unwrap();
+        let text = open_granted_path(&store, &dir.join("novel.txt")).unwrap();
+        assert_eq!((text.kind, text.encoding.as_str(), text.size), ("text", "GB18030", gbk.len() as u64));
+        assert!(text.markdown.starts_with("第一章 起点\r\n"));
+        assert_eq!(text.revision, digest(&gbk));
+        let code = open_granted_path(&store, &dir.join("config.json")).unwrap();
+        assert_eq!((code.kind, code.encoding.as_str()), ("code", "UTF-8"));
+        let pdf = open_granted_path(&store, &dir.join("manual.pdf")).unwrap();
+        assert_eq!((pdf.kind, pdf.markdown.as_str(), pdf.size), ("pdf", "", 35));
+        assert_eq!(pdf.revision, digest(b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n"));
+        assert_eq!(document_identity(&store, &pdf.token).unwrap().1, DocumentKind::Pdf);
+        // The extension is supported but the content is something else.
+        fs::write(dir.join("archive.txt"), b"PK\x03\x04\x00\x00\x00\x08\x00binary").unwrap();
+        fs::write(dir.join("fake.pdf"), b"this is not a pdf at all").unwrap();
+        fs::write(dir.join("video.ts"), [0x47, 0x40, 0x00, 0x10, 0x00, 0x00, 0xb0, 0x0d, 0x00, 0x01]).unwrap();
+        for name in ["archive.txt", "fake.pdf", "video.ts"] { assert_eq!(open_granted_path(&store, &dir.join(name)).err().as_deref(), Some("UNSUPPORTED_FORMAT"), "{name}"); }
+        fs::write(dir.join("letter.docx"), b"hello").unwrap();
+        assert_eq!(open_granted_path(&store, &dir.join("letter.docx")).err().as_deref(), Some("UNSUPPORTED_FILE_TYPE"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_kinds_do_not_follow_links_either() {
+        let dir = sample_dir();
+        let real = dir.join("real"); fs::create_dir(&real).unwrap();
+        fs::write(real.join("a.txt"), b"text").unwrap();
+        fs::write(real.join("a.pdf"), b"%PDF-1.4\n").unwrap();
+        std::os::unix::fs::symlink(real.join("a.txt"), dir.join("link.txt")).unwrap();
+        std::os::unix::fs::symlink(real.join("a.pdf"), dir.join("link.pdf")).unwrap();
+        std::os::unix::fs::symlink(&real, dir.join("parent-link")).unwrap();
+        for name in ["link.txt", "link.pdf", "parent-link/a.txt", "parent-link/a.pdf"] { assert_eq!(read_document(&dir.join(name)).err().as_deref(), Some("OUT_OF_SCOPE"), "{name}"); }
+        assert_eq!(validate_selected_file(&dir.join("link.pdf")).err().as_deref(), Some("OUT_OF_SCOPE"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_pdf_is_read_in_checked_ranges() {
+        let dir = sample_dir();
+        let path = dir.join("manual.pdf");
+        let content: Vec<u8> = b"%PDF-1.4\n".iter().copied().chain((0..5000u32).map(|index| (index % 251) as u8)).collect();
+        fs::write(&path, &content).unwrap();
+        let store = DocumentStore::default();
+        let token = open_granted_path(&store, &path).unwrap().token;
+        let grant = store.grant(&token).unwrap();
+        assert_eq!(read_range(&grant, 0, 9).unwrap(), b"%PDF-1.4\n");
+        assert_eq!(read_range(&grant, 100, 50).unwrap(), &content[100..150]);
+        // A range past the end is cut at the end; one that starts there is refused.
+        assert_eq!(read_range(&grant, 5000, 1000).unwrap(), &content[5000..]);
+        assert_eq!(read_range(&grant, content.len() as u64, 1).err().as_deref(), Some("INVALID_RANGE"));
+        assert_eq!(read_range(&grant, 0, 0).err().as_deref(), Some("INVALID_RANGE"));
+        assert_eq!(read_range(&grant, 0, MAX_RANGE + 1).err().as_deref(), Some("INVALID_RANGE"));
+        // Only a PDF grant can be read this way.
+        fs::write(dir.join("note.md"), b"secret").unwrap();
+        let note = open_granted_path(&store, &dir.join("note.md")).unwrap().token;
+        assert_eq!(read_range(&store.grant(&note).unwrap(), 0, 6).err().as_deref(), Some("OUT_OF_SCOPE"));
+        assert_eq!(store.grant("doc-unknown").err().as_deref(), Some("OUT_OF_SCOPE"));
+        // The file was replaced after it was opened: nothing of the new file is returned.
+        fs::remove_file(&path).unwrap();
+        fs::write(&path, b"%PDF-1.4\nanother file entirely").unwrap();
+        assert_eq!(read_range(&grant, 0, 9).err().as_deref(), Some("CHANGED"));
+        let (status, _) = disk_status(&grant).unwrap();
+        assert_eq!(status.kind, "changed");
+        #[cfg(unix)]
+        {
+            fs::remove_file(&path).unwrap();
+            std::os::unix::fs::symlink(dir.join("note.md"), &path).unwrap();
+            assert_eq!(read_range(&grant, 0, 6).err().as_deref(), Some("OUT_OF_SCOPE"));
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_pdf_over_its_own_limit_is_refused_while_text_keeps_the_smaller_one() {
+        let dir = sample_dir();
+        let pdf = dir.join("big.pdf");
+        fs::File::create(&pdf).unwrap().set_len(file_kinds::MAX_PDF_BYTES + 1).unwrap();
+        assert_eq!(read_document(&pdf).err().as_deref(), Some("DOCUMENT_TOO_LARGE"));
+        let text = dir.join("big.txt");
+        fs::File::create(&text).unwrap().set_len(MAX_DOCUMENT + 1).unwrap();
+        assert_eq!(read_document(&text).err().as_deref(), Some("DOCUMENT_TOO_LARGE"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn saved_copies_keep_the_kind_or_become_markdown() {
+        assert_eq!(target_kind(Path::new("/a/b.txt"), DocumentKind::Text), Ok(DocumentKind::Text));
+        assert_eq!(target_kind(Path::new("/a/b.md"), DocumentKind::Text), Ok(DocumentKind::Markdown));
+        assert_eq!(target_kind(Path::new("/a/b.yaml"), DocumentKind::Code), Ok(DocumentKind::Code));
+        assert_eq!(target_kind(Path::new("/a/b.markdown"), DocumentKind::Markdown), Ok(DocumentKind::Markdown));
+        for (name, source) in [("/a/b.txt", DocumentKind::Markdown), ("/a/b.json", DocumentKind::Text), ("/a/b.pdf", DocumentKind::Text), ("/a/b.pdf", DocumentKind::Pdf), ("/a/b.docx", DocumentKind::Text), ("/a/b", DocumentKind::Markdown)] {
+            assert_eq!(target_kind(Path::new(name), source).err().as_deref(), Some("UNSUPPORTED_FILE_TYPE"), "{name}");
+        }
+        let big5 = TextEncoding { encoding: encoding_rs::BIG5, bom: false, exact: true };
+        let grant = Grant { path: "/a/b.txt".into(), revision: String::new(), stamp: None, asset_key: String::new(), kind: DocumentKind::Text, encoding: big5 };
+        assert_eq!(copy_encoding(&grant, DocumentKind::Text, None), big5);
+        assert_eq!(copy_encoding(&grant, DocumentKind::Text, Some(false)), big5);
+        assert_eq!(copy_encoding(&grant, DocumentKind::Text, Some(true)), TextEncoding::UTF8);
+        assert_eq!(copy_encoding(&grant, DocumentKind::Markdown, None), TextEncoding::UTF8);
+        for good in ["小说.txt", "config.YAML", "notes.md", "a b.log"] { assert!(text_file_name(good), "{good}"); }
+        for bad in ["", "book.pdf", ".hidden.txt", "a/b.txt", "..\\b.txt", "a:b.txt", "note", "letter.docx", "a\nb.txt"] { assert!(!text_file_name(bad), "{bad:?}"); }
+    }
+
+    #[test]
+    fn text_files_are_never_given_image_attachments() {
+        let dir = sample_dir();
+        let upload = || vec![AssetUpload { url: "blob:temporary".into(), bytes: vec![1, 2, 3], mime: "image/png".into() }];
+        assert_eq!(save_assets(DocumentKind::Text, &dir, "![shot](blob:temporary)", upload()).err().as_deref(), Some("INVALID_ASSET"));
+        let (text, paths) = save_assets(DocumentKind::Code, &dir, "![shot](assets/x.png) stays as typed", Vec::new()).unwrap();
+        assert_eq!(text, "![shot](assets/x.png) stays as typed");
+        assert!(paths.is_empty() && !dir.join("assets").exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_disk_revision_is_taken_from_bytes_whatever_they_decode_to() {
+        let dir = sample_dir();
+        let path = dir.join("note.txt");
+        fs::write(&path, [0xff, 0xfe, 0x41]).unwrap();
+        // Unreadable as text, yet still comparable: a save sees a conflict rather than an encoding error.
+        assert_eq!(read_document(&path).err().as_deref(), Some("INVALID_ENCODING"));
+        assert_eq!(disk_revision(&path, DocumentKind::Text).unwrap(), digest(&[0xff, 0xfe, 0x41]));
+        fs::remove_file(&path).unwrap();
+        assert_eq!(disk_revision(&path, DocumentKind::Text).err().as_deref(), Some("NOT_FOUND"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn markdown_reader_rejects_oversized_and_invalid_utf8_files() {
         let dir = sample_dir();
         let path = dir.join("note.md");
@@ -801,7 +1072,7 @@ mod tests {
         let large = fs::File::create(&path).unwrap();
         large.set_len(MAX_DOCUMENT + 1).unwrap();
         assert_eq!(read_markdown(&path).err().as_deref(), Some("DOCUMENT_TOO_LARGE"));
-        fs::write(&path, [0xff, 0xfe]).unwrap();
+        fs::write(&path, [0xff, 0xfe, 0x41]).unwrap();
         assert_eq!(read_markdown(&path).err().as_deref(), Some("INVALID_ENCODING"));
         fs::remove_dir_all(dir).unwrap();
     }
@@ -830,7 +1101,7 @@ mod tests {
         fs::write(dir.join("assets/good.png"), b"safe bytes").unwrap();
         fs::write(dir.join("outside.png"), b"outside").unwrap();
         std::os::unix::fs::symlink(dir.join("outside.png"), dir.join("assets/link.png")).unwrap();
-        let grant = Grant { path: dir.join("note.md"), revision: String::new(), stamp: None, asset_key: String::new() };
+        let grant = Grant { path: dir.join("note.md"), revision: String::new(), stamp: None, asset_key: String::new(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 };
         assert_eq!(read_scoped_asset(&grant,"assets/good.png").unwrap(),b"safe bytes");
         assert_eq!(read_scoped_asset(&grant,"assets/../outside.png").err().as_deref(),Some("OUT_OF_SCOPE"));
         assert_eq!(read_scoped_asset(&grant,"assets/nested/good.png").err().as_deref(),Some("NOT_FOUND"));

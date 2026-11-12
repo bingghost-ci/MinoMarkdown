@@ -509,6 +509,26 @@ G01–G29 分别对应 T01–T29，每项命令可独立复制到支持 Goals �
 /goal 在 /Users/bobby/Code/software/MinoMarkdown 中完成或复核 T74、T75、T76、T77。先读 CLAUDE.md、doc/01-产品方案.md §3.10、doc/02-技术设计.md §21、doc/03-开发计划.md 的 T74–T77、doc/05-验收与发布.md §8G、doc/06-开发进度.md 和 doc/evidence/T74–T77 各证据文件，并遵守 doc/04-Goal命令列表.md 的通用约束；以实际代码为准，已有实现先核对，不重复开发。T74：移除纯黑，夜间风格为淡黑、深灰、中灰、青灰、暖灰，共 12 种风格，black 与 ink 迁移到 charcoal，前端与 settings.rs 两张映射表一致。T75：编辑器代码块的行号栏、行号和按钮随纸面取色，补齐选项、属性键名和内置命令的高亮，编辑器与预览、导出共用一份定义。T76：设置中为 DeepSeek 和 OpenAI 分别保存密钥，模型可自由填写或从 ai_list_models 取回的列表中选，模型按服务商记住。T77：不少于 200,000 字符且以阅读模式打开的文件进入快速阅读，先显示开头再换成整篇，开始编辑时才加载编辑器；分析 worker 必须能在 WebKit 中启动。红线：只改呈现的任务不改文档内容；不削弱路径授权、符号链接拒绝、原子保存与冲突检测、草稿恢复、HTML 净化和输入法保护；请求只由 Rust 发出，webview 的 CSP 与 capabilities 不放宽；不使用真实密钥，密钥不进入代码、日志、测试和文档。每项完成后运行 npm run typecheck、npm run test、npm run build，涉及 Rust 时加 cargo test --lib --manifest-path src-tauri/Cargo.toml，结束时用 npm run tauri -- build --bundles app 打包一次；同一检查最多 3 次。在 doc/evidence 写证据，更新 doc/06-开发进度.md 的唯一状态表，实机与用户验收记 PENDING。不运行 ./install.sh，不提交、不推送。
 ```
 
+## G81–G89 更多文档格式
+
+2026-11-12 按用户“支持 PDF、TXT 和其他纯文本格式”的要求建立，G81–G89 分别对应 T81–T89，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。范围见[产品方案 §3.11](01-产品方案.md)，设计见[技术设计 §22](02-技术设计.md)。九项用一条 Goal 顺序执行。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G81 | T81 | T09、T17、T23 | 文档类型框架 |
+| G82 | T82 | T81 | 文本编码 |
+| G83 | T83 | T81、T82、T77 | TXT 阅读 |
+| G84 | T84 | T83、T10–T12 | TXT 编辑与保存 |
+| G85 | T85 | T81、T82、T84 | 代码与配置文件 |
+| G86 | T86 | T81 | PDF 阅读核心 |
+| G87 | T87 | T86 | PDF 导航 |
+| G88 | T88 | T83–T87、T70–T73 | 功能接入 |
+| G89 | T89 | T81–T88 | 测试、样例与文档 |
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中完成或复核 T81–T89：让 Mino 支持 TXT、其他纯文本格式和 PDF。先读 CLAUDE.md、doc/01-产品方案.md §3.11、doc/02-技术设计.md §22、doc/03-开发计划.md 的 T81–T89、doc/05-验收与发布.md §8H、doc/06-开发进度.md 和 doc/evidence/T81–T89 各证据文件，并遵守 doc/04-Goal命令列表.md 的通用约束；以实际代码为准，已有实现先核对，不重复开发。各项完成条件见开发计划同编号章节。不在范围：Word、EPUB、PDF 批注与编辑、OCR。每个任务完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml，全部完成后再运行 npm run build 和 ./build.sh；每个检查点最多重试 3 次，仍失败则记录命令、输出、影响和下一步，继续不依赖它的工作。每项完成后更新 doc/06-开发进度.md，分别标注 codeComplete、automatedVerified、nativeVerified、accepted；Finder 打开、中文输入法、实机观感和性能未实测的一律写 PENDING，不虚报通过。不运行 ./install.sh，不改版本号，不提交、不推送。
+```
+
 ## 连续开发总 Goal（逐项读取列表）
 
 此命令只负责开发阶段。每轮读取 G01–G29 的当前任务，依据代码依赖推进；已实现的任务先复核，不重复开发。最终原生验收层级与 Gate 留待集中测试，不能虚报 PASS。单项命令和本总 Goal 共用进度表，不创建嵌套 Goal。

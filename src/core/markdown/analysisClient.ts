@@ -31,7 +31,7 @@ function analysisWorker(): Worker | null {
   return worker
 }
 
-function run<T>(kind: AnalysisRequest['kind'], source: string, assetKey?: string, extra: Pick<AnalysisRequest, 'title' | 'images' | 'diagrams' | 'page' | 'captions'> = {}): Promise<T> {
+function run<T>(kind: AnalysisRequest['kind'], source: string, assetKey?: string, extra: Pick<AnalysisRequest, 'title' | 'images' | 'diagrams' | 'page' | 'captions' | 'name' | 'delimiter'> = {}): Promise<T> {
   const target = analysisWorker()
   if (!target) return Promise.reject(new Error('WORKER_UNAVAILABLE'))
   const id = nextId++
@@ -51,6 +51,22 @@ export async function prepareMarkdownAsync(source: string): Promise<PreparedMark
 export async function renderPreviewAsync(source: string, assetKey?: string, captions = true): Promise<string> {
   try { return await run<string>('preview', source, assetKey, { captions }) }
   catch { return (await import('../../features/preview/renderMarkdownPreview')).renderMarkdownPreview(source, assetKey, captions) }
+}
+
+/** The reading page of a text file (T83): escaped text with paragraphs and chapter headings, never Markdown. */
+export async function renderTextPreviewAsync(source: string): Promise<string> {
+  try { return await run<string>('text-preview', source) }
+  catch { return (await import('../../features/text/textDocument')).renderTextHtml(source) }
+}
+
+/** The reading page of a source or data file (T85): highlighted lines, or a table when `delimiter` is given. */
+export async function renderCodePreviewAsync(source: string, name: string, delimiter: ',' | '\t' | null = null): Promise<string> {
+  try { return await run<string>('code-preview', source, undefined, { name, delimiter: delimiter ?? undefined }) }
+  catch {
+    const { CODE_HIGHLIGHT_LIMIT, renderCodeHtml, renderDelimitedHtml } = await import('../../features/text/codeDocument')
+    if (delimiter) return renderDelimitedHtml(source, delimiter)
+    return renderCodeHtml(source, source.length <= CODE_HIGHLIGHT_LIMIT ? await (await import('./highlight')).loadFileParser(name) : null)
+  }
 }
 
 /** Only a missing worker falls back to the main thread; a real render error must reach the caller. */

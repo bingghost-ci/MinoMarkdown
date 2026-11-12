@@ -835,3 +835,46 @@ describe('preview AI transport', () => {
     expect(ai().turns[1].html).toBe(`<p>${ai().turns[1].text}</p>`)
   })
 })
+
+describe('T88 documents whose text has to be prepared first', () => {
+  it('prepares the document before reading it, for a question, a preset and suggested questions', async () => {
+    const backend = fakeBackend()
+    const order: string[] = []
+    const h = await mount(backend.transport, {
+      prepareDocument: async () => { order.push('prepare'); h.state.document = { title: '手册', markdown: '[第 1 页 / Page 1]\n从 PDF 里取出的文字。' } },
+      getDocument: () => { order.push('read'); return h.state.document },
+    })
+    order.length = 0
+    await run(() => h.ai().ask('这份文档讲了什么？'))
+    expect(order.slice(0, 2)).toEqual(['prepare', 'read'])
+    expect(backend.chats).toHaveLength(1)
+    expect(JSON.stringify(backend.chats[0].messages)).toContain('从 PDF 里取出的文字。')
+    order.length = 0
+    await run(() => h.ai().runPreset(presets[0].id))
+    expect(order[0]).toBe('prepare')
+    expect(backend.chats).toHaveLength(2)
+    order.length = 0
+    await run(() => h.ai().refreshSuggestions())
+    expect(order[0]).toBe('prepare')
+  })
+
+  it('sends nothing for a PDF without a text layer and says why', async () => {
+    const backend = fakeBackend()
+    const h = await mount(backend.transport, { prepareDocument: async () => { throw new Error('PDF_NO_TEXT') } })
+    await run(() => h.ai().ask('总结一下'))
+    await run(() => h.ai().runPreset(presets[0].id))
+    await run(() => h.ai().refreshSuggestions())
+    expect(backend.chats).toEqual([])
+    expect(h.ai().turns).toEqual([])
+    expect(h.status.filter((message) => message.includes('没有文字层'))).toHaveLength(3)
+    expect(h.status.at(-1)).toContain('不做文字识别')
+  })
+
+  it('sends nothing while the document cannot be read yet', async () => {
+    const backend = fakeBackend()
+    const h = await mount(backend.transport, { prepareDocument: async () => { throw new Error('PDF_NOT_READY') } })
+    await run(() => h.ai().ask('总结一下'))
+    expect(backend.chats).toEqual([])
+    expect(h.status.at(-1)).toContain('还不能读取这个文档的文字')
+  })
+})

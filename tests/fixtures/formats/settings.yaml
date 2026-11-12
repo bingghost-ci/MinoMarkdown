@@ -1,0 +1,10 @@
+# 示例配置
+server:
+  host: 127.0.0.1
+  port: 1420
+features:
+  - reading
+  - pdf
+message: |
+  多行文字
+  second line

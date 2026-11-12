@@ -7,7 +7,7 @@ use tauri::{State, WebviewWindow};
 static NEXT_INTENT: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind { Markdown, Image, Folder }
+enum Kind { Document, Image, Folder }
 struct Intent { path: PathBuf, kind: Kind, owner: String }
 #[derive(Default)]
 pub struct IntentStore { pending: Mutex<HashMap<String, Intent>>, queue: Mutex<HashMap<String, Vec<String>>>, recent_events: Mutex<HashMap<(String, PathBuf), Instant>> }
@@ -20,7 +20,7 @@ pub struct ImageIntent { name: String, mime: &'static str, staged: String }
 
 fn kind_for(path: &Path) -> Option<Kind> {
     match path.extension().and_then(|e| e.to_str())?.to_ascii_lowercase().as_str() {
-        "md" | "markdown" => Some(Kind::Markdown),
+        _ if crate::file_kinds::DocumentKind::of(path).is_some() => Some(Kind::Document),
         "png" | "jpg" | "jpeg" | "gif" | "webp" => Some(Kind::Image),
         _ => None,
     }
@@ -74,7 +74,7 @@ pub fn take_open_intents(window: WebviewWindow, store: State<'_, IntentStore>) -
     if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
     let tokens = store.queue.lock().map_err(|_| "IO_ERROR")?.remove(window.label()).unwrap_or_default();
     let map = store.pending.lock().map_err(|_| "IO_ERROR")?;
-    Ok(tokens.into_iter().filter_map(|token| map.get(&token).map(|intent| IntentSummary { name: intent.path.file_name().unwrap_or_default().to_string_lossy().into_owned(), kind: match intent.kind { Kind::Markdown => "markdown", Kind::Image => "image", Kind::Folder => "folder" }, token })).collect())
+    Ok(tokens.into_iter().filter_map(|token| map.get(&token).map(|intent| IntentSummary { name: intent.path.file_name().unwrap_or_default().to_string_lossy().into_owned(), kind: match intent.kind { Kind::Document => "document", Kind::Image => "image", Kind::Folder => "folder" }, token })).collect())
 }
 #[tauri::command(async)]
 pub fn open_intent_workspace(window: WebviewWindow, intents: State<'_, IntentStore>, workspaces: State<'_, WorkspaceStore>, token: String) -> Result<WorkspaceRoot, String> {
@@ -89,7 +89,7 @@ pub fn open_intent_workspace(window: WebviewWindow, intents: State<'_, IntentSto
 pub fn open_intent_document(window: WebviewWindow, intents: State<'_, IntentStore>, documents: State<'_, DocumentStore>, token: String) -> Result<OpenDocument, String> {
     if !crate::is_workspace_window(window.label()) { return Err("OUT_OF_SCOPE".into()); }
     let intent = take_intent(&intents, &token, window.label())?;
-    if intent.kind != Kind::Markdown { return Err("OUT_OF_SCOPE".into()); }
+    if intent.kind != Kind::Document { return Err("OUT_OF_SCOPE".into()); }
     open_granted_path(&documents, &intent.path)
 }
 #[tauri::command(async)]
@@ -116,8 +116,10 @@ mod tests {
     fn only_supported_files_enter_queue_and_repeats_are_deduplicated() {
         let root = std::env::temp_dir().join(format!("mino-intents-{}-{}",std::process::id(),NEXT_INTENT.fetch_add(1,Ordering::Relaxed)));
         fs::create_dir(&root).unwrap();
-        let md = root.join("note.md"); let txt = root.join("bad.txt");
+        let md = root.join("note.md"); let txt = root.join("bad.docx");
         fs::write(&md,b"hi").unwrap(); fs::write(&txt,b"hi").unwrap();
+        // Text, source and PDF files are documents too (T81).
+        for name in ["novel.txt", "config.yaml", "manual.pdf"] { assert_eq!(kind_for(&root.join(name)) == Some(Kind::Document), true, "{name}"); }
         std::os::unix::fs::symlink(&md, root.join("link.md")).unwrap();
         let store = IntentStore::default();
         assert!(enqueue(&store,md.clone(),false,"main"));

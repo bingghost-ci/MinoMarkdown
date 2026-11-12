@@ -13,6 +13,9 @@ mod native_menu;
 mod app_assets;
 mod ai;
 mod system_fonts;
+mod file_kinds;
+mod text_encoding;
+mod positions;
 
 use tauri::{Emitter, Manager};
 use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
@@ -181,6 +184,10 @@ pub fn run() {
             documents::check_document_revision,
             documents::read_disk_version,
             documents::reload_document,
+            documents::read_document_range,
+            positions::get_reading_position,
+            positions::set_reading_position,
+            native_menu::set_menu_state,
             documents::save_conflict_copy,
             documents::save_as_document,
             documents::save_document,

@@ -1,0 +1,2 @@
+# Sample files in several encodings and line endings; git must store their bytes untouched.
+tests/fixtures/formats/* -text

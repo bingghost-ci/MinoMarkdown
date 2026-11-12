@@ -141,6 +141,26 @@ export function documentElementCss(root: string): string {
   ].join('\n')
 }
 
+/**
+ * Text, source and table files in `.mino-doc` (T83, T85), for the preview and for export. Their renderers
+ * emit only these containers, so the rules sit apart from the Markdown element rules above.
+ */
+export function plainDocumentCss(root = DOC_ROOT): string {
+  const r = root
+  return [
+    // Spaces inside a line are kept as typed; a line that was indented in the file keeps a first-line indent.
+    `${r} .mino-text p{text-indent:var(--doc-indent);white-space:pre-wrap;overflow-wrap:anywhere}${r} .mino-text p.in{text-indent:2em}`,
+    // Sections of a long text stay out of layout until they come near the screen.
+    `${r} .mino-text-long > section{content-visibility:auto;contain-intrinsic-size:auto 2400px}`,
+    `${r} .mino-code{text-align:left;text-indent:0}${r} .mino-code pre{margin:0;padding:10px 0;border-radius:8px;counter-reset:mino-line;tab-size:4}`,
+    `${r} .mino-code .l{display:block;position:relative;padding:0 14px 0 calc(var(--line-digits,3)*1ch + 3ch);min-height:1.6em}`,
+    `${r} .mino-code .l::before{counter-increment:mino-line;content:counter(mino-line);position:absolute;left:0;width:calc(var(--line-digits,3)*1ch + 1.4ch);text-align:right;color:var(--secondary);opacity:.75;-webkit-user-select:none;user-select:none}`,
+    `${r} .mino-table-file{overflow-x:auto;text-indent:0}${r} .mino-table-file table{width:auto;min-width:100%}${r} .mino-table-file td,${r} .mino-table-file th{white-space:pre-wrap;overflow-wrap:anywhere;max-width:32em}`,
+    `${r} .mino-table-note{margin:0 0 .6em;color:var(--secondary);font-size:.85em;text-indent:0;text-align:left}`,
+    `@media print{${r} .mino-text-long > section{content-visibility:visible;contain-intrinsic-size:none}}`,
+  ].join('\n')
+}
+
 /** Images and render-only captions in `.mino-doc` (preview and export). */
 export function documentImageCss(root = DOC_ROOT): string {
   const r = root
@@ -186,7 +206,7 @@ export function typographyVariables(typography: Typography, style: ReadingStyle)
 export function appStylesheet(): string {
   const blocks = readingStyles.map((style) => `:root[data-theme="${style.id}"]${style.id === 'white' ? ',:root:not([data-theme])' : ''}{${declarations(styleVariables(style))}}`)
   const decorations = readingStyles.map((style) => decorationRules(style, (root) => `:root[data-theme="${style.id}"] ${root}`, [EDITOR_ROOT, DOC_ROOT]))
-  return [...blocks, documentElementCss(EDITOR_ROOT), documentElementCss(DOC_ROOT), documentImageCss(DOC_ROOT), ...decorations].join('\n')
+  return [...blocks, documentElementCss(EDITOR_ROOT), documentElementCss(DOC_ROOT), documentImageCss(DOC_ROOT), plainDocumentCss(DOC_ROOT), ...decorations].join('\n')
 }
 
 export type PageSize = 'a4' | 'letter'
@@ -233,6 +253,7 @@ export function exportStylesheet(options: ExportStyleOptions): string {
     `@media (max-width:760px){body{padding:0}.mino-page{max-width:none;margin:0;padding:28px 20px 48px;border:0;border-radius:0;box-shadow:none}}`,
     documentElementCss(DOC_ROOT),
     documentImageCss(DOC_ROOT),
+    plainDocumentCss(DOC_ROOT),
     decorationRules(style, (root) => root, [DOC_ROOT]),
     `${DOC_ROOT} img{max-height:240mm;object-fit:contain}`,
     `.mermaid-diagram{margin:1.2em 0;text-align:center;break-inside:avoid}.mermaid-diagram svg{max-width:100%;height:auto}`,

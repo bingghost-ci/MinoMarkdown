@@ -1,0 +1,6 @@
+{
+  "name": "mino",
+  "kinds": ["markdown", "text", "code", "pdf"],
+  "limits": { "textMiB": 20, "pdfMiB": 200 },
+  "note": "中文 & <tags> stay text"
+}

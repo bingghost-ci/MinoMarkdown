@@ -7,6 +7,8 @@ import { oneDarkHighlightStyle } from '@codemirror/theme-one-dark'
 import { detectLineEndings, offsetToPosition, positionToOffset, sourceDoc, sourceValue, type LineEndings } from './sourceText'
 
 type Callbacks = { onChange: () => void; onSelect: () => void }
+/** `markdown` for Markdown source; `plain` for text and source files, whose language (if any) is set after it loads. */
+export type SourceLanguage = 'markdown' | 'plain'
 
 /** Changes the app makes itself. As with assigning to a textarea, these do not count as user edits. */
 const programmatic = Annotation.define<boolean>()
@@ -30,10 +32,11 @@ export class SourceEditor {
   private readonly readOnlyMode = new Compartment()
   private readonly highlightMode = new Compartment()
   private readonly lineMode = new Compartment()
+  private readonly languageMode = new Compartment()
   private endings: LineEndings
   private cachedValue: string | null
 
-  constructor(parent: HTMLElement, text: string, label: string, dark: boolean, callbacks: Callbacks) {
+  constructor(parent: HTMLElement, text: string, label: string, dark: boolean, callbacks: Callbacks, language: SourceLanguage = 'markdown', readOnly = false) {
     this.endings = detectLineEndings(text)
     this.cachedValue = text
     this.view = new EditorView({
@@ -42,12 +45,12 @@ export class SourceEditor {
         doc: sourceDoc(text, this.endings),
         extensions: [
           this.lineMode.of(lineHandling(this.endings)),
-          this.readOnlyMode.of(EditorState.readOnly.of(false)),
+          this.readOnlyMode.of(EditorState.readOnly.of(readOnly)),
           this.highlightMode.of(highlight(dark)),
           lineNumbers(),
           history(),
           drawSelection(),
-          markdown(),
+          this.languageMode.of(language === 'markdown' ? markdown() : []),
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({ 'aria-label': label }),
           keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap]),
@@ -107,6 +110,11 @@ export class SourceEditor {
       changes: ranges.map(({ from, to, insert }) => ({ from: offsetToPosition(doc, from, this.endings), to: offsetToPosition(doc, to, this.endings), insert })),
       annotations: programmatic.of(true),
     })
+  }
+
+  /** Colors a source file once its language package has loaded (T85). */
+  setLanguage(language: Extension): void {
+    this.view.dispatch({ effects: this.languageMode.reconfigure(language) })
   }
 
   setDark(dark: boolean): void {

@@ -4,6 +4,8 @@ import react from '@vitejs/plugin-react'
 import type { Plugin } from 'vite'
 // @ts-expect-error This helper uses Node APIs, and the project has no Node type definitions.
 import { moveSourceMapsOutOfDist, sourceMapDir } from './scripts/source-map-plugin.mjs'
+// @ts-expect-error As above.
+import { pdfAssets } from './scripts/pdf-assets-plugin.mjs'
 
 // WebKit reads KaTeX's WOFF2 files, so the WOFF and TTF copies would only make the app larger.
 function woff2OnlyKatex(): Plugin {
@@ -28,6 +30,8 @@ function fontBudget(): Plugin {
     generateBundle(_options, bundle) {
       let total = 0
       for (const [name, file] of Object.entries(bundle)) {
+        // The PDF renderer's substitute fonts are not reading fonts and are never loaded by CSS (T86).
+        if (name.startsWith('pdfjs/')) continue
         if (/\.(?:woff2?|ttf|otf)$/.test(name) && file.type === 'asset') total += typeof file.source === 'string' ? file.source.length : file.source.byteLength
         if (/\.(?:woff|ttf|otf)$/.test(name)) this.error(`Only WOFF2 fonts may be bundled: ${name}`)
       }
@@ -52,7 +56,7 @@ function workerWithoutDom(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), woff2OnlyKatex(), fontBudget(), ...(sourceMapDir ? [moveSourceMapsOutOfDist(sourceMapDir)] : [])],
+  plugins: [react(), woff2OnlyKatex(), fontBudget(), pdfAssets(), ...(sourceMapDir ? [moveSourceMapsOutOfDist(sourceMapDir)] : [])],
   build: { sourcemap: sourceMapDir ? 'hidden' : false },
   // Code highlighting loads language parsers on demand inside the analysis worker, which needs code splitting.
   worker: { format: 'es', plugins: () => [workerWithoutDom()] },
@@ -62,5 +66,11 @@ export default defineConfig({
   clearScreen: false,
   server: { host: '127.0.0.1', port: 1420, strictPort: true },
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
-  test: { css: { include: [/katex\.min\.css/, /@fontsource\/noto-(?:serif|sans)-sc\/\d+\.css/, /@fontsource-variable\/[^/]+\/wght(?:-italic)?\.css/] } },
+  test: {
+    // Under Node PDF.js runs its worker code on the test's own thread, so stopping a document that is still
+    // loading leaves the worker's "terminated" rejection unhandled there. In the app that happens inside the
+    // worker thread and never reaches the page. Nothing else is ignored.
+    onUnhandledError(error) { if (error.message === 'Worker was terminated' && String(error.stack).includes('pdf.worker')) return false },
+    css: { include: [/katex\.min\.css/, /@fontsource\/noto-(?:serif|sans)-sc\/\d+\.css/, /@fontsource-variable\/[^/]+\/wght(?:-italic)?\.css/] },
+  },
 })

@@ -41,6 +41,17 @@ export async function loadCodeParsers(markdown: string): Promise<CodeParsers> {
   return parsers
 }
 
+/**
+ * The parser for a source file, chosen by its name (T85). Null for a file type without one, such as a log,
+ * or when the parser fails to load; the file is then shown without colors.
+ */
+export async function loadFileParser(filename: string): Promise<Language['parser'] | null> {
+  const description = LanguageDescription.matchFilename(languages, filename)
+  if (!description) return null
+  try { return (description.support ?? await description.load()).language.parser }
+  catch { return null }
+}
+
 function languageOf(code: Element): string | null {
   const classes = code.properties?.className
   const list = Array.isArray(classes) ? classes : typeof classes === 'string' ? classes.split(/\s+/) : []

@@ -110,7 +110,7 @@ export type RenderedExport = { html: string; omittedHtml: number; hasMath: boole
  * renderer (which also runs in the worker) never loads fonts or textures. `fontsEmbedded` opens the
  * page CSP to `font-src data:` and nothing else.
  */
-export type ExportPageOptions = { stylesheet?: string; fontsEmbedded?: boolean; captions?: boolean; /** `en` for a mostly-Western document, so its words hyphenate (T68). */ lang?: 'zh-CN' | 'en' }
+export type ExportPageOptions = { stylesheet?: string; fontsEmbedded?: boolean; captions?: boolean; /** The finished body of a text or source file (T88), already escaped by its own renderer; `markdown` is then not parsed. */ bodyHtml?: string; /** `en` for a mostly-Western document, so its words hyphenate (T68). */ lang?: 'zh-CN' | 'en' }
 
 /** Renders a page and reports how many raw HTML fragments sanitizing left out. */
 export async function renderExport(markdown: string, title: string, resolveImage: ImageResolver, diagrams: ReadonlyMap<string, string> = new Map(), page: ExportPageOptions = {}): Promise<RenderedExport> {
@@ -130,7 +130,7 @@ export async function renderExport(markdown: string, title: string, resolveImage
     .use(rehypeNumericColumns)
     .use(rehypeFigures, { captions: page.captions ?? true })
     .use(rehypeStringify, { allowDangerousHtml: true })
-  const body = String(await processor.process(exportBody(markdown)))
+  const body = page.bodyHtml ?? String(await processor.process(exportBody(markdown)))
   // `</style` cannot occur in generated CSS, but escape it anyway so the stylesheet can never end early.
   const css = (page.stylesheet ?? fallbackStylesheet).replace(/<\/style/gi, '<\\/style')
   const html = `<!doctype html>\n<html lang="${page.lang === 'en' ? 'en' : 'zh-CN'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src ${page.fontsEmbedded ? 'data:' : "'none'"}"><title>${escapeHtml(title)}</title><style>${css}</style></head><body><main class="mino-page"><article class="mino-doc">${body}</article></main></body></html>`

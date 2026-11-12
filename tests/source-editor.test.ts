@@ -85,3 +85,42 @@ describe('SourceEditor', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 })
+
+describe('SourceEditor for text and source files (T84, T85)', () => {
+  function plain(text: string, readOnly = false) {
+    const parent = document.createElement('div')
+    document.body.append(parent)
+    const onChange = vi.fn()
+    const editor = new SourceEditor(parent, text, 'label', false, { onChange, onSelect: vi.fn() }, 'plain', readOnly)
+    return { editor, view: EditorView.findFromDOM(parent) as EditorView, onChange }
+  }
+
+  it('does not treat a text file as Markdown', async () => {
+    const { language } = await import('@codemirror/language')
+    const { view } = plain('# not a heading\n*not emphasis*\n')
+    expect(view.state.facet(language)).toBeNull()
+    expect(create('# heading\n').view.state.facet(language)?.name).toBe('markdown')
+  })
+
+  it('takes a language once it has loaded and keeps the text', async () => {
+    const { language, LanguageDescription } = await import('@codemirror/language')
+    const { languages } = await import('@codemirror/language-data')
+    const { editor, view, onChange } = plain('{"a": 1}\n')
+    editor.setLanguage(await LanguageDescription.matchFilename(languages, 'config.json')!.load())
+    expect(view.state.facet(language)?.name).toBe('json')
+    expect(editor.value).toBe('{"a": 1}\n')
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('opens read-only for reading and unlocks for editing', () => {
+    const { editor, view, onChange } = plain('第一行\r\n第二行\r\n', true)
+    expect(view.state.readOnly).toBe(true)
+    expect(view.contentDOM.getAttribute('aria-readonly')).toBe('true')
+    editor.readOnly = false
+    expect(view.state.readOnly).toBe(false)
+    view.dispatch({ changes: { from: 0, insert: '序 ' }, userEvent: 'input.type' })
+    expect(onChange).toHaveBeenCalledTimes(1)
+    // The line that was not touched keeps its CRLF.
+    expect(editor.value).toBe('序 第一行\r\n第二行\r\n')
+  })
+})

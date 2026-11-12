@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Mino is a local Markdown editor and reader for macOS on Apple Silicon that is offline by default (the optional AI assistant is the only feature that uses the network, and only after the user turns it on), built with Tauri 2 (Rust), React 19, TypeScript, and Milkdown/Crepe. The toolchain must be arm64: Node ≥22 (`.nvmrc` pins 22.23.2), Rust, and the Xcode Command Line Tools.
+Mino is a local Markdown editor and reader for macOS on Apple Silicon — it also reads and edits plain text and source files and reads PDFs — that is offline by default (the optional AI assistant is the only feature that uses the network, and only after the user turns it on), built with Tauri 2 (Rust), React 19, TypeScript, and Milkdown/Crepe. The toolchain must be arm64: Node ≥22 (`.nvmrc` pins 22.23.2), Rust, and the Xcode Command Line Tools.
 
 ## Commands
 
@@ -63,6 +63,15 @@ The frontend never supplies arbitrary paths for reading or writing. Rust stores 
 - Fonts are registered in `src/features/reading/fonts.ts`. Chinese and Western fonts are chosen separately (`cjkFont`, `latinFont`); `sys:<family>` names a font installed on the Mac, listed by `list_system_fonts`, and its name is validated in both TypeScript and Rust before it reaches CSS. Only fonts whose license allows redistribution are bundled; `doc/evidence/bundled-font-licenses.tsv` and each folder under `src/assets/fonts/` record the source and license.
 - A mostly-Western document (`dominantScript` in `script.ts`) gets Western layout through the same CSS variables.
 
+### Other formats: text, source files, PDF
+
+- `src-tauri/src/file_kinds.rs` is the only list of supported extensions and decides what a file is opened as (`markdown`, `text`, `code`, `pdf`); `src/features/document/kinds.ts` repeats it and a test compares the two, as does one for `fileAssociations` in `tauri.conf.json`. Content is checked too: binary data behind a supported extension is `UNSUPPORTED_FORMAT`.
+- Text is decoded by `text_encoding.rs` (UTF-8, UTF-16, GB18030, Big5 and what `chardetng` guesses) and written back in the encoding the grant recorded. `UNENCODABLE` means the user must agree to UTF-8 first; never write a lossy file.
+- A text, source or PDF document has `kind` set and `mode: 'source-protected'`; it never reaches Crepe or the Markdown analysis. Text and source files are read through their own renderers (`src/features/text/`, run in the analysis worker, output escaped with a fixed set of tags) and edited in `SourceEditor`. Keep Markdown-only paths (`switchToVisual`, snapshots, asset handling) guarded by `kind === 'markdown'`.
+- A PDF is read-only and rendered by `pdfjs-dist` (`src/features/pdf/`, loaded only when one is opened). Its bytes come through `read_document_range`, which rechecks the grant and the file's identity on every call; its character maps and fonts come through `read_app_asset`. The CSP is unchanged, so nothing there may `fetch`, and WebAssembly stays off (`useWasm: false`). `scripts/pdf-assets-plugin.mjs` copies the data files into `dist/pdfjs/`.
+- Reading positions of text and PDF files are kept by `positions.rs` under a hash of the path.
+- Sample files live in `tests/fixtures/formats/`; edit `scripts/generate-format-fixtures.py` (`--check` verifies them), not the files. In development, `?ui-preview=editor&ui-file=<name>` shows one without Rust.
+
 ### AI assistant
 
 - Off by default. `src-tauri/src/ai.rs` is the only code that makes network requests: OpenAI-compatible streaming chat to the address in `ai.json`, with the API key in the macOS Keychain. The webview's CSP and capabilities stay closed, so never add a frontend `fetch` for it.
@@ -73,7 +82,7 @@ The frontend never supplies arbitrary paths for reading or writing. Rust stores 
 
 - A file of 200,000 characters or more that opens in reading mode is shown through the preview first (`src/features/document/largeDocument.ts`, `deferredVisual` in the workspace hook): its opening pages, then the whole. It is analyzed and loaded into the editor only when the user starts editing, and until then it is saved as its unchanged source.
 - Analysis, preview and export rendering run in `analysis.worker.ts`. A module that touches `document` while loading stops the worker from starting, and everything then falls back to the main thread without an error; `vite.config.ts` aliases one such dependency and checks the worker bundle for it.
-- The 2 MiB source-protection threshold is `VISUAL_SIZE_LIMIT_BYTES` in `compatibility.ts`. Raw HTML and footnotes stay visual, and the fragments are rechecked after the editor loads. The 20 MiB document and image limits are enforced in Rust.
+- The 2 MiB source-protection threshold is `VISUAL_SIZE_LIMIT_BYTES` in `compatibility.ts`. Raw HTML and footnotes stay visual, and the fragments are rechecked after the editor loads. The 20 MiB document and image limits (200 MiB for a PDF) are enforced in Rust.
 - HTML export, print, and preview must keep sanitizing untrusted markup and must not load remote images. Exports read immutable snapshots (`snapshots.rs`, `src/features/export/snapshot.ts`).
 
 ## Tests
@@ -89,4 +98,4 @@ The docs in `doc/` are written in Chinese and start at `doc/README.md`.
 - `doc/06-开发进度.md` is the only place task status is recorded. Other documents must not copy it, and `codeComplete`, automated verification, device verification, and user acceptance are tracked separately.
 - `doc/02-技术设计.md` includes planned structures and interfaces that may not exist yet, so check the code before relying on it.
 - `Markdown编辑器.md` is the original requirements file. Its SHA-256 is recorded in `doc/README.md`, so don't modify it.
-- When requirements change, update the product plan, technical design, development plan, Goal list, and acceptance mapping in that order, and record the affected task numbers. Tasks T01–T29 correspond to Goals G01–G29.
+- When requirements change, update the product plan, technical design, development plan, Goal list, and acceptance mapping in that order, and record the affected task numbers. Tasks T01–T29 correspond to Goals G01–G29, and later batches keep the same numbering (T81–T89 are the text, source and PDF formats).

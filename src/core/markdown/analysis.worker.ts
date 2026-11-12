@@ -4,13 +4,17 @@ import { renderExport, type ExportPageOptions, type ResolvedImage } from '../../
 import { imageUrlsIn } from '../../features/export/snapshot'
 import { mermaidSources } from './diagrams'
 import { countWords } from '../../features/document/wordCount'
-import { loadCodeParsers } from './highlight'
+import { loadCodeParsers, loadFileParser } from './highlight'
+import { renderTextHtml } from '../../features/text/textDocument'
+import { CODE_HIGHLIGHT_LIMIT, renderCodeHtml, renderDelimitedHtml } from '../../features/text/codeDocument'
 
-export type AnalysisRequest = { id: number; kind: 'prepare' | 'preview' | 'export' | 'image-urls' | 'mermaid-sources' | 'word-count'; source: string; assetKey?: string; title?: string; images?: Map<string, ResolvedImage>; diagrams?: Map<string, string>; page?: ExportPageOptions; captions?: boolean }
+export type AnalysisRequest = { id: number; kind: 'prepare' | 'preview' | 'export' | 'image-urls' | 'mermaid-sources' | 'word-count' | 'text-preview' | 'code-preview'; source: string; /** The file name of a source file, which selects its language. */ name?: string; /** A CSV or TSV file shown as a table. */ delimiter?: ',' | '\t'; assetKey?: string; title?: string; images?: Map<string, ResolvedImage>; diagrams?: Map<string, string>; page?: ExportPageOptions; captions?: boolean }
 
 self.onmessage = async (event: MessageEvent<AnalysisRequest>) => {
-  const { id, kind, source, assetKey, title, images, diagrams, page, captions } = event.data
+  const { id, kind, source, assetKey, title, images, diagrams, page, captions, name, delimiter } = event.data
   try {
+    if (kind === 'text-preview') { self.postMessage({ id, result: renderTextHtml(source) }); return }
+    if (kind === 'code-preview') { self.postMessage({ id, result: delimiter ? renderDelimitedHtml(source, delimiter) : renderCodeHtml(source, source.length <= CODE_HIGHLIGHT_LIMIT && name ? await loadFileParser(name) : null) }); return }
     if (kind === 'word-count') { self.postMessage({ id, result: countWords(source) }); return }
     if (kind === 'mermaid-sources') { self.postMessage({ id, result: mermaidSources(source) }); return }
     if (kind === 'image-urls') { self.postMessage({ id, result: imageUrlsIn(source) }); return }

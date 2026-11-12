@@ -1,11 +1,15 @@
 import type { DocumentWorkspace } from '../useDocumentWorkspace'
 import { samples, uiPreview } from '../useDocumentWorkspace'
 import { translateStatus } from '../i18n'
+import { extensionOf } from '../../features/document/kinds'
 
 export function StatusBar({ workspace: w }: { workspace: DocumentWorkspace }) {
-  const { document, settings, status, t, wordCounts } = w
+  const { document, pdfPages, settings, status, t, wordCounts } = w
+  // What the document is, and for text how it is stored on disk (T82).
+  const kindLabel = document.kind === 'pdf' ? 'PDF' : document.kind === 'text' ? t('纯文本') : document.kind === 'code' ? extensionOf(document.name).toUpperCase() : null
+  const encoding = document.kind !== 'pdf' && document.encoding && (document.kind !== 'markdown' || document.encoding !== 'UTF-8') ? ` · ${document.encoding}` : ''
   return <>
-      <footer className="app-status"><span className="status-message" role="status" title={translateStatus(status, settings.language)}>{translateStatus(status, settings.language)}</span><span className="status-mode">{wordCounts.selected !== null ? `${t('已选')} ${wordCounts.selected} / ` : ''}{wordCounts.total} {t('字')}</span><span className="status-mode">{w.previewPartial ? t('正在加载余下内容…') : document.deferredVisual ? t('快速阅读') : document.mode === 'source-protected' ? t('源码保护') : 'Markdown'}</span></footer>
+      <footer className="app-status"><span className="status-message" role="status" title={translateStatus(status, settings.language)}>{translateStatus(status, settings.language)}</span><span className="status-mode">{document.kind === 'pdf' ? (pdfPages === null ? '' : `${pdfPages} ${t('页')}`) : `${wordCounts.selected !== null ? `${t('已选')} ${wordCounts.selected} / ` : ''}${wordCounts.total} ${t('字')}`}</span><span className="status-mode">{w.previewPartial ? t('正在加载余下内容…') : kindLabel !== null ? `${kindLabel}${encoding}` : `${document.deferredVisual ? t('快速阅读') : document.mode === 'source-protected' ? t('源码保护') : 'Markdown'}${encoding}`}</span></footer>
   </>
 }
 

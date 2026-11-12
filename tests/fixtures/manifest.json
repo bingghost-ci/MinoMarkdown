@@ -283,5 +283,164 @@
     "checkpoints": [
       "deterministic F10 generator and expected manifest hash"
     ]
+  },
+  {
+    "id": "FMT-novel-utf8.txt",
+    "path": "formats/novel-utf8.txt",
+    "sha256": "af0a127e6ffea9b76ddda83b370435c7da015dbcd5ef89633fab5deffa689364",
+    "mode": "asset",
+    "checkpoints": [
+      "UTF-8, LF",
+      "volume / chapter / prologue / epilogue titles",
+      "Markdown and HTML characters that must stay text"
+    ]
+  },
+  {
+    "id": "FMT-novel-gb18030.txt",
+    "path": "formats/novel-gb18030.txt",
+    "sha256": "8c9d7e10f65dbd7d36577e80d8672fbe17e2b6bc249efd70d333adf95d8f41b1",
+    "mode": "asset",
+    "checkpoints": [
+      "GB18030 (GBK) bytes",
+      "CRLF"
+    ]
+  },
+  {
+    "id": "FMT-novel-utf16le-bom.txt",
+    "path": "formats/novel-utf16le-bom.txt",
+    "sha256": "5b498b8435d8425c366811c6bb50b6bab250fb294c75544225e216ab2ca7404c",
+    "mode": "asset",
+    "checkpoints": [
+      "UTF-16LE with byte-order mark"
+    ]
+  },
+  {
+    "id": "FMT-novel-utf8-bom.txt",
+    "path": "formats/novel-utf8-bom.txt",
+    "sha256": "a533f799e24625b621950fd1058ffd6bb86c5a10ac4254528883909cadb72869",
+    "mode": "asset",
+    "checkpoints": [
+      "UTF-8 with byte-order mark"
+    ]
+  },
+  {
+    "id": "FMT-essay-big5.txt",
+    "path": "formats/essay-big5.txt",
+    "sha256": "bb60157ed82a709f62d237be42155f5eebf7aaf2fb22605bd2cf15b6e7a28d86",
+    "mode": "asset",
+    "checkpoints": [
+      "Big5 bytes",
+      "traditional Chinese"
+    ]
+  },
+  {
+    "id": "FMT-wrapped-english.txt",
+    "path": "formats/wrapped-english.txt",
+    "sha256": "8cad0c81c8443f6a174f525e282e36e1922651349de6918da01bea6e92afd4d7",
+    "mode": "asset",
+    "checkpoints": [
+      "hard-wrapped paragraphs separated by blank lines",
+      "Chapter N titles"
+    ]
+  },
+  {
+    "id": "FMT-config.json",
+    "path": "formats/config.json",
+    "sha256": "b3c2d90354145664fb7fceb9a71f5613e8ab70aa424d14885fe922fa072159ed",
+    "mode": "asset",
+    "checkpoints": [
+      "JSON highlighting",
+      "characters that must be escaped"
+    ]
+  },
+  {
+    "id": "FMT-settings.yaml",
+    "path": "formats/settings.yaml",
+    "sha256": "437a107a28467962dcb0037d49efe041b4be6ffe1ff72d02d03b9942c48aeb5e",
+    "mode": "asset",
+    "checkpoints": [
+      "YAML with a block scalar"
+    ]
+  },
+  {
+    "id": "FMT-server.log",
+    "path": "formats/server.log",
+    "sha256": "27489dc4bdf6f9e52b087f98330450801287d2cd05a8ff15b06ded3ed49249a7",
+    "mode": "asset",
+    "checkpoints": [
+      "log without a language",
+      "terminal color codes are still text"
+    ]
+  },
+  {
+    "id": "FMT-table.csv",
+    "path": "formats/table.csv",
+    "sha256": "b8a0b6193684461bf121da32dfb8802057b62b309e74d7e82e8476cb5f300606",
+    "mode": "asset",
+    "checkpoints": [
+      "quoted field with a comma",
+      "quoted field with a line break",
+      "doubled quotes",
+      "CRLF"
+    ]
+  },
+  {
+    "id": "FMT-table.tsv",
+    "path": "formats/table.tsv",
+    "sha256": "1ea1055976536cb72ed0371b5bada2f75dec4f59512fd9b57e3e157219f5105b",
+    "mode": "asset",
+    "checkpoints": [
+      "tab-separated",
+      "quotes inside an unquoted field"
+    ]
+  },
+  {
+    "id": "FMT-page.html",
+    "path": "formats/page.html",
+    "sha256": "9dad157d7cecd85aff95141192fa4e78b02023be7610b1589130d4f3154a693d",
+    "mode": "asset",
+    "checkpoints": [
+      "script, event handler and remote image that must only be shown as source"
+    ]
+  },
+  {
+    "id": "FMT-sample.pdf",
+    "path": "formats/sample.pdf",
+    "sha256": "dda4d4e8a2e625e0c00bcee74bae480c9b168b12b1d4460ed4f4f1771a6fe7da",
+    "mode": "asset",
+    "checkpoints": [
+      "3 pages of two sizes",
+      "standard font without embedding",
+      "CJK text through a predefined CMap",
+      "nested bookmarks",
+      "external and internal link"
+    ]
+  },
+  {
+    "id": "FMT-scanned.pdf",
+    "path": "formats/scanned.pdf",
+    "sha256": "98d535faf23294a7e3cb9c5d3bbdbd9ff45dda13a024f11de20700cc34b9cd87",
+    "mode": "asset",
+    "checkpoints": [
+      "2 pages without a text layer"
+    ]
+  },
+  {
+    "id": "FMT-archive-named.txt",
+    "path": "formats/archive-named.txt",
+    "sha256": "a4af8b23eec8fdf455dda114b78b85193e821bedab31046c2a58ddeef9fed985",
+    "mode": "asset",
+    "checkpoints": [
+      "binary content behind a text extension: UNSUPPORTED_FORMAT"
+    ]
+  },
+  {
+    "id": "FMT-not-a.pdf",
+    "path": "formats/not-a.pdf",
+    "sha256": "119a384ef4d899b96380728a7b24a2394ed1987c13cdb90b3ad9183834d11b75",
+    "mode": "asset",
+    "checkpoints": [
+      "text behind a PDF extension: UNSUPPORTED_FORMAT"
+    ]
   }
 ]

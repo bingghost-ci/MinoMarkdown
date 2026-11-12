@@ -5,7 +5,11 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import { compareMarkdown, describeIssues, exceedsVisualLimit, protectedFragments } from '../core/markdown/compatibility'
 import { opensForQuickReading, previewHead, quickReadAnalysis } from '../features/document/largeDocument'
-import { countWordsAsync, imageUrlsInAsync, mermaidSourcesAsync, prepareMarkdownAsync, renderExportAsync, renderPreviewAsync } from '../core/markdown/analysisClient'
+import { countWordsAsync, imageUrlsInAsync, mermaidSourcesAsync, prepareMarkdownAsync, renderCodePreviewAsync, renderExportAsync, renderPreviewAsync, renderTextPreviewAsync } from '../core/markdown/analysisClient'
+import { delimiterOf, extensionOf, isTextKind, kindOfName, titleOf, type DocumentKind } from '../features/document/kinds'
+import { textHead, textOutline } from '../features/text/textDocument'
+import type { PdfBridge, PdfHandle, PdfPosition } from '../features/pdf/PdfView'
+import { blockPosition, restoreBlockPosition } from '../features/text/readingPosition'
 import { mayContainMermaid } from '../core/markdown/diagrams'
 import { composeVisualMarkdown, prepareMarkdown, type PreparedMarkdown } from '../core/markdown/codec'
 import type { EditorAdapter as EditorInstance, PendingAsset, ToolbarState } from '../features/editor/EditorAdapter'
@@ -53,6 +57,23 @@ const MAX_LIVE_EDITORS = 5
 const loadEditorAdapter = () => import('../features/editor/EditorAdapter')
 // Development-only verification samples; the production bundle does not include them.
 const sampleFiles = import.meta.env.DEV ? import.meta.glob<string>('../../tests/fixtures/markdown/F0[1-5]-*.md', { query: '?raw', import: 'default' }) : {}
+// Development-only samples of the other formats (T81–T89), for `?ui-preview=editor&ui-file=<name>` screenshots.
+const formatSamples = import.meta.env.DEV ? import.meta.glob<string>('../../tests/fixtures/formats/*.{txt,json,yaml,log,csv,tsv,html}', { query: '?raw', import: 'default' }) : {}
+const formatSampleUrls = import.meta.env.DEV ? import.meta.glob<string>('../../tests/fixtures/formats/*.pdf', { query: '?url', import: 'default' }) : {}
+/** A long text made in the page, for timing: `ui-file=generated.txt&ui-chars=2000000`. */
+function generatedNovel(chars: number): string {
+  const parts: string[] = []
+  let length = 0
+  for (let chapter = 1; length < chars; chapter++) {
+    parts.push(`第${chapter}章 潮声\n`)
+    for (let paragraph = 0; paragraph < 40 && length < chars; paragraph++) {
+      const text = `　　这是第 ${chapter} 章的第 ${paragraph + 1} 段，用来测量长文本的打开时间：风从海面上吹来，带着盐和铁锈的气味，灯塔的光一圈一圈扫过礁石。\n`
+      parts.push(text)
+      length += text.length
+    }
+  }
+  return parts.join('')
+}
 const loadSample = async (id: string) => { const path = Object.keys(sampleFiles).find((item) => item.includes(`/${id}-`)); return path ? sampleFiles[path]() : spikeDocument }
 export const samples = [
   { id: 'intro', label: '输入验证' },
@@ -62,10 +83,12 @@ export const samples = [
   { id: 'F04', label: 'F04 链接与图片' },
   { id: 'F05', label: 'F05 表格' },
 ] as const
-type OpenResult = { token: string; name: string; markdown: string; revision: string; assetKey: string }
+type OpenResult = { token: string; name: string; markdown: string; revision: string; assetKey: string; /** What Rust opened the file as (T81); a PDF has no `markdown`. */ kind: DocumentKind; encoding?: string; size?: number }
 type SaveResult = OpenResult & { assetPaths: Record<string, string>; assetRelocations: Record<string, string> }
 type DiskStatus = { kind: 'same' | 'changed' | 'deleted'; revision: string | null }
 type DocumentState = OpenResult & { id: number; draftId: string; imageUrls: Map<string, string>; recoveredAssets: Map<string, { bytes: Uint8Array<ArrayBuffer>; mime: string }>; pendingFiles: Map<string, File>; retiredTokens: string[]; entryToken?: string; sampleId?: string; originalMarkdown: string; prepared: PreparedMarkdown; /** T77: a large document shown through the preview until the user edits; see largeDocument.ts. */ deferredVisual?: boolean; sourceText: string; mode: 'visual' | 'source-protected'; reading?: boolean }
+/** The bytes a PDF may hold in one IPC answer; Rust allows 8 MiB. */
+const PDF_TEXT_BUDGET = 2_000_000
 type DraftSummary = { draftId: string; name: string; targetPath: string | null; targetStatus: 'same' | 'changed' | 'deleted' | 'unknown' | 'untitled'; snapshots: number }
 type DraftContent = DraftSummary & { markdown: string; assets: StagedAsset[]; assetCount: number }
 type WorkspaceRoot = { token: string; name: string }
@@ -76,7 +99,7 @@ type SearchResults = { hits: SearchHit[]; truncated: boolean; skipped: number }
 const SEARCH_HIT_LIMIT = 500
 type SnapshotOut = { markdown: string; title: string; assets: StagedAsset[]; generation: number; revision: number }
 type RestoredSession = { documents: OpenResult[]; active: number | null; missing: number }
-type OpenIntent = { token: string; name: string; kind: 'markdown' | 'image' | 'folder' }
+type OpenIntent = { token: string; name: string; kind: 'document' | 'image' | 'folder' }
 type NativeImageIntent = { name: string; mime: string; staged: string }
 export type Settings = ReadingSettings & { schemaVersion: number; sidebarWidth: number; outlineWidth: number; aiWidth: number; windowWidth: number; windowHeight: number; showFileToolbar: boolean; showSidebar: boolean; showOutline: boolean; autoSave: boolean; autoSaveSeconds: number; restoreSession: boolean; editorWidth: 'centered' | 'wide'; language: Language }
 const defaultSettings: Settings = { ...defaultReadingSettings, schemaVersion: 1, sidebarWidth: 230, outlineWidth: 240, aiWidth: 400, windowWidth: 1100, windowHeight: 760, showFileToolbar: false, showSidebar: true, showOutline: false, autoSave: false, autoSaveSeconds: 30, restoreSession: false, editorWidth: 'centered', language: 'zh-CN' }
@@ -84,7 +107,7 @@ export type SettingsTab = 'appearance' | 'typography' | 'reading' | 'workspace' 
 export type FloatingPanel = 'appearance' | null
 type TabItem = { key: string; document: DocumentState; session: DocumentSession }
 type DetachedAsset = { url: string; staged: string; mime: string }
-type DetachedTransfer = { name: string; token: string; assetKey: string; retiredTokens: string[]; revision: string; markdown: string; originalMarkdown: string; sourceText: string; mode: DocumentState['mode']; draftId: string; session: DocumentSession; assets: DetachedAsset[]; imageUrls: [string, string][] }
+type DetachedTransfer = { name: string; kind?: DocumentKind; encoding?: string; size?: number; token: string; assetKey: string; retiredTokens: string[]; revision: string; markdown: string; originalMarkdown: string; sourceText: string; mode: DocumentState['mode']; draftId: string; session: DocumentSession; assets: DetachedAsset[]; imageUrls: [string, string][] }
 type TreeState = { entries: WorkspaceEntry[]; nextOffset: number | null; expanded: boolean; loading: boolean; error: string | null }
 let nextDocumentId = 1
 /** The thin bar above the document shows how far the reader has scrolled; it is drawn without React. */
@@ -112,7 +135,7 @@ const previewTree: Record<string, TreeState> = {
 }
 
 function makeDocument(markdown: string, name = '未命名', sampleId?: string, prepared = prepareMarkdown(markdown)): DocumentState {
-  return { id: nextDocumentId++, draftId: crypto.randomUUID(), name, token: '', assetKey: '', revision: '', markdown: prepared.editorMarkdown, originalMarkdown: markdown, imageUrls: new Map(), recoveredAssets: new Map(), pendingFiles: new Map(), retiredTokens: [], sampleId, prepared, sourceText: markdown, mode: prepared.analysis.mode }
+  return { id: nextDocumentId++, draftId: crypto.randomUUID(), name, kind: 'markdown', token: '', assetKey: '', revision: '', markdown: prepared.editorMarkdown, originalMarkdown: markdown, imageUrls: new Map(), recoveredAssets: new Map(), pendingFiles: new Map(), retiredTokens: [], sampleId, prepared, sourceText: markdown, mode: prepared.analysis.mode }
 }
 
 export function errorText(error: unknown): string {
@@ -122,8 +145,13 @@ export function errorText(error: unknown): string {
     READING_MODE: '阅读模式下不能修改文档，按 ⌘⇧R 开始编辑。',
     COMMIT_UNCERTAIN: '文件可能已写入，但原目录在操作期间发生变化。请先到磁盘确认文件位置，再决定是否重试。',
     TARGET_EXISTS: '目标文件已存在，请选择其他文件名。',
-    INVALID_ENCODING: '文件不是有效的 UTF-8，暂不能在可视化模式打开。',
-    DOCUMENT_TOO_LARGE: '文档超过 20 MiB 上限，未截断或修改原文件。请在 Finder 中选择其他应用打开。',
+    INVALID_ENCODING: '无法识别这个文件的文字编码，没有打开，原文件未改动。',
+    UNSUPPORTED_FORMAT: '文件内容不是它的扩展名所表示的格式（可能是二进制文件），没有打开。',
+    UNSUPPORTED_FILE_TYPE: '不支持这种文件类型。可以打开 Markdown、纯文本、常见代码与配置文件和 PDF。',
+    UNENCODABLE: '内容里有原编码无法表示的字符，文件没有写入。',
+    READ_ONLY: 'PDF 只能阅读，不能保存或导出。',
+    CHANGED: '磁盘上的文件已经变化，正在重新载入。',
+    DOCUMENT_TOO_LARGE: '文件超过大小上限（PDF 200 MiB，其他 20 MiB），未截断或修改原文件。请在 Finder 中选择其他应用打开。',
     IMAGE_TOO_LARGE: '图片超过当前 20 MB 限制。',
     ASSET_WRITE_FAILED: '图片附件写入失败，正文没有保存。',
     ASSET_NOT_FOUND: '被引用的本地图片不存在，正文没有写入。',
@@ -144,11 +172,20 @@ export function errorText(error: unknown): string {
 
 /** T77: a large document as it opens for reading, before any analysis: the preview shows it and saving keeps its source. */
 function quickDocument(markdown: string, name: string): DocumentState {
-  return { token: '', assetKey: '', name, markdown, revision: '', id: nextDocumentId++, draftId: crypto.randomUUID(), originalMarkdown: markdown, imageUrls: new Map(), recoveredAssets: new Map(), pendingFiles: new Map(), retiredTokens: [], prepared: { analysis: quickReadAnalysis(markdown), editorMarkdown: markdown }, sourceText: markdown, mode: 'source-protected', deferredVisual: true }
+  return { token: '', assetKey: '', name, kind: 'markdown', markdown, revision: '', id: nextDocumentId++, draftId: crypto.randomUUID(), originalMarkdown: markdown, imageUrls: new Map(), recoveredAssets: new Map(), pendingFiles: new Map(), retiredTokens: [], prepared: { analysis: quickReadAnalysis(markdown), editorMarkdown: markdown }, sourceText: markdown, mode: 'source-protected', deferredVisual: true }
+}
+
+/**
+ * A text, source or PDF document (T81). It never enters the visual editor and is never analyzed as Markdown:
+ * it is read through its own preview and, when it is text, edited in the source editor and saved as typed.
+ */
+function plainDocument(text: string, name: string, kind: DocumentKind): DocumentState {
+  return { ...quickDocument(text, name), kind, deferredVisual: false }
 }
 
 /** Prepares an opened file without reading its images; the webview loads those lazily by URL. */
 async function hydrateImages(opened: OpenResult, quickRead = false): Promise<DocumentState> {
+  if (opened.kind !== 'markdown') return { ...plainDocument(opened.markdown, opened.name, opened.kind), ...opened }
   if (opensForQuickReading(opened.markdown, quickRead)) return { ...quickDocument(opened.markdown, opened.name), ...opened }
   const prepared = await prepareMarkdownAsync(opened.markdown)
   let markdown = prepared.editorMarkdown
@@ -185,9 +222,30 @@ export function useDocumentWorkspace() {
   const adapter = useRef<EditorInstance | null>(null)
   const adapterDocumentId = useRef<number | null>(null)
   const draftUploads = useRef(new Map<string, Set<string>>())
+  const previewPdf = useRef<Uint8Array | null>(null)
   const [document, setDocument] = useState<DocumentState>(() => uiPreview ? { ...(new URLSearchParams(window.location.search).get('ui-quick') === '1' ? quickDocument(previewSampleSource(new URLSearchParams(window.location.search).get('ui-sample')), '产品笔记.md') : makeDocument(previewSampleSource(new URLSearchParams(window.location.search).get('ui-sample')), '产品笔记.md')), entryToken: 'preview-file', reading: new URLSearchParams(window.location.search).get('ui-reading') === '1' } : makeDocument(''))
   const documentRef = useRef(document)
   documentRef.current = document
+  // `?ui-preview=editor&ui-file=novel-utf8.txt` (development only) shows a format sample as an opened file would be.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const name = uiPreview ? params.get('ui-file') : null
+    if (!name) return
+    const kind = kindOfName(name)
+    const reading = params.get('ui-reading') !== '0'
+    void (async () => {
+      if (kind === 'pdf') {
+        const url = Object.entries(formatSampleUrls).find(([path]) => path.endsWith(`/${name}`))?.[1]
+        if (!url) return
+        previewPdf.current = new Uint8Array(await (await fetch(await url())).arrayBuffer())
+        setDocument({ ...plainDocument('', name, 'pdf'), token: 'preview-pdf', size: previewPdf.current.length, reading: true })
+      } else if (kind === 'text' || kind === 'code') {
+        const load = Object.entries(formatSamples).find(([path]) => path.endsWith(`/${name}`))?.[1]
+        const text = name === 'generated.txt' ? generatedNovel(Number(params.get('ui-chars')) || 1_000_000) : load ? await load() : null
+        if (text !== null) setDocument({ ...plainDocument(text, name, kind), token: 'preview-text', encoding: 'UTF-8', reading })
+      }
+    })()
+  }, [])
   const initialDocumentId = useRef(document.id)
   const [session, setSession] = useState<DocumentSession>(() => createSession(document.id))
   const sessionRef = useRef(session)
@@ -272,31 +330,53 @@ export function useDocumentWorkspace() {
   const persistedSettings = useRef(settings)
   const dirty = isDirty(session)
   const activeConflict = diskConflict?.documentId === document.id
-  const wantsPreview = document.mode === 'source-protected' && !sourceView && !exceedsVisualLimit(document.sourceText)
-  const [preview, setPreview] = useState<{ source: string; html: string | null; partial?: boolean } | null>(null)
-  const previewPending = wantsPreview && preview?.source !== document.sourceText
+  const reading = Boolean(document.reading)
+  const plain = document.kind !== 'markdown'
+  const isPdf = document.kind === 'pdf'
+  /** A CSV or TSV file is shown as a table unless the reader asks for its text (T85). */
+  const [tableView, setTableView] = useState(true)
+  const delimiter = document.kind === 'code' && tableView ? delimiterOf(document.name) : null
+  // A text or source file is read through its preview and edited in the source editor (T84); find shows the source.
+  const sourceShown = plain ? !isPdf && (!reading || sourceView) : sourceView
+  const wantsPreview = document.mode === 'source-protected' && !isPdf && !sourceShown && (document.kind === 'text' || !exceedsVisualLimit(document.sourceText))
+  const previewVariant = `${document.kind}:${document.kind === 'code' ? `${extensionOf(document.name)}:${delimiter ?? ''}` : ''}`
+  const [preview, setPreview] = useState<{ source: string; variant: string; html: string | null; partial?: boolean } | null>(null)
+  const previewPending = wantsPreview && (preview?.source !== document.sourceText || preview.variant !== previewVariant)
   const previewHtml = wantsPreview && !previewPending ? preview?.html ?? null : null
   const previewPartial = previewHtml !== null && Boolean(preview?.partial)
+  const previewPartialRef = useRef(previewPartial)
+  previewPartialRef.current = previewPartial
   useEffect(() => {
     if (!wantsPreview) return
     let current = true
     const source = document.sourceText
+    const variant = previewVariant
+    // Each kind has its own renderer; only Markdown is parsed as Markdown.
+    const render = document.kind === 'text' ? (text: string) => renderTextPreviewAsync(text)
+      : document.kind === 'code' ? (text: string) => renderCodePreviewAsync(text, document.name, delimiter)
+      : (text: string) => renderPreviewAsync(text, document.assetKey || undefined, settings.imageCaptions)
     // T77: the opening pages of a long document appear first; the worker renders the whole after them.
-    const head = previewHead(source)
-    if (head !== null) renderPreviewAsync(head, document.assetKey || undefined, settings.imageCaptions).then((html) => { if (current) { performance.mark('mino-preview-head'); setPreview((shown) => shown?.source === source && !shown.partial ? shown : { source, html, partial: true }) } }, () => undefined)
-    renderPreviewAsync(source, document.assetKey || undefined, settings.imageCaptions).then((html) => html, () => null).then((html) => { if (current) { performance.mark('mino-preview-full'); setPreview({ source, html }) } })
+    const head = document.kind === 'markdown' ? previewHead(source) : document.kind === 'text' ? textHead(source) : null
+    if (head !== null) render(head).then((html) => { if (current) { performance.mark('mino-preview-head'); setPreview((shown) => shown?.source === source && shown.variant === variant && !shown.partial ? shown : { source, variant, html, partial: true }) } }, () => undefined)
+    render(source).then((html) => html, () => null).then((html) => { if (current) { performance.mark('mino-preview-full'); setPreview({ source, variant, html }) } })
     return () => { current = false }
-  }, [wantsPreview, document.sourceText, document.assetKey, settings.imageCaptions])
+  }, [wantsPreview, document.sourceText, document.assetKey, document.kind, document.name, previewVariant, settings.imageCaptions])
   const refreshDerivedRef = useRef<() => void>(() => undefined)
   refreshDerivedRef.current = () => {
     if (settingsRef.current.showOutline) setOutlineItems(currentOutline())
     void refreshWordCounts()
   }
-  useEffect(() => { refreshDerivedRef.current() }, [document.id, document.mode, toolbar.ready, sourceView, previewHtml, settings.showOutline])
+  const [pdfOutlineItems, setPdfOutlineItems] = useState<{ id: number; items: OutlineItem[] }>({ id: 0, items: [] })
+  const pdfOutlineRef = useRef(pdfOutlineItems)
+  pdfOutlineRef.current = pdfOutlineItems
+  const [pdfPages, setPdfPages] = useState<{ id: number; pages: number } | null>(null)
+  const pdfView = useRef<PdfHandle | null>(null)
+  useEffect(() => { refreshDerivedRef.current() }, [document.id, document.mode, toolbar.ready, sourceShown, previewHtml, settings.showOutline, pdfOutlineItems])
 
   async function refreshWordCounts(): Promise<void> {
     const sequence = ++wordCountSequence.current
     const current = documentRef.current
+    if (current.kind === 'pdf') { setWordCounts((old) => old.total === 0 && old.selected === null ? old : { total: 0, selected: null }); return }
     const element = sourceEditor.current
     const visual = current.mode === 'visual' ? adapter.current?.plainText() : null
     const text = visual?.text ?? element?.value ?? current.sourceText
@@ -310,12 +390,15 @@ export function useDocumentWorkspace() {
   function currentOutline(): OutlineItem[] {
     const current = documentRef.current
     if (current.mode === 'visual') return adapter.current?.outline() ?? []
+    if (current.kind === 'pdf') return pdfOutlineRef.current.id === current.id ? pdfOutlineRef.current.items : []
     if (previewRoot.current) return Array.from(previewRoot.current.querySelectorAll('h1, h2, h3, h4, h5, h6'), (heading, target) => ({ level: Number(heading.tagName[1]), text: heading.textContent?.trim() ?? '', target })).filter((item) => item.text)
-    return outlineFromSource(sourceEditor.current?.value ?? current.sourceText)
+    if (current.kind === 'code') return []
+    return (current.kind === 'text' ? textOutline : outlineFromSource)(sourceEditor.current?.value ?? current.sourceText)
   }
 
   function goToOutlineItem(item: OutlineItem) {
     if (documentRef.current.mode === 'visual') { adapter.current?.revealHeading(item.target); return }
+    if (documentRef.current.kind === 'pdf') { pdfView.current?.goToPage(item.target); return }
     if (previewRoot.current) { previewRoot.current.querySelectorAll('h1, h2, h3, h4, h5, h6')[item.target]?.scrollIntoView({ block: 'start' }); return }
     const element = sourceEditor.current
     if (!element) return
@@ -385,25 +468,28 @@ export function useDocumentWorkspace() {
     setTabMenu(null)
   }
 
-  const reading = Boolean(document.reading)
   const scrollPositions = useRef(new Map<number, number>())
+  /** Where a text or source file was left the last time it was read (T83), by document id, until it is applied. */
+  const savedPositions = useRef(new Map<number, number>())
 
   /** The element that scrolls the active document: the editor root, or the preview of a protected document. */
   function documentScroller(): HTMLElement | null {
     if (documentRef.current.mode === 'visual') return adapter.current?.rootElement ?? null
+    if (documentRef.current.kind === 'pdf') return pdfView.current?.scroller ?? null
     return previewRoot.current
   }
 
   function setReading(next: boolean) {
     const current = documentRef.current
     if (Boolean(current.reading) === next) return
+    if (current.kind === 'pdf') { setStatus('PDF 只能阅读'); return }
     if (next && toolbar.composing) return
     documentRef.current = { ...current, reading: next }
     setDocument(documentRef.current)
     updateTabs(tabsRef.current.map((tab) => tab.key === activeTabKeyRef.current ? { ...tab, document: documentRef.current } : tab))
-    if (next) { setLinkOpen(false); setImageAltOpen(false); setTablePicker(null); if (current.mode === 'source-protected') setSourceView(false) }
+    if (next) { flushSourceText(); setLinkOpen(false); setImageAltOpen(false); setTablePicker(null); if (documentRef.current.mode === 'source-protected') setSourceView(false) }
     setStatus(next ? '阅读模式 · 按 ⌘⇧R 开始编辑' : '编辑模式')
-    if (!next) window.setTimeout(() => adapter.current?.focus(), 0)
+    if (!next) window.setTimeout(() => current.kind === 'markdown' ? adapter.current?.focus() : sourceEditor.current?.focus(), 0)
   }
 
   /** T77: where the reader was in the quick-reading preview, as a fraction, for the editor that replaces it. */
@@ -413,9 +499,15 @@ export function useDocumentWorkspace() {
     requestAnimationFrame(() => {
       const scroller = documentScroller()
       if (!scroller) return
-      const carried = carriedScroll.current?.id === documentRef.current.id ? carriedScroll.current.fraction : null
+      const id = documentRef.current.id
+      const carried = carriedScroll.current?.id === id ? carriedScroll.current.fraction : null
       carriedScroll.current = null
-      scroller.scrollTop = carried !== null ? carried * (scroller.scrollHeight - scroller.clientHeight) : scrollPositions.current.get(documentRef.current.id) ?? 0
+      const session = scrollPositions.current.get(id)
+      const saved = savedPositions.current.get(id)
+      // A text file returns to where it was left in an earlier run, once its whole page is there (T83).
+      if (carried === null && session === undefined && saved !== undefined && !previewPartialRef.current && scroller === previewRoot.current) {
+        if (restoreBlockPosition(scroller, saved)) savedPositions.current.delete(id)
+      } else scroller.scrollTop = carried !== null ? carried * (scroller.scrollHeight - scroller.clientHeight) : session ?? 0
       updateReadingProgress(scroller)
     })
   }
@@ -423,7 +515,7 @@ export function useDocumentWorkspace() {
   useEffect(() => { adapter.current?.setReadonly(reading) }, [reading, document.id, toolbar.ready])
   useEffect(() => { if (previewHtml !== null) restoreScroll() }, [previewHtml])
   // T77: a quickly opened large document is analyzed and loaded into the editor once the user leaves reading mode.
-  useEffect(() => { if (document.deferredVisual && !document.reading && !busy) void switchToVisualRef.current().catch(() => { if (documentRef.current.deferredVisual) setDocument({ ...documentRef.current, deferredVisual: false }); setStatus('无法准备编辑器，文档保持源码模式') }) }, [document.id, document.deferredVisual, document.reading, busy])
+  useEffect(() => { if (document.deferredVisual && document.kind === 'markdown' && !document.reading && !busy) void switchToVisualRef.current().catch(() => { if (documentRef.current.deferredVisual) setDocument({ ...documentRef.current, deferredVisual: false }); setStatus('无法准备编辑器，文档保持源码模式') }) }, [document.id, document.deferredVisual, document.reading, busy])
 
   useEffect(() => {
     let frame = 0
@@ -434,10 +526,38 @@ export function useDocumentWorkspace() {
       scrollPositions.current.set(documentRef.current.id, target.scrollTop)
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => updateReadingProgress(target))
+      schedulePositionSave()
     }
     window.addEventListener('scroll', onScroll, true)
     return () => { cancelAnimationFrame(frame); window.removeEventListener('scroll', onScroll, true) }
   }, [])
+
+  const positionTimer = useRef<number | undefined>(undefined)
+  /** Remembers the place in a text or source file a moment after scrolling stops; the PDF view saves its own. */
+  function schedulePositionSave() {
+    const current = documentRef.current
+    if (!desktop || !current.token || (current.kind !== 'text' && current.kind !== 'code')) return
+    window.clearTimeout(positionTimer.current)
+    positionTimer.current = window.setTimeout(() => {
+      const scroller = previewRoot.current
+      if (!scroller || documentRef.current.id !== current.id || previewPartialRef.current) return
+      const offset = blockPosition(scroller)
+      if (offset !== null) void invoke('set_reading_position', { token: current.token, position: { page: 0, offset } }).catch(() => undefined)
+    }, 1200)
+  }
+  useEffect(() => () => window.clearTimeout(positionTimer.current), [])
+  // Ask once per opened text or source file where it was left.
+  useEffect(() => {
+    const { id, token, kind } = documentRef.current
+    if (!desktop || !token || (kind !== 'text' && kind !== 'code') || scrollPositions.current.has(id)) return
+    let current = true
+    void invoke<PdfPosition | null>('get_reading_position', { token }).then((position) => {
+      if (!current || !position || position.offset <= 0 || scrollPositions.current.has(id)) return
+      savedPositions.current.set(id, position.offset)
+      if (documentRef.current.id === id && previewRoot.current) restoreScroll()
+    }).catch(() => undefined)
+    return () => { current = false }
+  }, [desktop, document.id, document.token])
 
   /** Reading keys: space pages down less two lines, arrows scroll smoothly, letters only show a hint. */
   function handleReadingKey(event: KeyboardEvent): boolean {
@@ -457,7 +577,7 @@ export function useDocumentWorkspace() {
     if (event.key === 'End') { event.preventDefault(); scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' }); return true }
     if (event.key.length === 1 || event.key === 'Backspace' || event.key === 'Delete' || event.key === 'Enter') {
       event.preventDefault()
-      setStatus('阅读模式 · 按 ⌘⇧R 开始编辑')
+      if (documentRef.current.kind !== 'pdf') setStatus('阅读模式 · 按 ⌘⇧R 开始编辑')
       return true
     }
     return false
@@ -475,7 +595,7 @@ export function useDocumentWorkspace() {
 
   function openTab(opened: DocumentState, nextSession = createSession(opened.id)) {
     // Files opened from disk start in reading mode; new, draft-restored and unsaved documents open for editing.
-    const nextDocument = opened.reading !== undefined ? opened : { ...opened, reading: opensInReadingMode(settingsRef.current.openInReadingMode, Boolean(opened.token), isDirty(nextSession)) }
+    const nextDocument = opened.kind === 'pdf' ? { ...opened, reading: true } : opened.reading !== undefined ? opened : { ...opened, reading: opensInReadingMode(settingsRef.current.openInReadingMode, Boolean(opened.token), isDirty(nextSession)) }
     const activeDocument = documentRef.current
     const onlyWelcome = tabsRef.current.length === 1 && activeDocument.id === initialDocumentId.current && !activeDocument.token && activeDocument.markdown === '' && !isDirty(sessionRef.current)
     if (!onlyWelcome) captureCurrentTab()
@@ -580,7 +700,7 @@ export function useDocumentWorkspace() {
         assets.push(...await stageAssets(uploads))
       }
       await draftWriteChain.current.catch(() => undefined)
-      const transfer: DetachedTransfer = { name: note.name, token: note.token, assetKey: note.assetKey, retiredTokens: note.retiredTokens, imageUrls: Array.from(note.imageUrls), revision: note.revision, markdown, originalMarkdown: note.originalMarkdown, sourceText: note.sourceText, mode: note.mode, draftId: note.draftId, session: tab.session, assets }
+      const transfer: DetachedTransfer = { name: note.name, kind: note.kind, encoding: note.encoding, size: note.size, token: note.token, assetKey: note.assetKey, retiredTokens: note.retiredTokens, imageUrls: Array.from(note.imageUrls), revision: note.revision, markdown, originalMarkdown: note.originalMarkdown, sourceText: note.sourceText, mode: note.mode, draftId: note.draftId, session: tab.session, assets }
       await invoke('create_workspace_window', { transfer })
       const index = tabsRef.current.findIndex((item) => item.key === key)
       const remaining = tabsRef.current.filter((item) => item.key !== key)
@@ -603,7 +723,8 @@ export function useDocumentWorkspace() {
     if (!desktop) return
     void invoke<DetachedTransfer | null>('take_window_transfer').then(async (transfer) => {
       if (!transfer) return
-      const next = makeDocument(transfer.originalMarkdown, transfer.name, undefined, await prepareMarkdownAsync(transfer.originalMarkdown))
+      const kind = transfer.kind ?? 'markdown'
+      const next = kind === 'markdown' ? makeDocument(transfer.originalMarkdown, transfer.name, undefined, await prepareMarkdownAsync(transfer.originalMarkdown)) : { ...plainDocument(transfer.originalMarkdown, transfer.name, kind), encoding: transfer.encoding, size: transfer.size }
       const replacements = new Map<string, string>()
       for (const asset of transfer.assets) {
         const bytes = await readStaged(asset.staged)
@@ -633,7 +754,7 @@ export function useDocumentWorkspace() {
     setTablePicker(null)
     setImageAltOpen(false)
     if (document.mode === 'source-protected') {
-      setStatus(document.deferredVisual ? `已打开 ${document.name} · 大文档快速阅读，按 ⌘⇧R 开始编辑` : `源码模式：${describeIssues(document.prepared.analysis) || '手动切换'}；可保存原文`)
+      setStatus(document.kind === 'pdf' ? `已打开 ${document.name}` : document.kind !== 'markdown' ? `已打开 ${document.name}${document.reading ? ' · 阅读模式，按 ⌘⇧R 开始编辑' : ''}` : document.deferredVisual ? `已打开 ${document.name} · 大文档快速阅读，按 ⌘⇧R 开始编辑` : `源码模式：${describeIssues(document.prepared.analysis) || '手动切换'}；可保存原文`)
       if (findRef.current.open) window.setTimeout(() => runFindRef.current(findRef.current.query), 0)
       return
     }
@@ -916,7 +1037,9 @@ export function useDocumentWorkspace() {
     setBusy(true)
     try {
       const recovered = await invoke<DraftContent>('read_draft', { draftId, includeAssets: true })
-      const next = makeDocument(recovered.markdown, recovered.name, undefined, await prepareMarkdownAsync(recovered.markdown))
+      // A draft of a text or source file comes back as one; its name says what it was.
+      const recoveredKind = kindOfName(recovered.name)
+      const next = recoveredKind === 'text' || recoveredKind === 'code' ? plainDocument(recovered.markdown, recovered.name, recoveredKind) : makeDocument(recovered.markdown, recovered.name, undefined, await prepareMarkdownAsync(recovered.markdown))
       next.draftId = draftId
       const sourceAssets = new Map<string, { bytes: Uint8Array<ArrayBuffer>; mime: string }>()
       const replacements = new Map<string, string>()
@@ -1039,7 +1162,7 @@ export function useDocumentWorkspace() {
       setStatus(wasDirty ? '已加载磁盘最新版本；未保存修改已留在恢复草稿中' : '已加载磁盘最新版本')
     } finally {
       lockedEditor?.removeAttribute('inert')
-      if (lockedSource) lockedSource.readOnly = false
+      if (lockedSource) lockedSource.readOnly = documentRef.current.kind !== 'markdown' && Boolean(documentRef.current.reading)
       busyRef.current = false
       setBusy(false)
     }
@@ -1063,13 +1186,32 @@ export function useDocumentWorkspace() {
     catch (error) { setNotice({ kind: 'error', message: `无法加载磁盘版本：${errorText(error)}` }) }
   }
 
+  /**
+   * Runs a save command; when the text cannot be written in the file's own encoding (T82) the user is asked
+   * whether to save it as UTF-8 instead, and nothing is written unless they agree. `assets` is called again
+   * for the second attempt because staged uploads are consumed by the first.
+   */
+  async function invokeSave<T>(command: string, args: Record<string, unknown>, assets: () => Promise<StagedAsset[]>): Promise<T> {
+    try { return await invoke<T>(command, { ...args, assets: await assets(), forceUtf8: false }) }
+    catch (error) {
+      if (String(error) !== 'UNENCODABLE') throw error
+      const encoding = documentRef.current.encoding ?? ''
+      const agreed = window.confirm(settingsRef.current.language === 'en-US'
+        ? `Some characters cannot be written in this file's encoding${encoding ? ` (${encoding})` : ''}.\nSave the file as UTF-8 instead?`
+        : `内容里有原编码${encoding ? `（${encoding}）` : ''}无法表示的字符。\n要把这个文件改存为 UTF-8 吗？`)
+      if (!agreed) throw new Error('UNENCODABLE')
+      return invoke<T>(command, { ...args, assets: await assets(), forceUtf8: true })
+    }
+  }
+
   async function saveConflictCopyAs(): Promise<void> {
     if (busyRef.current) { noteBusy(); return }
+    if (!isTextKind(documentRef.current.kind)) { setStatus(errorText('READ_ONLY')); return }
     setBusy(true)
     try {
       const markdown = currentDocumentText()
       const assets = adapter.current?.isReady() ? await adapter.current.pendingAssets() : []
-      const name = await invoke<string | null>('save_conflict_copy', { token: documentRef.current.token, markdown, assets: await stageAssets(assets) })
+      const name = await invokeSave<string | null>('save_conflict_copy', { token: documentRef.current.token, markdown }, () => stageAssets(assets))
       setStatus(name ? `已另存副本 ${name}；可继续选择使用磁盘版本` : '已取消另存，当前内容仍在编辑器中')
     } catch (error) { setNotice({ kind: 'error', message: errorText(error) }) }
     finally { setBusy(false) }
@@ -1117,7 +1259,7 @@ export function useDocumentWorkspace() {
     let candidateToken: string | null = null
     try {
       while (busyRef.current) await new Promise((resolve) => window.setTimeout(resolve, 100))
-      if (intent.kind === 'markdown') {
+      if (intent.kind === 'document') {
         const opened = await invoke<OpenResult>('open_intent_document', { token: intent.token })
         candidateToken = opened.token
         const hydrated = await hydrateImages(opened, settingsRef.current.openInReadingMode)
@@ -1128,7 +1270,7 @@ export function useDocumentWorkspace() {
         const chosen = await invoke<WorkspaceRoot>('open_intent_workspace', { token: intent.token })
         await activateWorkspace(chosen)
       } else {
-        if (document.mode !== 'visual') { await invoke('discard_open_intent', { token: intent.token }); setStatus('源码保护模式不能直接插入图片'); return }
+        if (document.mode !== 'visual') { await invoke('discard_open_intent', { token: intent.token }); setStatus(document.kind === 'markdown' ? '源码保护模式不能直接插入图片' : '这类文档不能插入图片'); return }
         const image = await invoke<NativeImageIntent>('read_intent_image', { token: intent.token })
         let attempts = 0
         while (!adapter.current?.isReady() && attempts++ < 50) await new Promise((resolve) => window.setTimeout(resolve, 100))
@@ -1162,7 +1304,7 @@ export function useDocumentWorkspace() {
       finally { draining = false }
     }
     void getCurrentWindow().listen('open-intents-available', () => void drain()).then((stop) => { if (canceled) stop(); else unlisten = stop }).catch((error: unknown) => setStatus(errorText(error)))
-    void getCurrentWindow().listen('open-intents-empty-drop', () => setStatus('macOS 未提供拖入文件路径，请从 Finder 拖入本地 Markdown 文件')).then((stop) => { if (canceled) stop(); else unlistenEmpty = stop }).catch((error: unknown) => setStatus(errorText(error)))
+    void getCurrentWindow().listen('open-intents-empty-drop', () => setStatus('macOS 未提供拖入文件路径，请从 Finder 拖入本地文件')).then((stop) => { if (canceled) stop(); else unlistenEmpty = stop }).catch((error: unknown) => setStatus(errorText(error)))
     void drain()
     return () => { canceled = true; unlisten?.(); unlistenEmpty?.() }
   }, [desktop])
@@ -1425,6 +1567,7 @@ export function useDocumentWorkspace() {
       else noteBusy()
       return false
     }
+    if (!isTextKind(document.kind)) { if (!background) setStatus(errorText('READ_ONLY')); return false }
     if (document.mode === 'visual' && !instance) return false
     if (toolbar.composing) { setStatus('请先完成当前中文输入，再保存'); return false }
     if (document.token && !asNew && !isDirty(sessionRef.current)) {
@@ -1441,12 +1584,13 @@ export function useDocumentWorkspace() {
       const markdown = visual ? composeVisualMarkdown(document.prepared.analysis, editorMarkdown) : editorMarkdown
       const referenced = new Set(imageUrlsIn(markdown))
       const assets: PendingAsset[] = visual ? await instance!.pendingAssets() : Array.from(document.recoveredAssets, ([url, asset]) => ({ url, ...asset })).filter((asset) => referenced.has(asset.url))
-      const saved = await invoke<SaveResult | null>(asNew && document.token ? 'save_as_document' : 'save_document', {
+      const saved = await invokeSave<SaveResult | null>(asNew && document.token ? 'save_as_document' : 'save_document', {
         token: document.token || null,
         expectedRevision: ticket.diskRevision,
         markdown,
-        assets: await stageAssets(assets),
-      })
+        // A recovered draft of a text file is offered its own name and type, not Markdown.
+        suggestedName: !document.token && document.kind !== 'markdown' ? document.name : null,
+      }, () => stageAssets(assets))
       if (!saved) {
         queuedSave.current = false
         updateSession(saveCanceled(sessionRef.current, ticket))
@@ -1465,7 +1609,10 @@ export function useDocumentWorkspace() {
       const unchangedDuringSave = sessionRef.current.revision === ticket.revision
       if (unchangedDuringSave && sourceEditor.current && document.mode === 'source-protected') sourceEditor.current.value = saved.markdown
       setDocument((current) => current.id === document.id ? {
-        ...current, token: saved.token, assetKey: saved.assetKey, retiredTokens: document.token && saved.token !== document.token ? [...current.retiredTokens, document.token] : current.retiredTokens, name: saved.name, revision: saved.revision, originalMarkdown: saved.markdown, sourceText: current.mode === 'source-protected' && unchangedDuringSave ? saved.markdown : current.sourceText, sampleId: undefined,
+        ...current, kind: saved.kind, encoding: saved.encoding,
+        // A text file saved as Markdown becomes a Markdown document: read as one now, analyzed when editing starts.
+        deferredVisual: saved.kind === 'markdown' && current.kind !== 'markdown' ? true : current.deferredVisual,
+        token: saved.token, assetKey: saved.assetKey, retiredTokens: document.token && saved.token !== document.token ? [...current.retiredTokens, document.token] : current.retiredTokens, name: saved.name, revision: saved.revision, originalMarkdown: saved.markdown, sourceText: current.mode === 'source-protected' && unchangedDuringSave ? saved.markdown : current.sourceText, sampleId: undefined,
       } : current)
       setNotice((current) => current?.kind === 'error' ? null : current)
       const completed = saveSucceeded(sessionRef.current, ticket, saved.revision)
@@ -1495,12 +1642,16 @@ export function useDocumentWorkspace() {
 
   async function exportPage(mode: 'html' | 'print') {
     if (busy) { noteBusy(); return }
+    if (document.kind === 'pdf') { setStatus(errorText('READ_ONLY')); return }
     if ((document.mode === 'visual' && !adapter.current) || toolbar.composing) return
     setBusy(true)
     let snapshotId: string | null = null
     try {
-      snapshotId = await captureSnapshot(false)
-      const frozen = await invoke<SnapshotOut>('read_snapshot', { snapshotId })
+      // A text or source file has no images and is not Markdown: its own renderer makes the body (T88).
+      const plainText = document.kind === 'markdown' ? null : flushSourceText().sourceText
+      const bodyHtml = plainText === null ? undefined : document.kind === 'text' ? await renderTextPreviewAsync(plainText) : await renderCodePreviewAsync(plainText, document.name, delimiter)
+      if (plainText === null) snapshotId = await captureSnapshot(false)
+      const frozen = plainText === null ? await invoke<SnapshotOut>('read_snapshot', { snapshotId }) : { markdown: '', title: document.name, assets: [] as StagedAsset[], generation: document.id, revision: sessionRef.current.revision }
       const assets = new Map(await Promise.all(frozen.assets.map(async (asset) => [asset.url, { bytes: await readStaged(asset.staged), mime: asset.mime }] as const)))
       // The page carries the reading style, typography and only the font subsets its characters need (T59).
       const current = settingsRef.current
@@ -1508,11 +1659,11 @@ export function useDocumentWorkspace() {
       const { readAppAsset } = await import('../features/export/appAssets')
       const look = await buildExportStyle({
         style, typography: documentTypography(current, style, docScript), exportStyle: current.exportStyle, pdfMode: current.pdfMode, pageSize: current.pageSize, pageMargin: current.pageMargin,
-        text: `${frozen.title}\n${frozen.markdown}`, mode, readAsset: (path) => readAppAsset(path, (assetPath) => invoke<ArrayBuffer>('read_app_asset', { path: assetPath })),
+        text: `${frozen.title}\n${plainText ?? frozen.markdown}`, mode, readAsset: (path) => readAppAsset(path, (assetPath) => invoke<ArrayBuffer>('read_app_asset', { path: assetPath })),
       })
       const sources = mayContainMermaid(frozen.markdown) ? await mermaidSourcesAsync(frozen.markdown) : []
       const diagrams = sources.length ? await (await import('../features/diagrams/mermaid')).renderDiagramsForExport(sources, look.diagramStyleId) : new Map<string, string>()
-      const rendered = await renderExportAsync(frozen.markdown, frozen.title.replace(/\.(md|markdown)$/i, ''), assets, diagrams, { stylesheet: look.stylesheet, fontsEmbedded: look.fontsEmbedded, captions: current.imageCaptions, lang: layoutScript(current, docScript) === 'latin' ? 'en' : 'zh-CN' })
+      const rendered = await renderExportAsync(frozen.markdown, titleOf(frozen.title), assets, diagrams, { stylesheet: look.stylesheet, fontsEmbedded: look.fontsEmbedded, captions: current.imageCaptions, lang: layoutScript(current, docScript) === 'latin' ? 'en' : 'zh-CN', bodyHtml })
       const { omittedHtml, failedDiagrams } = rendered
       const html = rendered.hasMath ? (await import('../features/export/katexStyles')).embedMathStyles(rendered.html) : rendered.html
       const omitted = `${omittedHtml ? `；${omittedHtml} 处原始 HTML 未输出` : ''}${failedDiagrams ? `；${failedDiagrams} 张图表无法渲染，已保留代码` : ''}${look.fontFallback ? '；字体未能内嵌，已改用系统字体' : ''}`
@@ -1550,6 +1701,7 @@ export function useDocumentWorkspace() {
 
   async function exportSnapshotMD(textOnly: boolean) {
     if (busy) { noteBusy(); return }
+    if (document.kind !== 'markdown') { setStatus(document.kind === 'pdf' ? errorText('READ_ONLY') : '这类文档不是 Markdown；可以用“另存为”存成 Markdown。'); return }
     if (!desktop || (!textOnly && document.mode === 'source-protected')) return
     setBusy(true)
     let snapshotId: string | null = null
@@ -1577,6 +1729,7 @@ export function useDocumentWorkspace() {
   function runFileAction(action: string) {
     if (action.startsWith('recent:')) { void openRecent(action); return }
     if (action.startsWith('format-') || action.startsWith('transform-')) { runFormatAction(action); return }
+    if (isZoomAction(action) && documentRef.current.kind === 'pdf') { pdfView.current?.zoom(action as 'zoom-in' | 'zoom-out' | 'zoom-reset'); return }
     if (isZoomAction(action)) { setSettings((current) => ({ ...current, editorFontSize: zoomedFontSize(current.editorFontSize, action) })); return }
     if (action === 'new') void newDocument()
     if (action === 'open') void openDocument()
@@ -1586,7 +1739,7 @@ export function useDocumentWorkspace() {
     if (action === 'export-md') void exportSnapshotMD(false)
     if (action === 'export-text') void exportSnapshotMD(true)
     if (action === 'find') openFind()
-    if (action === 'toggle-source') { if (document.mode === 'visual') switchToSource(); else void switchToVisual() }
+    if (action === 'toggle-source' && document.kind === 'markdown') { if (document.mode === 'visual') switchToSource(); else void switchToVisual() }
     if (action === 'export-html') void exportPage('html')
     if (action === 'print') void exportPage('print')
     if (action === 'toggle-reading') setReading(!documentRef.current.reading)
@@ -1665,12 +1818,15 @@ export function useDocumentWorkspace() {
 
   function openFind() {
     setFindOpen(true)
-    if (documentRef.current.mode === 'source-protected') setSourceView(true)
+    if (documentRef.current.mode === 'source-protected' && documentRef.current.kind !== 'pdf') setSourceView(true)
   }
 
   function closeFind() {
     setFindOpen(false)
     adapter.current?.find('')
+    if (documentRef.current.kind === 'pdf') void pdfView.current?.find('', findOptionsRef.current)
+    // A text or source file being read returns from its source to the reading page.
+    else if (documentRef.current.kind !== 'markdown' && documentRef.current.reading) setSourceView(false)
     setFindCount({ current: 0, total: 0 })
     adapter.current?.focus()
   }
@@ -1695,7 +1851,15 @@ export function useDocumentWorkspace() {
     return exceedsVisualLimit(text) ? { ...options, regex: false } : options
   }
 
+  const pdfFindSequence = useRef(0)
   function runFind(query: string) {
+    if (documentRef.current.kind === 'pdf') {
+      // The text of a PDF is read page by page, so the count arrives a little later.
+      const sequence = ++pdfFindSequence.current
+      setFindRegexBlocked(false)
+      void pdfView.current?.find(query, findOptionsRef.current).then((count) => { if (sequence === pdfFindSequence.current) setFindCount(count) }, () => undefined)
+      return
+    }
     if (documentRef.current.mode === 'visual') { setFindRegexBlocked(false); setFindCount(adapter.current?.find(query, findOptionsRef.current) ?? { current: 0, total: 0 }); return }
     const text = sourceEditor.current?.value ?? documentRef.current.sourceText
     setFindRegexBlocked(exceedsVisualLimit(text))
@@ -1712,6 +1876,7 @@ export function useDocumentWorkspace() {
   }
 
   function findStep(direction: 1 | -1) {
+    if (documentRef.current.kind === 'pdf') { setFindCount(pdfView.current?.findStep(direction) ?? { current: 0, total: 0 }); return }
     if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.findStep(direction) ?? { current: 0, total: 0 }); return }
     refreshSourceMatches()
     const { matches, index } = sourceFind.current
@@ -1739,6 +1904,7 @@ export function useDocumentWorkspace() {
   }
 
   function replaceOne() {
+    if (documentRef.current.reading || documentRef.current.kind === 'pdf') { setStatus(errorText('READING_MODE')); return }
     if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.replaceCurrent(replaceText) ?? { current: 0, total: 0 }); return }
     refreshSourceMatches()
     const match = sourceFind.current.matches[sourceFind.current.index]
@@ -1746,6 +1912,7 @@ export function useDocumentWorkspace() {
   }
 
   function replaceEvery() {
+    if (documentRef.current.reading || documentRef.current.kind === 'pdf') { setStatus(errorText('READING_MODE')); return }
     if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.replaceAll(replaceText) ?? { current: 0, total: 0 }); return }
     refreshSourceMatches()
     replaceInSource(sourceFind.current.matches)
@@ -1898,13 +2065,13 @@ export function useDocumentWorkspace() {
 
   async function switchToVisual() {
     if (busy) { noteBusy(); return }
-    if (document.mode !== 'source-protected') return
+    if (document.mode !== 'source-protected' || document.kind !== 'markdown') return
     if (document.deferredVisual) setStatus('正在准备编辑器，大文档需要一些时间…')
     const document_ = flushSourceText()
     if (document_ !== document) { window.setTimeout(() => void switchToVisualRef.current(), 0); return }
     setBusy(true)
     try {
-      const visual = await hydrateImages({ token: document.token, assetKey: document.assetKey, name: document.name, markdown: document.sourceText, revision: document.revision })
+      const visual = await hydrateImages({ token: document.token, assetKey: document.assetKey, name: document.name, markdown: document.sourceText, revision: document.revision, kind: 'markdown', encoding: document.encoding })
       if (visual.mode !== 'visual') {
         setStatus(`仍需源码保护：${describeIssues(visual.prepared.analysis)}`)
         // The stand-in analysis of a quickly opened document gives way to the real one, so this is not retried.
@@ -1936,7 +2103,7 @@ export function useDocumentWorkspace() {
   const switchToVisualRef = useRef(switchToVisual)
   switchToVisualRef.current = switchToVisual
 
-  const persistenceLabel = session.persistence === 'saving' ? '保存中' : session.persistence === 'failed' ? '保存失败' : session.persistence === 'conflict' ? '磁盘冲突' : dirty ? '未保存' : document.token ? '已保存' : '未保存到磁盘'
+  const persistenceLabel = isPdf ? '只读' : session.persistence === 'saving' ? '保存中' : session.persistence === 'failed' ? '保存失败' : session.persistence === 'conflict' ? '磁盘冲突' : dirty ? '未保存' : document.token ? '已保存' : '未保存到磁盘'
 
   /** While reading, a click on an image opens it large over a dimmed page. */
   function openImageFromClick(event: { target: EventTarget | null }) {
@@ -1961,7 +2128,7 @@ export function useDocumentWorkspace() {
   }
   function insertAiMarkdown(markdown: string, placement: InsertPlacement) {
     const current = documentRef.current
-    if (current.reading) throw new Error('READING_MODE')
+    if (current.reading || current.kind === 'pdf') throw new Error('READING_MODE')
     if (current.mode === 'visual') {
       if (!adapter.current) throw new Error('EDITOR_NOT_READY')
       adapter.current.insertMarkdown(markdown, placement)
@@ -1974,13 +2141,60 @@ export function useDocumentWorkspace() {
     if (sessionRef.current.generation === current.id) updateSession(editSession(sessionRef.current))
     element.focus()
   }
+  const pdfText = useRef<{ id: number; text: string } | null>(null)
+  // What the PDF view needs from Rust. A new object per document keeps a late answer from reaching the next one.
+  const pdfBridge = useMemo<PdfBridge | null>(() => {
+    if (document.kind !== 'pdf' || !document.token) return null
+    const { id, token } = document
+    const sample = uiPreview ? previewPdf.current : null
+    if (sample) return {
+      source: { size: sample.length, read: async (offset, length) => sample.slice(offset, offset + length), readAsset: async (path) => new Uint8Array(await (await fetch(path)).arrayBuffer()) },
+      loadPosition: async () => null, savePosition: () => undefined, register: (handle) => { pdfView.current = handle }, onOutline: (items) => setPdfOutlineItems({ id, items }), onPages: (pages) => setPdfPages({ id, pages }), openLink: (href) => setStatus(href), onStatus: setStatus,
+    }
+    return {
+      source: {
+        size: document.size ?? 0,
+        read: async (offset, length) => { try { return new Uint8Array(await invoke<ArrayBuffer>('read_document_range', { token, offset, length })) } catch (error) { throw new Error(String(error)) } },
+        readAsset: async (path) => new Uint8Array(await invoke<ArrayBuffer>('read_app_asset', { path })),
+      },
+      loadPosition: () => invoke<PdfPosition | null>('get_reading_position', { token }),
+      savePosition: (position) => { void invoke('set_reading_position', { token, position }).catch(() => undefined) },
+      register: (handle) => { if (handle) pdfView.current = handle; else if (documentRef.current.id === id || documentRef.current.kind !== 'pdf') pdfView.current = null },
+      onOutline: (items) => setPdfOutlineItems({ id, items }),
+      onPages: (pages) => setPdfPages({ id, pages }),
+      openLink: (href) => linkOpenRef.current(href),
+      onStatus: setStatus,
+    }
+  }, [document.id, document.kind, document.token, document.size])
+
+  // The native menu follows the kind of document in front (T88): a PDF has nothing to save or format.
+  useEffect(() => {
+    if (!desktop) return
+    const apply = () => { void invoke('set_menu_state', { kind: documentRef.current.kind }).catch(() => undefined) }
+    apply()
+    window.addEventListener('focus', apply)
+    return () => window.removeEventListener('focus', apply)
+  }, [desktop, document.kind])
+
   const ai = useAiAssistant({
     transport: aiTransport,
     documentId: document.id,
     language: settings.language,
     getDocument: () => {
       const current = documentRef.current
-      return { title: current.name.replace(/\.(md|markdown)$/i, ''), markdown: current.mode === 'visual' ? adapter.current?.getMarkdown() ?? current.markdown : sourceEditor.current?.value ?? current.sourceText }
+      if (current.kind === 'pdf') return { title: titleOf(current.name), markdown: pdfText.current?.id === current.id ? pdfText.current.text : '' }
+      return { title: titleOf(current.name), markdown: current.mode === 'visual' ? adapter.current?.getMarkdown() ?? current.markdown : sourceEditor.current?.value ?? current.sourceText }
+    },
+    // The text of a PDF is extracted when a question is asked (T88); a scan has none and nothing is sent.
+    prepareDocument: async () => {
+      const current = documentRef.current
+      if (current.kind !== 'pdf' || pdfText.current?.id === current.id) return
+      if (!pdfView.current) throw new Error('PDF_NOT_READY')
+      setStatus('正在读取 PDF 文字…')
+      const extracted = await pdfView.current.text(PDF_TEXT_BUDGET)
+      if (extracted.scanned || !extracted.text.trim()) throw new Error('PDF_NO_TEXT')
+      if (documentRef.current.id === current.id) pdfText.current = { id: current.id, text: extracted.text }
+      setStatus(extracted.truncated ? `已读取 PDF 文字（共 ${extracted.pages} 页，只取了开头的一部分）` : `已读取 PDF 文字（共 ${extracted.pages} 页）`)
     },
     getHeadings: () => currentOutline(),
     getSelection: aiSelection,
@@ -1991,7 +2205,7 @@ export function useDocumentWorkspace() {
     onStatus: setStatus,
   })
   const sourceDark = style.dark
-  return { selectedDirectory, previewPartial, ai, panel, setPanel, systemFonts, loadSystemFonts, pickStyle, toggleDayNight, systemDark, latinLayout, style, sourceDark, reading, setReading, lightbox, setLightbox, openImageFromClick, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, preview, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettings, setSettingsOpen, setSettingsTab, setSourceView, setStatus, setTabMenu, settings, settingsOpen, settingsTab, sidebarOpen, sidebarRoot, sourceEditor, sourceView, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabMenu, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspaces }
+  return { plain, isPdf, tableView, setTableView, pdfBridge, pdfPages: pdfPages?.id === document.id ? pdfPages.pages : null, selectedDirectory, previewPartial, ai, panel, setPanel, systemFonts, loadSystemFonts, pickStyle, toggleDayNight, systemDark, latinLayout, style, sourceDark, reading, setReading, lightbox, setLightbox, openImageFromClick, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, preview, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettings, setSettingsOpen, setSettingsTab, setSourceView, setStatus, setTabMenu, settings, settingsOpen, settingsTab, sidebarOpen, sidebarRoot, sourceEditor, sourceView: sourceShown, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabMenu, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspaces }
 }
 
 export type DocumentWorkspace = ReturnType<typeof useDocumentWorkspace>

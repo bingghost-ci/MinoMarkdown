@@ -22,7 +22,7 @@ const toolbarItems: { command: EditorCommand; label: string; icon: LucideIcon; p
 ]
 
 export function EditorToolbar({ workspace: w }: { workspace: DocumentWorkspace }) {
-  const { reading, tablePicker, setTablePicker, adapter, applyLink, document, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, openTablePickerFromToolbar, previewHtml, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setSourceView, setStatus, sourceView, t, toolbar } = w
+  const { plain, reading, tablePicker, setTablePicker, adapter, applyLink, document, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, openTablePickerFromToolbar, previewHtml, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setSourceView, setStatus, sourceView, t, toolbar } = w
   function renderToolbarButton(item: (typeof toolbarItems)[number], inMenu = false) {
     const active = ({ bold: 'strong', italic: 'emphasis', strike: 'strike_through', inlineCode: 'inlineCode', bullet: 'bullet_list', ordered: 'ordered_list', task: 'task_list', quote: 'blockquote', codeBlock: 'code_block' } as Record<string, string>)[item.command]
     const pressed = active ? (['bullet', 'ordered', 'task', 'quote', 'codeBlock'].includes(item.command) ? toolbar.block === active : toolbar.marks.includes(active)) : undefined
@@ -31,6 +31,8 @@ export function EditorToolbar({ workspace: w }: { workspace: DocumentWorkspace }
   }
   // Reading mode shows the page alone (T64); the floating buttons hold what a reader needs.
   if (reading) return null
+  // A text or source file is edited as plain text: there is nothing to format and no separate preview switch (T84).
+  if (plain) return null
   return <>
           <div className="editor-toolbar" role="toolbar" aria-label={t('编辑工具栏')} onMouseDown={(event) => { if ((event.target as HTMLElement).closest('button')) event.preventDefault() }}>
             {document.mode === 'visual' && <>

@@ -470,3 +470,41 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .tree-root + .tree-root { margin-top: 6px; }
 .sidebar-heading h2 { flex: 1; }
 .ai-key-missing { border: 0; padding: 0; background: none; color: var(--danger); font: inherit; text-decoration: underline; cursor: pointer; }
+
+/* Text, source and table files (T83, T85). A source file or a table gets the full width of its pane. */
+.markdown-preview[data-kind="code"] .markdown-preview-content { max-width: none !important; }
+.markdown-preview[data-kind="code"] .mino-code pre { background: transparent; }
+
+/* The PDF view (T86, T87): a scrolling column of pages on the desk, with a small bar of controls below it. */
+.pdf-view { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.pdf-scroller { background: var(--desk) !important; outline: none; }
+.pdf-pages { display: flex; flex-direction: column; align-items: center; gap: 14px; margin: 0 auto; padding: 24px 0 96px; min-width: min-content; }
+.pdf-page { position: relative; flex: none; overflow: hidden; background: #fff; border-radius: 3px; box-shadow: 0 1px 2px rgb(0 0 0 / 0.16), 0 4px 16px rgb(0 0 0 / 0.1); }
+.pdf-page[data-failed="true"]::after { content: "!"; position: absolute; inset: 0; display: grid; place-items: center; color: #b00; font-size: 28px; }
+.pdf-page > canvas { display: block; width: 100%; height: 100%; }
+.pdf-view[data-dim="true"] .pdf-page > canvas { filter: brightness(0.72) contrast(0.96); }
+.pdf-view[data-dim="true"] .pdf-page { background: #b8b8b8; }
+.pdf-links { position: absolute; inset: 0; pointer-events: none; }
+.pdf-link { position: absolute; padding: 0; border: 0; border-radius: 2px; background: transparent; cursor: pointer; pointer-events: auto; }
+.pdf-link:hover, .pdf-link:focus-visible { background: rgb(0 96 223 / 0.14); outline: none; }
+.pdf-message { max-width: 420px; margin: 18vh auto 0; padding: 0 24px; color: var(--muted); text-align: center; line-height: 1.7; }
+.pdf-password { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.pdf-password label { display: flex; flex-direction: column; gap: 8px; color: var(--text); }
+.pdf-password input { min-width: 240px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
+.pdf-bar { position: absolute; left: 50%; bottom: 18px; z-index: 3; display: flex; align-items: center; gap: 2px; padding: 4px 8px; transform: translateX(-50%); border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--chrome, var(--surface)) 92%, transparent); box-shadow: 0 4px 18px rgb(0 0 0 / 0.16); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; opacity: 0.94; }
+.pdf-bar form { display: flex; align-items: center; gap: 4px; }
+.pdf-bar input { width: 44px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 5px; background: transparent; color: inherit; font: inherit; text-align: center; }
+.pdf-bar-divider { width: 1px; height: 16px; margin: 0 6px; background: var(--line); }
+.pdf-zoom { min-width: 40px; text-align: center; }
+::highlight(mino-pdf-find) { background-color: rgb(255 214 0 / 0.45); }
+::highlight(mino-pdf-find-current) { background-color: rgb(255 132 0 / 0.65); }
+
+/* The selectable text over a page, positioned by PDF.js; these are the rules it needs from its own viewer. */
+.pdf-page .textLayer { position: absolute; inset: 0; overflow: clip; opacity: 1; line-height: 1; letter-spacing: normal; word-spacing: normal; text-align: initial; -webkit-text-size-adjust: none; text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; color-scheme: only light; z-index: 0; --min-font-size: 1; --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size)); --min-font-size-inv: calc(1 / var(--min-font-size)); }
+.pdf-page .textLayer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; -webkit-user-select: text; user-select: text; }
+.pdf-page .textLayer > :not(.markedContent), .pdf-page .textLayer .markedContent span:not(.markedContent) { z-index: 1; --font-height: 0; font-size: calc(var(--text-scale-factor) * var(--font-height)); --scale-x: 1; --rotate: 0deg; transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
+.pdf-page .textLayer .markedContent { display: contents; }
+.pdf-page .textLayer span[role="img"] { -webkit-user-select: none; user-select: none; cursor: default; }
+.pdf-page .textLayer ::selection { background: rgb(0 96 223 / 0.28); color: transparent; }
+.pdf-page .textLayer br::selection { background: transparent; }
+.pdf-page .textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; -webkit-user-select: none; user-select: none; }

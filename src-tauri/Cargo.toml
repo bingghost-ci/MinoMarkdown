@@ -23,6 +23,8 @@ tauri = { version = "=2.12.4", features = [] }
 tauri-plugin-dialog = "2"
 # HTTP for the AI assistant. TLS comes from macOS (Secure Transport) and uses the system trust store.
 ureq = { version = "=3.5.1", default-features = false, features = ["native-tls-no-default"] }
+encoding_rs = "=0.8.42"
+chardetng = "=1.0.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "=0.6.5"

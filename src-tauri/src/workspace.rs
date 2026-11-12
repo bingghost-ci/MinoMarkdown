@@ -1,4 +1,5 @@
 use crate::documents::{DocumentStore, OpenDocument, open_granted_path, relocate_grants, forget_grants};
+use crate::file_kinds::{self, DocumentKind};
 use serde::Serialize;
 use std::{collections::{HashMap, HashSet}, fs, path::{Path, PathBuf}, sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex}};
 use tauri::{AppHandle, State, WebviewWindow};
@@ -36,10 +37,20 @@ pub struct SearchResults { hits: Vec<SearchHit>, truncated: bool, skipped: usize
 pub struct SearchState(Mutex<HashMap<String, Arc<AtomicU64>>>);
 
 fn require_main(window: &WebviewWindow) -> Result<(), String> { if crate::is_workspace_window(window.label()) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
-fn is_markdown(path: &Path) -> bool { path.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("md") || x.eq_ignore_ascii_case("markdown")) }
+/// Files the sidebar lists: every kind the app opens (T81).
+fn is_document(path: &Path) -> bool { DocumentKind::of(path).is_some() }
 fn ignored(name: &str) -> bool { name.starts_with('.') || matches!(name, "node_modules" | "target" | "dist" | "build" | "assets" | "venv" | "__pycache__") }
 fn valid_name(name: &str, directory: bool) -> bool {
-    !name.is_empty() && name.len() <= 200 && name == name.trim() && !ignored(name) && !name.contains(['/', '\\', ':']) && !name.chars().any(char::is_control) && (directory || is_markdown(Path::new(name)))
+    !name.is_empty() && name.len() <= 200 && name == name.trim() && !ignored(name) && !name.contains(['/', '\\', ':']) && !name.chars().any(char::is_control) && (directory || file_kinds::is_text_path(Path::new(name)))
+}
+/// A file keeps its kind when renamed, so a document that is open stays what it was opened as. A PDF may be
+/// renamed, though one cannot be created.
+fn valid_rename(current: &Path, name: &str, directory: bool) -> bool {
+    if directory { return valid_name(name, true); }
+    let kind = DocumentKind::of(Path::new(name));
+    if kind.is_none() || kind != DocumentKind::of(current) { return false; }
+    // The name rules are those of a text file; only the extension differs for a PDF.
+    if kind == Some(DocumentKind::Pdf) { valid_name(&Path::new(name).with_extension("md").to_string_lossy(), false) && name == name.trim() } else { valid_name(name, false) }
 }
 
 #[cfg(target_os = "macos")]
@@ -151,7 +162,7 @@ fn list_at(store: &WorkspaceStore, token: &str, offset: usize) -> Result<Childre
         if ignored(&name) { continue; }
         let path = entry.path();
         let Ok(meta) = fs::symlink_metadata(&path) else { continue };
-        if meta.file_type().is_symlink() || !(meta.is_dir() || meta.is_file() && is_markdown(&path)) { continue; }
+        if meta.file_type().is_symlink() || !(meta.is_dir() || meta.is_file() && is_document(&path)) { continue; }
         children.push((name, path, meta.is_dir()));
     }
     children.sort_by(|a,b| b.2.cmp(&a.2).then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase())).then_with(|| a.0.cmp(&b.0)));
@@ -249,7 +260,7 @@ pub fn create_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceS
 pub fn rename_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String, new_name: String) -> Result<WorkspaceEntry, String> {
     require_main(&window)?;
     let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(&entry_token).cloned().ok_or("OUT_OF_SCOPE")?;
-    if grant.path == grant.root || !valid_name(&new_name, grant.directory) { return Err("INVALID_NAME".into()); }
+    if grant.path == grant.root || !valid_rename(&grant.path, &new_name, grant.directory) { return Err("INVALID_NAME".into()); }
     let source = checked_path(&grant)?;
     if grant.directory && fs::read_dir(&source).map_err(|_| "IO_ERROR")?.next().is_some() { return Err("DIR_NOT_EMPTY".into()); }
     let target = rename_entry_at(&source, &new_name, grant.directory)?;
@@ -344,10 +355,10 @@ fn search_at(store: &WorkspaceStore, root_token: &str, query: &str, canceled: im
             let Ok(meta) = fs::symlink_metadata(&path) else { continue };
             if meta.file_type().is_symlink() { continue; }
             if meta.is_dir() { directories.push(path); continue; }
-            if !meta.is_file() || !is_markdown(&path) { continue; }
+            if !meta.is_file() || !file_kinds::is_text_path(&path) { continue; }
             if meta.len() > MAX_SEARCH_DOCUMENT { skipped += 1; continue; }
             let Ok(bytes) = crate::fs::bounded_file::read_no_follow(&path, MAX_SEARCH_DOCUMENT) else { skipped += 1; continue };
-            let Ok(text) = String::from_utf8(bytes) else { skipped += 1; continue };
+            let Ok(text) = crate::text_encoding::decode(&bytes).map(|decoded| decoded.text) else { skipped += 1; continue };
             let relative = path.strip_prefix(&root).map_err(|_| "OUT_OF_SCOPE")?.to_string_lossy().into_owned();
             search_text(text.strip_prefix('\u{feff}').unwrap_or(&text), &query, &path, &relative, &mut hits);
             if hits.len() > MAX_SEARCH_HITS { break 'walk; }
@@ -388,7 +399,8 @@ mod tests {
         fs::create_dir(dir.join("子目录")).unwrap();
         fs::write(dir.join("a.md"), "第一行\r\n这里有 Mino 和 mino\r\n").unwrap();
         fs::write(dir.join("子目录/b.markdown"), "\u{feff}只有 MINO").unwrap();
-        fs::write(dir.join("c.txt"), "mino").unwrap();
+        fs::write(dir.join("c.docx"), "mino").unwrap();
+        fs::write(dir.join("d.pdf"), "%PDF-1.4 mino").unwrap();
         let store = WorkspaceStore::default();
         let root = register_workspace(&store, dir.clone()).unwrap();
         let results = searched(&store, &root.token, "  mInO ");
@@ -411,7 +423,7 @@ mod tests {
             fs::write(dir.join(ignored_dir).join("hidden.md"), "needle").unwrap();
         }
         fs::write(dir.join(".secret.md"), "needle").unwrap();
-        fs::write(dir.join("binary.md"), [0xff, 0xfe, b'n', b'e', b'e', b'd', b'l', b'e']).unwrap();
+        fs::write(dir.join("binary.md"), [0x00, 0x01, b'n', b'e', b'e', b'd', b'l', b'e']).unwrap();
         let big = fs::File::create(dir.join("big.md")).unwrap();
         big.set_len(MAX_SEARCH_DOCUMENT + 1).unwrap();
         fs::write(dir.join("visible.md"), "needle").unwrap();
@@ -420,6 +432,21 @@ mod tests {
         let results = searched(&store, &root.token, "needle");
         assert_eq!(results.hits.iter().map(|hit| hit.path.as_str()).collect::<Vec<_>>(), vec!["visible.md"]);
         assert_eq!(results.skipped, 2);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn search_covers_text_and_source_files_in_their_own_encoding() {
+        let dir = temp();
+        let (gbk, _, _) = encoding_rs::GB18030.encode("第一章\n这里提到了灯塔和海岸线，还有很多别的内容用来让编码识别更可靠。\n");
+        fs::write(dir.join("novel.txt"), &gbk).unwrap();
+        fs::write(dir.join("config.yaml"), "name: 灯塔\n").unwrap();
+        let utf16: Vec<u8> = [0xff, 0xfe].into_iter().chain("notes about 灯塔\n".encode_utf16().flat_map(u16::to_le_bytes)).collect();
+        fs::write(dir.join("notes.log"), utf16).unwrap();
+        let store = WorkspaceStore::default();
+        let root = register_workspace(&store, dir.clone()).unwrap();
+        let results = searched(&store, &root.token, "灯塔");
+        assert_eq!(results.hits.iter().map(|hit| (hit.path.as_str(), hit.line)).collect::<Vec<_>>(), vec![("config.yaml", 1), ("notes.log", 1), ("novel.txt", 2)]);
+        assert_eq!(results.skipped, 0);
         fs::remove_dir_all(dir).unwrap();
     }
     #[cfg(unix)]
@@ -510,7 +537,7 @@ mod tests {
     fn ten_thousand_entries_are_paged_without_following_links_or_hidden_dirs() {
         let dir = temp();
         for i in 0..10_001 { fs::write(dir.join(format!("note-{i:05}.md")),b"x").unwrap(); }
-        fs::write(dir.join("skip.txt"),b"x").unwrap();
+        fs::write(dir.join("skip.docx"),b"x").unwrap();
         fs::create_dir(dir.join(".hidden")).unwrap();
         #[cfg(unix)] std::os::unix::fs::symlink(&dir, dir.join("loop")).unwrap();
         let store = WorkspaceStore::default();
@@ -570,8 +597,15 @@ mod tests {
     }
     #[test]
     fn invalid_names_are_rejected() {
-        for name in ["", ".hidden.md", "../bad.md", "a/b.md", "bad:one.md", "note.txt", " trailing.md "] { assert!(!valid_name(name,false)); }
-        assert!(valid_name("中文 文档.md",false));
+        for name in ["", ".hidden.md", "../bad.md", "a/b.md", "bad:one.md", "note.docx", "book.pdf", "noextension", " trailing.md "] { assert!(!valid_name(name,false), "{name}"); }
+        for name in ["中文 文档.md", "note.txt", "config.yaml", "data.CSV", "server.log"] { assert!(valid_name(name,false), "{name}"); }
         assert!(valid_name("子目录",true));
+    }
+    #[test]
+    fn a_rename_keeps_the_kind_of_the_file() {
+        let (md, txt, pdf) = (Path::new("/w/a.md"), Path::new("/w/a.txt"), Path::new("/w/a.pdf"));
+        assert!(valid_rename(md, "b.md", false) && valid_rename(md, "b.markdown", false) && valid_rename(txt, "b.text", false) && valid_rename(pdf, "手册 v2.pdf", false));
+        for (current, name) in [(md, "b.txt"), (txt, "b.md"), (txt, "b.json"), (pdf, "b.txt"), (md, "b.pdf"), (pdf, "../b.pdf"), (pdf, ".b.pdf"), (pdf, "a/b.pdf"), (txt, "b")] { assert!(!valid_rename(current, name, false), "{name}"); }
+        assert!(valid_rename(Path::new("/w/dir"), "新目录", true) && !valid_rename(Path::new("/w/dir"), "a/b", true));
     }
 }
