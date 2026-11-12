@@ -9,7 +9,7 @@ import { undoCommand, redoCommand } from '@milkdown/kit/plugin/history'
 import { TextSelection, NodeSelection, type Command, type EditorState, type Transaction } from '@milkdown/kit/prose/state'
 import { keymap as proseKeymap } from '@milkdown/kit/prose/keymap'
 import type { Node as ProseNode } from '@milkdown/kit/prose/model'
-import { Prec } from '@codemirror/state'
+import { Prec, type Extension } from '@codemirror/state'
 import { keymap as codeKeymap } from '@codemirror/view'
 import { deleteRow, deleteColumn } from '@milkdown/kit/prose/tables'
 import { insertTableCommand, addRowAfterCommand, addColAfterCommand, setAlignCommand } from '@milkdown/kit/preset/gfm'
@@ -81,10 +81,14 @@ export class EditorAdapter {
       },
       featureConfigs: {
         [CrepeFeature.CodeMirror]: {
-          theme: readingCodeTheme,
+          // Crepe fills missing settings from its defaults with lodash `defaultsDeep`, which merges arrays index by
+          // index: a theme given here got the rest of Crepe's default one-dark theme merged in, which marked every code
+          // block as a dark editor, so CodeMirror's dark selection color (#233) won over the style's. `null` is kept
+          // as is, and the theme goes in with the extensions, which have no default.
+          theme: null as unknown as Extension,
           renderPreview: renderMermaidPreview,
-          // Inside a code block these keys would otherwise never reach the document.
-          extensions: [Prec.high(codeKeymap.of([
+          extensions: [readingCodeTheme, Prec.high(codeKeymap.of([
+            // Inside a code block these keys would otherwise never reach the document.
             { key: 'Alt-ArrowUp', run: () => this.runBlockCommand(moveBlock(-1)) },
             { key: 'Alt-ArrowDown', run: () => this.runBlockCommand(moveBlock(1)) },
             { key: 'Mod-Shift-d', run: () => this.runBlockCommand(duplicateBlock) },

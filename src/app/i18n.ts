@@ -227,7 +227,7 @@ const statusEnglish: [string, string][] = [
   ['包含数学公式或扩展指令', 'contains math or directive syntax'], ['包含暂不支持的语法', 'contains unsupported syntax'], ['可视化保存可能改变内容', 'visual saving could change the content'], ['可视化编辑无法原样保留部分内容', 'the visual editor cannot preserve part of the content'], ['文件不是有效的 UTF-8', 'the file is not valid UTF-8'], ['同时包含多种换行符', 'mixes newline styles'], ['文件头缺少结束标记', 'front matter is not closed'], ['无法解析', 'could not be parsed'],
   ['编辑器正在启动', 'Starting editor'],
   ['选择新建文档或打开本地文件', 'Create a document or open a local file'],
-  ['已关闭 ', 'Closed '], ['已将 ', 'Moved '], [' 移到新窗口', ' to a new window'],
+  ['已关闭 ', 'Closed '], [' 已经打开', ' is already open'], ['已将 ', 'Moved '], [' 移到新窗口', ' to a new window'],
   ['源码模式：', 'Source mode: '], ['超过 2 MiB 可视化上限', 'exceeds the 2 MiB visual limit'],
   ['手动切换', 'switched manually'], ['；可保存原文', '; the source can be saved'], ['已自动保存', 'Autosaved'], ['自动保存已暂停；请处理上面的问题后手动保存一次', 'Autosave is paused. Fix the problem above, then save once by hand.'], ['已恢复 ', 'Restored '], [' 个文档；', ' documents; '], [' 个文件已不在原位置', ' files are no longer in their original location'], [' 处原始 HTML 未输出', ' raw HTML fragments were left out'], [' 张图表无法渲染，已保留代码', ' diagrams could not be drawn and stay as code'],
   ['已打开文件夹 ', 'Opened folder '], ['已打开 ', 'Opened '], ['编辑器已就绪 · 新文档尚未保存', 'Editor ready · new document not yet saved'],

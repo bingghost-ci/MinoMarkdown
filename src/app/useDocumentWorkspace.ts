@@ -641,6 +641,20 @@ export function useDocumentWorkspace() {
 
   /** Shows a file Rust has just opened in a new tab and notes it among the recent files. The caller releases the file's token if this fails. */
   async function showOpened(opened: OpenResult, entryToken?: string): Promise<void> {
+    // A file one of the tabs already shows comes to the front there, with its edits, rather than in a second tab.
+    const tokens = tabsRef.current.map((tab) => ({ key: tab.key, token: tab.key === activeTabKeyRef.current ? documentRef.current.token : tab.document.token })).filter((tab) => tab.token)
+    const existing = tokens.length ? await invoke<string | null>('find_open_document', { token: opened.token, candidates: tokens.map((tab) => tab.token) }) : null
+    const match = existing ? tokens.find((tab) => tab.token === existing) : undefined
+    if (match) {
+      await releaseCandidate(opened.token)
+      if (match.key !== activeTabKeyRef.current) {
+        captureCurrentTab()
+        const target = tabsRef.current.find((tab) => tab.key === match.key)
+        if (target) activateTab(target)
+      }
+      setStatus(`${opened.name} 已经打开`)
+      return
+    }
     const hydrated = await hydrateImages(opened, settingsRef.current.openInReadingMode)
     openTab(entryToken ? { ...hydrated, entryToken } : hydrated, createSession(hydrated.id, hydrated.revision))
     void rememberDocument(opened.token).catch(() => undefined)

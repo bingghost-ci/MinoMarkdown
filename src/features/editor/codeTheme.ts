@@ -18,7 +18,8 @@ const frame = EditorView.theme({
   '&': { backgroundColor: 'transparent', color: 'var(--text)' },
   '.cm-content': { caretColor: 'var(--text)', fontFamily: 'var(--code-font)' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--text)' },
-  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': { backgroundColor: 'var(--selection)' },
+  // The second selector matches the specificity of CodeMirror's own focused-selection rule, so the style's color wins.
+  '.cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-content ::selection': { backgroundColor: 'var(--selection)' },
   '.cm-gutters': { backgroundColor: 'transparent', color: 'var(--muted)', border: 'none' },
   '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: 'transparent' },
   '.cm-matchingBracket': { backgroundColor: 'var(--selected)', outline: 'none' },

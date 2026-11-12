@@ -187,6 +187,7 @@ pub fn run() {
             app_assets::read_app_asset,
             documents::open_document,
             documents::release_document,
+            documents::find_open_document,
             documents::choose_unsaved_action,
             documents::check_document_revision,
             documents::read_disk_version,

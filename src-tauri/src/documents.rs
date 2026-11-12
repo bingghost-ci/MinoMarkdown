@@ -75,6 +75,26 @@ impl DocumentStore {
     }
 }
 
+/// Whether two granted paths are one file: the same path, or the same inode reached by another spelling
+/// (APFS ignores case, so `Notes.md` and `notes.md` can be one file).
+fn same_file(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    if a == b { return true; }
+    match (fs::metadata(a), fs::metadata(b)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
+}
+
+/// Which of `candidates` (the tokens of the window's tabs) holds the same file as `token`, which was just
+/// opened, so opening a file a tab already shows brings that tab to the front instead of a second copy.
+#[tauri::command(async)]
+pub fn find_open_document(window: WebviewWindow, store: State<'_, DocumentStore>, token: String, candidates: Vec<String>) -> Result<Option<String>, String> {
+    crate::require_workspace_window(&window)?;
+    let target = store.grant(&token)?.path;
+    Ok(candidates.into_iter().find(|candidate| *candidate != token && store.grant(candidate).is_ok_and(|grant| same_file(&grant.path, &target))))
+}
+
 pub(crate) fn draft_target(store: &DocumentStore, token: &str) -> Result<String, String> {
     Ok(store.grant(token)?.path.to_string_lossy().into_owned())
 }
@@ -770,6 +790,22 @@ mod tests {
         for good in ["读书笔记-AI总结.md", "README-AI总结.MD", "a b.md"] { assert!(note_name(good), "{good}"); }
         for bad in ["", ".hidden.md", "a/b.md", "..\\b.md", "a:b.md", "note.txt", "a\nb.md"] { assert!(!note_name(bad), "{bad:?}"); }
         assert!(!note_name(&format!("{}.md", "长".repeat(120))));
+    }
+
+    #[test]
+    fn same_file_matches_one_file_under_another_spelling_only() {
+        let dir = sample_dir();
+        let notes = dir.join("Notes.md");
+        let other = dir.join("other.md");
+        fs::write(&notes, "a").unwrap();
+        fs::write(&other, "a").unwrap();
+        assert!(same_file(&notes, &notes));
+        assert!(!same_file(&notes, &other));
+        assert!(!same_file(&notes, &dir.join("missing.md")));
+        // A case-insensitive volume (the APFS default) reaches the same file by another case.
+        let lower = dir.join("notes.md");
+        if lower.exists() { assert!(same_file(&notes, &lower)); }
+        fs::remove_dir_all(dir).unwrap();
     }
 
     fn sample_dir() -> PathBuf {
