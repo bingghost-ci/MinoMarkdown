@@ -13,6 +13,7 @@ import { rehypeFigures } from '../../core/markdown/figures'
 import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
 import { loadCodeParsers, rehypeHighlightCode } from '../../core/markdown/highlight'
 import { base64 } from './appAssets'
+import { htmlImageSources, isInlineImageData, parseHtmlImages, remarkHtmlImages } from '../../core/markdown/htmlImages'
 
 export type ResolvedImage = { bytes: Uint8Array; mime: string }
 export type ImageResolver = (url: string) => Promise<ResolvedImage | null>
@@ -38,6 +39,11 @@ function escapeHtml(value: string): string {
 }
 
 
+// SVG reaches an export only from a file beside the document, and a page shows it only as an `<img>`, where it can
+// neither run script nor load anything.
+const EMBEDDABLE = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']
+const EMBED_LIMIT = 70 * 1024 * 1024
+
 function embedImages(resolveImage: ImageResolver) {
   return () => async (tree: Root) => {
     const tasks: Promise<void>[] = []
@@ -59,11 +65,11 @@ function embedImages(resolveImage: ImageResolver) {
       if (node.url) {
         tasks.push((async () => {
           const image = await resolveImage(node.url!)
-          if (!image || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(image.mime)) {
+          if (!image || !EMBEDDABLE.includes(image.mime)) {
             throw new Error(`图片无法内嵌：${node.url}`)
           }
           embeddedBytes += image.bytes.byteLength
-          if (embeddedBytes > 70 * 1024 * 1024) throw new Error('EXPORT_TOO_LARGE')
+          if (embeddedBytes > EMBED_LIMIT) throw new Error('EXPORT_TOO_LARGE')
           node.url = `data:${image.mime};base64,${base64(image.bytes)}`
         })())
       }
@@ -78,7 +84,31 @@ function embedImages(resolveImage: ImageResolver) {
       const definition = definitions.get(id)
       if (definition) embed(definition)
     }
+    // Raw HTML that is only layout around images is exported as those images, each file read once. One that is
+    // missing shows its alt text, as in the editor, rather than stopping the export.
+    const htmlValues: string[] = []
+    const collectHtml = (node: Node & { value?: string }) => {
+      if (node.type === 'html' && node.value && /<img/i.test(node.value)) htmlValues.push(node.value)
+      for (const child of node.children ?? []) collectHtml(child as typeof node)
+    }
+    collectHtml(tree as never)
+    const embedded = new Map<string, string | null>()
+    for (const value of htmlValues) {
+      for (const src of htmlImageSources(parseHtmlImages(value) ?? [])) {
+        if (embedded.has(src)) continue
+        if (isInlineImageData(src)) { embedded.set(src, src); continue }
+        embedded.set(src, null)
+        tasks.push((async () => {
+          const image = await resolveImage(src)
+          if (!image || !EMBEDDABLE.includes(image.mime)) return
+          embeddedBytes += image.bytes.byteLength
+          if (embeddedBytes > EMBED_LIMIT) throw new Error('EXPORT_TOO_LARGE')
+          embedded.set(src, `data:${image.mime};base64,${base64(image.bytes)}`)
+        })())
+      }
+    }
     await Promise.all(tasks)
+    if (htmlValues.length) remarkHtmlImages((src) => embedded.get(src) ?? null)()(tree as never)
   }
 }
 
@@ -132,8 +162,8 @@ export async function renderExport(markdown: string, title: string, resolveImage
     .use(remarkGfm)
     .use(remarkMath)
     .use(remarkDemoteCurrency)
-    .use(countRawHtml(report))
     .use(embedImages(resolveImage))
+    .use(countRawHtml(report))
     .use(remarkRehype)
     .use(rehypeSanitize, withMathClasses({ ...defaultSchema, protocols: { ...defaultSchema.protocols, src: ['data'] } }))
     .use(onlyEmbeddedImages)

@@ -870,6 +870,12 @@ pub(crate) fn asset_mime(relative: &str) -> Option<&'static str> {
     }
 }
 
+/// What the editor may display through `mino-asset:`: the raster images of `asset_mime`, and SVG, which a page only
+/// ever shows as an `<img>` (no script runs and nothing loads there). SVG is not saved, exported or drafted as an image.
+pub(crate) fn display_mime(relative: &str) -> Option<&'static str> {
+    asset_mime(relative).or_else(|| relative.rsplit('.').next().filter(|ext| ext.eq_ignore_ascii_case("svg")).map(|_| "image/svg+xml"))
+}
+
 /// Reads an image next to a granted document, keeping the checks of `read_scoped_asset`.
 pub(crate) fn read_granted_asset(store: &DocumentStore, token: &str, relative: &str) -> Result<Vec<u8>, String> {
     read_scoped_asset(&store.grant(token)?, relative)
@@ -885,7 +891,7 @@ fn parse_asset_path(path: &str) -> Option<(String, String)> {
 
 fn read_keyed_asset(store: &DocumentStore, path: &str) -> Result<(Vec<u8>, &'static str), String> {
     let (key, relative) = parse_asset_path(path).ok_or("OUT_OF_SCOPE")?;
-    let mime = asset_mime(&relative).ok_or("OUT_OF_SCOPE")?;
+    let mime = display_mime(&relative).ok_or("OUT_OF_SCOPE")?;
     let grant = store.0.lock().map_err(|_| "IO_ERROR")?.values().find(|grant| grant.asset_key == key).cloned().ok_or("OUT_OF_SCOPE")?;
     Ok((read_scoped_asset(&grant, &relative)?, mime))
 }
@@ -894,7 +900,9 @@ fn read_keyed_asset(store: &DocumentStore, path: &str) -> Result<(Vec<u8>, &'sta
 pub fn asset_response(app: &AppHandle, label: &str, path: &str) -> tauri::http::Response<Vec<u8>> {
     use tauri::{http::Response, Manager};
     let found = if crate::is_workspace_window(label) { read_keyed_asset(&app.state::<DocumentStore>(), path).ok() } else { None };
-    let builder = Response::builder().header("Cache-Control", "no-store").header("X-Content-Type-Options", "nosniff");
+    // Nothing served here may run script or load anything, even if it were opened as a page rather than an image.
+    let builder = Response::builder().header("Cache-Control", "no-store").header("X-Content-Type-Options", "nosniff")
+        .header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox");
     match found {
         Some((bytes, mime)) => builder.status(200).header("Content-Type", mime).body(bytes),
         None => builder.status(404).body(Vec::new()),
@@ -1060,6 +1068,20 @@ mod tests {
         assert!(read_keyed_asset(&store, &format!("/{key}/assets%2F..%2Foutside.png")).is_err());
         assert!(read_keyed_asset(&store, &format!("/{}/assets/%E5%9B%BE%201.png", "0".repeat(32))).is_err());
         assert!(read_keyed_asset(&store, "/doc-1/assets/%E5%9B%BE%201.png").is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn svg_beside_a_document_is_displayed_but_never_saved_or_exported() {
+        let dir = sample_dir();
+        fs::create_dir(dir.join("images")).unwrap();
+        fs::write(dir.join("images/modules.svg"), b"<svg xmlns='http://www.w3.org/2000/svg'/>").unwrap();
+        let store = DocumentStore::default();
+        let key = random_key().unwrap();
+        store.0.lock().unwrap().insert("doc-1".into(), Grant { observed: None, path: dir.join("note.md"), revision: String::new(), stamp: None, asset_key: key.clone(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 });
+        let (_, mime) = read_keyed_asset(&store, &format!("/{key}/images/modules.svg")).unwrap();
+        assert_eq!(mime, "image/svg+xml");
+        assert_eq!(asset_mime("images/modules.svg"), None);
         fs::remove_dir_all(dir).unwrap();
     }
     #[test]

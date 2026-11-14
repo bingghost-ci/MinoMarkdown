@@ -5,6 +5,7 @@ import { countWords, WORD_COUNT_SYNC_LIMIT_CHARS } from '../../features/document
 import { hydrateMarkdown, type HydratedMarkdown } from '../../features/document/hydrate'
 // These three are part of the app shell already, so importing them lazily would split nothing off.
 import { imageUrlsIn, rewriteImageUrls } from '../../features/export/snapshot'
+import type { HtmlImageFile } from './htmlImagePaths'
 import { renderTextHtml } from '../../features/text/textDocument'
 import { mermaidSources } from './diagrams'
 
@@ -148,6 +149,15 @@ export async function imageUrlsInAsync(markdown: string): Promise<string[]> {
   return workerOr(
     () => run<string[]>('image-urls', markdown),
     async () => imageUrlsIn(markdown),
+  )
+}
+
+/** Files beside the document that raw HTML `<img>` shows; most documents have no `<img` and need no round trip. */
+export async function htmlImageFilesInAsync(markdown: string): Promise<HtmlImageFile[]> {
+  if (!/<img/i.test(markdown)) return []
+  return workerOr(
+    () => run<HtmlImageFile[]>('html-image-files', markdown),
+    async () => (await import('./htmlImagePaths')).htmlImageFilesIn(markdown),
   )
 }
 

@@ -1,4 +1,4 @@
-use crate::{documents::{DocumentStore, asset_mime, read_granted_asset, validate_image}, staging::{StagedAsset, StagingStore}, fs::asset_directory::{AssetDirectory, PutResult}, markdown_images};
+use crate::{documents::{DocumentStore, asset_mime, display_mime, read_granted_asset, validate_image}, staging::{StagedAsset, StagingStore}, fs::asset_directory::{AssetDirectory, PutResult}, markdown_images};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::Path, sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex}, time::{Duration, Instant}};
 use tauri::{AppHandle, State, WebviewWindow};
@@ -15,7 +15,7 @@ static NEXT_SNAPSHOT: AtomicU64 = AtomicU64::new(1);
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotAsset { url: String, mime: String, bytes: Vec<u8> }
 #[derive(Clone)]
-struct Snapshot { markdown: String, title: String, assets: Vec<SnapshotAsset>, /** The file extension of each asset, found when it was checked on the way in, so writing it out does not decode the image again (T100). */ extensions: Vec<&'static str>, generation: u64, revision: u64, created: Instant }
+struct Snapshot { markdown: String, title: String, assets: Vec<SnapshotAsset>, /** The file extension of each asset, found when it was checked on the way in, so writing it out does not decode the image again (T100). */ extensions: Vec<&'static str>, /** Images only an exported page shows: those of raw HTML `<img>` and SVG files. A Markdown export never writes them. */ page_images: Vec<SnapshotAsset>, generation: u64, revision: u64, created: Instant }
 #[derive(Default)]
 /// Snapshots are shared, not copied: one can hold a hundred megabytes of images, and copying it while the
 /// lock was held kept every other snapshot command waiting (T100).
@@ -34,7 +34,12 @@ pub struct SnapshotOut { markdown: String, title: String, assets: Vec<StagedAsse
 pub struct DiskAsset { url: String, relative: String }
 
 fn digest(bytes: &[u8]) -> String { crate::fs::sha256_hex(bytes) }
+#[cfg(test)]
 fn register(store: &SnapshotStore, markdown: String, title: String, assets: Vec<SnapshotAsset>, generation: u64, revision: u64) -> Result<String, String> {
+    register_with_pages(store, markdown, title, assets, Vec::new(), generation, revision)
+}
+fn register_with_pages(store: &SnapshotStore, markdown: String, title: String, assets: Vec<SnapshotAsset>, page_images: Vec<SnapshotAsset>, generation: u64, revision: u64) -> Result<String, String> {
+    if page_images.len() > MAX_ASSETS { return Err("SNAPSHOT_TOO_LARGE".into()); }
     if markdown.len() > MAX_DOCUMENT || title.len() > 256 || assets.len() > MAX_ASSETS { return Err("SNAPSHOT_TOO_LARGE".into()); }
     let mut total = 0usize;
     let image_urls = markdown_images::image_urls(&markdown);
@@ -44,13 +49,19 @@ fn register(store: &SnapshotStore, markdown: String, title: String, assets: Vec<
         if total > MAX_TOTAL_ASSETS || !image_urls.contains(&asset.url) { return Err("INVALID_ASSET".into()); }
         extensions.push(validate_image(&asset.bytes, &asset.mime)?);
     }
+    // A page shows these through `<img>` only, where neither SVG nor a broken file can run or load anything; they are
+    // counted against the same budget but not decoded.
+    for image in &page_images {
+        total = total.checked_add(image.bytes.len()).ok_or("SNAPSHOT_TOO_LARGE")?;
+        if total > MAX_TOTAL_ASSETS { return Err("SNAPSHOT_TOO_LARGE".into()); }
+    }
     let mut map = store.0.lock().map_err(|_| "IO_ERROR")?;
     map.retain(|_, item| item.created.elapsed() < Duration::from_secs(30 * 60));
     if map.len() >= MAX_SNAPSHOTS { return Err("SNAPSHOT_BUDGET".into()); }
-    let held: usize = map.values().flat_map(|item| item.assets.iter()).map(|asset| asset.bytes.len()).sum();
+    let held: usize = map.values().flat_map(|item| item.assets.iter().chain(&item.page_images)).map(|asset| asset.bytes.len()).sum();
     if held.saturating_add(total) > MAX_GLOBAL_ASSETS { return Err("SNAPSHOT_BUDGET".into()); }
     let id = format!("snapshot-{}", NEXT_SNAPSHOT.fetch_add(1, Ordering::Relaxed));
-    map.insert(id.clone(), Arc::new(Snapshot { markdown, title, assets, extensions, generation, revision, created: Instant::now() }));
+    map.insert(id.clone(), Arc::new(Snapshot { markdown, title, assets, extensions, page_images, generation, revision, created: Instant::now() }));
     Ok(id)
 }
 fn snapshot(store: &SnapshotStore, id: &str) -> Result<Arc<Snapshot>, String> {
@@ -98,7 +109,7 @@ fn export_at(snapshot: &Snapshot, target: &Path, text_only: bool) -> Result<Expo
 
 #[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
-pub fn create_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, documents: State<'_, DocumentStore>, staging: State<'_, StagingStore>, markdown: String, title: String, assets: Vec<StagedAsset>, disk_assets: Vec<DiskAsset>, token: Option<String>, generation: u64, revision: u64) -> Result<String, String> {
+pub fn create_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, documents: State<'_, DocumentStore>, staging: State<'_, StagingStore>, markdown: String, title: String, assets: Vec<StagedAsset>, disk_assets: Vec<DiskAsset>, page_images: Option<Vec<DiskAsset>>, token: Option<String>, generation: u64, revision: u64) -> Result<String, String> {
     crate::require_workspace_window(&window)?;
     let mut assets = assets.into_iter().map(|asset| Ok(SnapshotAsset { bytes: staging.take(&asset.staged)?, url: asset.url, mime: asset.mime })).collect::<Result<Vec<_>, String>>()?;
     for asset in disk_assets {
@@ -106,7 +117,16 @@ pub fn create_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, d
         let mime = asset_mime(&asset.relative).ok_or("EXPORT_RESOURCE_MISSING")?;
         assets.push(SnapshotAsset { bytes: read_granted_asset(&documents, token, &asset.relative).map_err(|_| "EXPORT_RESOURCE_MISSING")?, url: asset.url, mime: mime.into() });
     }
-    register(&store, markdown, title, assets, generation, revision)
+    // Images only an exported page shows (raw HTML `<img>`, SVG). One that is missing or not an image type shows its
+    // alt text in the page instead of stopping the export.
+    let page_images = match (&token, page_images) {
+        (Some(token), Some(list)) => list.into_iter().filter_map(|image| {
+            let mime = display_mime(&image.relative)?;
+            Some(SnapshotAsset { bytes: read_granted_asset(&documents, token, &image.relative).ok()?, url: image.url, mime: mime.into() })
+        }).collect(),
+        _ => Vec::new(),
+    };
+    register_with_pages(&store, markdown, title, assets, page_images, generation, revision)
 }
 #[tauri::command]
 pub fn release_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, snapshot_id: String) -> Result<(), String> {
@@ -118,7 +138,7 @@ pub fn release_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, 
 pub fn read_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, staging: State<'_, StagingStore>, snapshot_id: String) -> Result<SnapshotOut, String> {
     crate::require_workspace_window(&window)?;
     let item = snapshot(&store, &snapshot_id)?;
-    let assets = item.assets.iter().map(|asset| Ok(StagedAsset { staged: staging.put(asset.bytes.clone())?, url: asset.url.clone(), mime: asset.mime.clone() })).collect::<Result<Vec<_>, String>>()?;
+    let assets = item.assets.iter().chain(&item.page_images).map(|asset| Ok(StagedAsset { staged: staging.put(asset.bytes.clone())?, url: asset.url.clone(), mime: asset.mime.clone() })).collect::<Result<Vec<_>, String>>()?;
     Ok(SnapshotOut { markdown: item.markdown.clone(), title: item.title.clone(), assets, generation: item.generation, revision: item.revision })
 }
 #[tauri::command]
@@ -163,9 +183,24 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
     #[test]
+    fn page_images_ride_along_without_decoding_and_never_reach_a_markdown_export() {
+        let store = SnapshotStore::default();
+        let svg = SnapshotAsset { url: "images/a.svg".into(), mime: "image/svg+xml".into(), bytes: b"<svg/>".to_vec() };
+        let id = register_with_pages(&store, "<img src=\"images/a.svg\">".into(), "n".into(), vec![], vec![svg], 1, 1).unwrap();
+        let frozen = snapshot(&store, &id).unwrap();
+        assert_eq!(frozen.page_images.len(), 1);
+        let dir = temp(); let target = dir.join("note.md");
+        let output = export_at(&frozen, &target, false).unwrap();
+        assert!(output.assets.is_empty() && !dir.join("assets").exists());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "<img src=\"images/a.svg\">");
+        let many = (0..=MAX_ASSETS).map(|n| SnapshotAsset { url: format!("{n}.svg"), mime: "image/svg+xml".into(), bytes: vec![] }).collect();
+        assert_eq!(register_with_pages(&store, String::new(), "n".into(), vec![], many, 1, 1).err().as_deref(), Some("SNAPSHOT_TOO_LARGE"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
     fn missing_image_never_commits_markdown_but_text_only_is_explicit() {
         let dir = temp(); let target = dir.join("note.md");
-        let snap = Snapshot { markdown: "![x](assets/missing.png)".into(), title: "n".into(), assets: vec![], extensions: vec![], generation: 1, revision: 1, created: Instant::now() };
+        let snap = Snapshot { markdown: "![x](assets/missing.png)".into(), title: "n".into(), assets: vec![], extensions: vec![], page_images: vec![], generation: 1, revision: 1, created: Instant::now() };
         assert_eq!(export_at(&snap,&target,false).err().as_deref(),Some("EXPORT_RESOURCE_MISSING"));
         assert!(!target.exists());
         let out = export_at(&snap,&target,true).unwrap();
@@ -193,7 +228,7 @@ mod tests {
     #[test]
     fn an_export_replaces_a_file_the_panel_confirmed_but_never_a_link() {
         let dir = temp(); let target = dir.join("note.md");
-        let snap = Snapshot { markdown: "new text".into(), title: "n".into(), assets: vec![], extensions: vec![], generation: 1, revision: 1, created: Instant::now() };
+        let snap = Snapshot { markdown: "new text".into(), title: "n".into(), assets: vec![], extensions: vec![], page_images: vec![], generation: 1, revision: 1, created: Instant::now() };
         fs::write(&target, b"old text").unwrap();
         export_at(&snap, &target, false).unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"new text");

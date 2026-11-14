@@ -13,6 +13,7 @@ import { localAssetPath } from '../export/snapshot'
 import { rehypeFigures } from '../../core/markdown/figures'
 import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
 import { rehypeHighlightCode, type CodeParsers } from '../../core/markdown/highlight'
+import { isInlineImageData, localHtmlImagePath, remarkHtmlImages } from '../../core/markdown/htmlImages'
 
 // Only a standalone, empty anchor immediately before a heading is promoted to
 // a preview heading id. The source document is never changed by this renderer.
@@ -49,7 +50,17 @@ function blockImages(assetKey?: string) {
   }
 }
 
-const previewSchema = withMathClasses({ ...defaultSchema, protocols: { ...defaultSchema.protocols, src: [...(defaultSchema.protocols?.src ?? []), 'mino-asset'] } })
+// `data` reaches the sanitizer only from raw HTML images, and `remarkHtmlImages` lets through raster data alone.
+const previewSchema = withMathClasses({ ...defaultSchema, protocols: { ...defaultSchema.protocols, src: [...(defaultSchema.protocols?.src ?? []), 'mino-asset', 'data'] } })
+
+/** Raw HTML images load from files beside the document, through the asset scheme, or from inline raster data. */
+function previewImageSource(assetKey?: string) {
+  return (src: string) => {
+    if (isInlineImageData(src)) return src
+    const path = assetKey ? localHtmlImagePath(src) : null
+    return path === null || !assetKey ? null : assetUrl(assetKey, path)
+  }
+}
 
 /**
  * `parsers` come from `loadCodeParsers` and `math` from `loadMathRenderer`; without them code blocks render as
@@ -63,6 +74,7 @@ export function renderMarkdownPreview(markdown: string, assetKey?: string, capti
     .use(remarkDemoteCurrency)
     .use(headingAnchors)
     .use(blockImages, assetKey)
+    .use(remarkHtmlImages(previewImageSource(assetKey)))
     .use(remarkRehype)
     .use(rehypeSanitize, previewSchema)
     .use(rehypeRenderMath, math)

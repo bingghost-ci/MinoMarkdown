@@ -1,7 +1,7 @@
 import { Crepe, CrepeFeature } from '@milkdown/crepe'
 import { insertImageCommand } from '@milkdown/kit/preset/commonmark'
 import { callCommand, getMarkdown, insert } from '@milkdown/kit/utils'
-import { commandsCtx, editorViewCtx, inputRulesCtx, prosePluginsCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
+import { commandsCtx, editorViewCtx, inputRulesCtx, nodeViewCtx, prosePluginsCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import { closeHistory, undoDepth, redoDepth } from '@milkdown/kit/prose/history'
 import { toggleStrongCommand, toggleEmphasisCommand, toggleInlineCodeCommand, wrapInHeadingCommand, turnIntoTextCommand, wrapInBulletListCommand, wrapInOrderedListCommand, wrapInBlockquoteCommand, insertHrCommand, createCodeBlockCommand, clearTextInCurrentBlockCommand, wrapInBlockTypeCommand, listItemSchema, sinkListItemCommand, liftListItemCommand } from '@milkdown/kit/preset/commonmark'
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
@@ -18,6 +18,7 @@ import { rewriteImageUrls } from '../export/snapshot'
 import { rewriteImageUrlsAsync } from '../../core/markdown/analysisClient'
 import { safeTextHandler } from './markdownStringify'
 import { literalLinkHandler, withLiteralLinks } from './literalLinks'
+import { renderHtmlImages } from './htmlImages'
 import { renderMermaidPreview } from '../diagrams/mermaid'
 import { remarkDemoteCurrencyPlugin } from './mathEditor'
 import { numericColumnsPlugin } from './numericColumns'
@@ -61,7 +62,7 @@ export class EditorAdapter {
   private readonly onLinkOpen?: (href: string) => void
   private readonly onSelectionChange?: () => void
 
-  constructor(root: HTMLElement, markdown: string, onChange?: () => void, imageUrls: Map<string, string> = new Map(), recoveredAssets: Map<string, { bytes: Uint8Array<ArrayBuffer>; mime: string }> = new Map(), pendingFiles: Map<string, File> = new Map(), onToolbarChange?: (state: ToolbarState) => void, onImageError?: (message: string | null) => void, onTableRequest?: (anchor: { x: number; y: number }) => void, onLinkOpen?: (href: string) => void, onSelectionChange?: () => void) {
+  constructor(root: HTMLElement, markdown: string, onChange?: () => void, imageUrls: Map<string, string> = new Map(), recoveredAssets: Map<string, { bytes: Uint8Array<ArrayBuffer>; mime: string }> = new Map(), pendingFiles: Map<string, File> = new Map(), onToolbarChange?: (state: ToolbarState) => void, onImageError?: (message: string | null) => void, onTableRequest?: (anchor: { x: number; y: number }) => void, onLinkOpen?: (href: string) => void, onSelectionChange?: () => void, assetKeyOf: () => string = () => '') {
     this.root = root
     this.onSelectionChange = onSelectionChange
     this.onLinkOpen = onLinkOpen
@@ -120,6 +121,22 @@ export class EditorAdapter {
     this.crepe.editor.use(remarkDemoteCurrencyPlugin).config((ctx) => {
       ctx.update(prosePluginsCtx, (plugins) => plugins.concat(findPlugin, numericColumnsPlugin, proseKeymap({ 'Alt-ArrowUp': moveBlock(-1), 'Alt-ArrowDown': moveBlock(1), 'Mod-Shift-d': duplicateBlock })))
       ctx.update(linkSchema.key, withLiteralLinks)
+      // Raw HTML that is only layout around images (`<p align="center"><img …></p>`) is drawn as those images; the
+      // node keeps its source untouched, so saving writes it back byte for byte.
+      ctx.update(nodeViewCtx, (views) => views.concat([['html', (node) => {
+        const value = String(node.attrs.value ?? '')
+        const drawn = renderHtmlImages(value, assetKeyOf())
+        const dom = document.createElement('span')
+        dom.dataset.type = 'html'
+        dom.dataset.value = value
+        // Anything else shows its source, as Milkdown's own rendering does.
+        if (!drawn) { dom.textContent = value; return { dom } }
+        dom.contentEditable = 'false'
+        dom.className = 'mino-html'
+        dom.title = value
+        dom.append(drawn)
+        return { dom, ignoreMutation: () => true }
+      }]]))
       ctx.update(remarkStringifyOptionsCtx, (options) => ({
         ...options,
         handlers: { ...options.handlers, text: safeTextHandler, link: literalLinkHandler },

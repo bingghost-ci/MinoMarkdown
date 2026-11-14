@@ -2,6 +2,7 @@ import { prepareMarkdown } from './codec'
 import { renderMarkdownPreview } from '../../features/preview/renderMarkdownPreview'
 import { renderExport, type ExportPageOptions, type ResolvedImage } from '../../features/export/renderHtml'
 import { imageUrlsIn, rewriteImageUrls } from '../../features/export/snapshot'
+import { htmlImageFilesIn } from './htmlImagePaths'
 import { hydrateMarkdown } from '../../features/document/hydrate'
 import { mermaidSources } from './diagrams'
 import { countWords } from '../../features/document/wordCount'
@@ -10,7 +11,7 @@ import { loadMathRenderer } from './renderMath'
 import { renderTextHtml } from '../../features/text/textDocument'
 import { CODE_HIGHLIGHT_LIMIT, renderCodeHtml, renderDelimitedHtml } from '../../features/text/codeDocument'
 
-export type AnalysisRequest = { id: number; kind: 'prepare' | 'hydrate' | 'rewrite-images' | 'preview' | 'export' | 'image-urls' | 'mermaid-sources' | 'word-count' | 'text-preview' | 'code-preview'; source: string; /** The file name of a source file, which selects its language. */ name?: string; /** A CSV or TSV file shown as a table. */ delimiter?: ',' | '\t'; assetKey?: string; title?: string; images?: Map<string, ResolvedImage>; diagrams?: Map<string, string>; page?: ExportPageOptions; captions?: boolean; /** Old image URL to new, for `rewrite-images`. */ replacements?: Map<string, string> }
+export type AnalysisRequest = { id: number; kind: 'prepare' | 'hydrate' | 'rewrite-images' | 'preview' | 'export' | 'image-urls' | 'html-image-files' | 'mermaid-sources' | 'word-count' | 'text-preview' | 'code-preview'; source: string; /** The file name of a source file, which selects its language. */ name?: string; /** A CSV or TSV file shown as a table. */ delimiter?: ',' | '\t'; assetKey?: string; title?: string; images?: Map<string, ResolvedImage>; diagrams?: Map<string, string>; page?: ExportPageOptions; captions?: boolean; /** Old image URL to new, for `rewrite-images`. */ replacements?: Map<string, string> }
 
 self.onmessage = async (event: MessageEvent<AnalysisRequest>) => {
   const { id, kind, source, assetKey, title, images, diagrams, page, captions, name, delimiter, replacements } = event.data
@@ -20,6 +21,7 @@ self.onmessage = async (event: MessageEvent<AnalysisRequest>) => {
     if (kind === 'word-count') { self.postMessage({ id, result: countWords(source) }); return }
     if (kind === 'mermaid-sources') { self.postMessage({ id, result: mermaidSources(source) }); return }
     if (kind === 'image-urls') { self.postMessage({ id, result: imageUrlsIn(source) }); return }
+    if (kind === 'html-image-files') { self.postMessage({ id, result: htmlImageFilesIn(source) }); return }
     if (kind === 'export') { self.postMessage({ id, result: await renderExport(source, title ?? '', async (url) => images?.get(url) ?? null, diagrams, page) }); return }
     if (kind === 'preview') { self.postMessage({ id, result: renderMarkdownPreview(source, assetKey, captions ?? true, await loadCodeParsers(source), await loadMathRenderer(source)) }); return }
     if (kind === 'hydrate') { self.postMessage({ id, result: hydrateMarkdown(source, assetKey ?? '') }); return }

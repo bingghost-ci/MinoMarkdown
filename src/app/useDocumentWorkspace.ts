@@ -5,7 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import { compareMarkdown, describeIssues, exceedsVisualLimit, protectedFragments } from '../core/markdown/compatibility'
 import { opensForQuickReading, previewHead, quickReadAnalysis } from '../features/document/largeDocument'
-import { countWordsAsync, hydrateMarkdownAsync, imageUrlsInAsync, mermaidSourcesAsync, prepareMarkdownAsync, rewriteImageUrlsAsync, renderCodePreviewAsync, renderExportAsync, renderPreviewAsync, renderTextPreviewAsync } from '../core/markdown/analysisClient'
+import { countWordsAsync, htmlImageFilesInAsync, hydrateMarkdownAsync, imageUrlsInAsync, mermaidSourcesAsync, prepareMarkdownAsync, rewriteImageUrlsAsync, renderCodePreviewAsync, renderExportAsync, renderPreviewAsync, renderTextPreviewAsync } from '../core/markdown/analysisClient'
 import { delimiterOf, extensionOf, isTextKind, kindOfName, titleOf, type DocumentKind } from '../features/document/kinds'
 import { textHead, textOutline } from '../features/text/textDocument'
 import type { PdfBridge, PdfHandle, PdfPosition } from '../features/pdf/PdfView'
@@ -830,7 +830,7 @@ export function useDocumentWorkspace() {
       editorPool.current ??= new EditorPool<EditorInstance>(host, MAX_LIVE_EDITORS, (editor) => editor.dispose(), () => { const root = window.document.createElement('div'); root.className = 'editor-root'; return root })
       const { editor: instance, created } = editorPool.current.activate(document.id, (root) => new EditorAdapter(root, document.markdown, () => {
         if (sessionRef.current.generation === document.id) updateSession(editSession(sessionRef.current))
-      }, document.imageUrls, document.recoveredAssets, document.pendingFiles, setToolbar, (message) => { if (message) setStatus(message) }, setTablePicker, (href) => linkOpenRef.current(href), scheduleDerivedRefresh))
+      }, document.imageUrls, document.recoveredAssets, document.pendingFiles, setToolbar, (message) => { if (message) setStatus(message) }, setTablePicker, (href) => linkOpenRef.current(href), scheduleDerivedRefresh, () => (documentRef.current.id === document.id ? documentRef.current : document).assetKey))
       adapter.current = instance
       adapterDocumentId.current = document.id
       instance.setReadonly(Boolean(documentRef.current.reading))
@@ -1794,7 +1794,7 @@ export function useDocumentWorkspace() {
       // A text or source file has no images and is not Markdown: its own renderer makes the body (T88).
       const plainText = document.kind === 'markdown' ? null : flushSourceText().sourceText
       const bodyHtml = plainText === null ? undefined : document.kind === 'text' ? await renderTextPreviewAsync(plainText) : await renderCodePreviewAsync(plainText, document.name, delimiter)
-      if (plainText === null) snapshotId = await captureSnapshot(false)
+      if (plainText === null) snapshotId = await captureSnapshot(false, true)
       const frozen = plainText === null ? await invoke<SnapshotOut>('read_snapshot', { snapshotId }) : { markdown: '', title: document.name, assets: [] as StagedAsset[], generation: document.id, revision: sessionRef.current.revision }
       const assets = new Map(await Promise.all(frozen.assets.map(async (asset) => [asset.url, { bytes: await readStaged(asset.staged), mime: asset.mime }] as const)))
       // The page carries the reading style, typography and only the font subsets its characters need (T59).
@@ -1830,7 +1830,8 @@ export function useDocumentWorkspace() {
     }
   }
 
-  async function captureSnapshot(textOnly: boolean): Promise<string> {
+  /** `forPage`: the snapshot also carries what only an exported page shows, the files raw HTML `<img>` and SVG images point at. */
+  async function captureSnapshot(textOnly: boolean, forPage = false): Promise<string> {
     const instance = adapter.current
     if (document.mode === 'visual' && (!instance || toolbar.composing)) throw new Error('EDITOR_NOT_READY')
     const revision = sessionRef.current.revision
@@ -1839,11 +1840,22 @@ export function useDocumentWorkspace() {
       : flushSourceText().sourceText
     let assets: PendingAsset[] = []
     let diskAssets: { url: string; relative: string }[] = []
+    let pageImages: { url: string; relative: string }[] = []
     if (!textOnly) {
       const held: PendingAsset[] = document.mode === 'visual' ? await instance!.pendingAssets() : Array.from(document.recoveredAssets, ([url, asset]) => ({ url, ...asset }))
       ;({ assets, diskAssets } = snapshotResources(await imageUrlsInAsync(markdown), new Map(held.map((asset) => [asset.url, asset])), Boolean(document.token)))
+      if (forPage && document.token) {
+        // A Markdown export copies only PNG, JPEG, GIF and WebP; a page also shows SVG files and raw HTML images.
+        const isSvg = (asset: { relative: string }) => /\.svg$/i.test(asset.relative)
+        pageImages = diskAssets.filter(isSvg)
+        diskAssets = diskAssets.filter((asset) => !isSvg(asset))
+        const known = new Set(diskAssets.map((asset) => asset.url))
+        for (const file of await htmlImageFilesInAsync(markdown)) {
+          if (!known.has(file.url)) { known.add(file.url); pageImages.push(file) }
+        }
+      }
     }
-    return invoke<string>('create_snapshot', { markdown, title: document.name, assets: await stageAssets(assets), diskAssets, token: document.token || null, generation: document.id, revision })
+    return invoke<string>('create_snapshot', { markdown, title: document.name, assets: await stageAssets(assets), diskAssets, pageImages, token: document.token || null, generation: document.id, revision })
   }
 
   async function exportSnapshotMD(textOnly: boolean) {
