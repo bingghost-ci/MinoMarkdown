@@ -1,12 +1,14 @@
 use crate::{documents::{document_identity, DocumentStore}, file_kinds::DocumentKind, fs::{app_data::ensure_dir, atomic_write, bounded_file::read_canonical_parent}};
 use serde::{Deserialize, Serialize};
-use std::{path::{Path, PathBuf}, sync::Mutex, time::{SystemTime, UNIX_EPOCH}};
+use std::{collections::HashMap, path::{Path, PathBuf}, sync::Mutex, time::{SystemTime, UNIX_EPOCH}};
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 
 /// Where the reader stopped in a text file or a PDF, kept across restarts (T83, T87). The file is keyed by a
 /// hash of the path, so the record names no file; only a live document token can read or write an entry.
 const MAX_ENTRIES: usize = 500;
 const MAX_FILE: u64 = 256 * 1024;
+/// How many files and folders a moved folder is walked through to carry reading positions along.
+const RELOCATE_LIMIT: usize = 20_000;
 static WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
@@ -80,6 +82,43 @@ pub fn set_reading_position(app: AppHandle, window: WebviewWindow, store: State<
     atomic_write::commit_canonical_parent(&path, &bytes, expected.as_deref()).map(|_| ())
 }
 
+/// Moves the keys of `old`, or of every file below a moved folder, to their new place (T109), so reading
+/// positions survive a rename or a move in the sidebar. `new` is where the entry is now; its files are walked
+/// without following links, up to a bound, because the record holds only hashes.
+fn relocate_keys(record: &mut Record, old: &Path, new: &Path) -> bool {
+    if record.entries.is_empty() { return false; }
+    let mut moved = HashMap::new();
+    let mut pending = vec![new.to_path_buf()];
+    let mut seen = 0usize;
+    while let Some(path) = pending.pop() {
+        seen += 1;
+        if seen > RELOCATE_LIMIT { break; }
+        let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+        if meta.is_dir() {
+            if let Ok(children) = std::fs::read_dir(&path) { pending.extend(children.flatten().map(|child| child.path())); }
+        } else if meta.is_file() {
+            if let Ok(rest) = path.strip_prefix(new) {
+                let before = if rest.as_os_str().is_empty() { old.to_path_buf() } else { old.join(rest) };
+                moved.insert(key_of(&before), key_of(&path));
+            }
+        }
+    }
+    let mut changed = false;
+    for entry in &mut record.entries {
+        if let Some(key) = moved.get(&entry.key) { entry.key = key.clone(); changed = true; }
+    }
+    changed
+}
+
+/// Follows a rename or move made in the app. Positions are a convenience: failing here never fails the move.
+pub(crate) fn relocate(app: &AppHandle, old: &Path, new: &Path) {
+    let Ok(_guard) = WRITE_LOCK.lock() else { return };
+    let Ok(path) = storage(app) else { return };
+    let (mut record, expected) = load(&path);
+    if !relocate_keys(&mut record, old, new) { return; }
+    if let Ok(bytes) = serde_json::to_vec(&record) { let _ = atomic_write::commit_canonical_parent(&path, &bytes, expected.as_deref()); }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,6 +158,29 @@ mod tests {
         let json = serde_json::to_string(&record).unwrap();
         assert!(!json.contains("Books") && !json.contains("小说"));
         assert!(json.contains("\"schemaVersion\":1"));
+    }
+
+    #[test]
+    fn positions_follow_a_renamed_file_and_the_files_of_a_moved_folder() {
+        let dir = std::env::temp_dir().join(format!("mino-positions-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("new/sub")).unwrap();
+        std::fs::write(dir.join("new/a.txt"), "a").unwrap();
+        std::fs::write(dir.join("new/sub/b.pdf"), "b").unwrap();
+        let mut record = Record::default();
+        remember(&mut record, key_of(&dir.join("old/a.txt")), Position { page: 0, offset: 0.5 }, 1);
+        remember(&mut record, key_of(&dir.join("old/sub/b.pdf")), Position { page: 4, offset: 0.25 }, 2);
+        remember(&mut record, key_of(&dir.join("other.txt")), Position { page: 0, offset: 0.75 }, 3);
+        assert!(relocate_keys(&mut record, &dir.join("old"), &dir.join("new")));
+        assert_eq!(lookup(&record, &key_of(&dir.join("new/a.txt"))), Some(Position { page: 0, offset: 0.5 }));
+        assert_eq!(lookup(&record, &key_of(&dir.join("new/sub/b.pdf"))), Some(Position { page: 4, offset: 0.25 }));
+        assert_eq!(lookup(&record, &key_of(&dir.join("other.txt"))), Some(Position { page: 0, offset: 0.75 }));
+        // A single file.
+        std::fs::rename(dir.join("new/a.txt"), dir.join("new/c.txt")).unwrap();
+        assert!(relocate_keys(&mut record, &dir.join("new/a.txt"), &dir.join("new/c.txt")));
+        assert_eq!(lookup(&record, &key_of(&dir.join("new/c.txt"))), Some(Position { page: 0, offset: 0.5 }));
+        assert!(!relocate_keys(&mut record, &dir.join("nothing"), &dir.join("new/sub")));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

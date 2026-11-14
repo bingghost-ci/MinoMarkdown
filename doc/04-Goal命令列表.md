@@ -582,6 +582,42 @@ G01–G29 分别对应 T01–T29，每项命令可独立复制到支持 Goals �
 /goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T106 导出 PDF 与打印分开」完成导出 PDF 与打印。先读 CLAUDE.md、doc/01-产品方案.md §3.15、doc/02-技术设计.md §26、doc/05-验收与发布.md §8K 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
 ```
 
+## G107 图表风格
+
+2026-11-13 按用户“Mermaid 图表要有可选的画法，并跟着纸张风格变化”的要求建立，对应 T107，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G107 | T107 | T56 | 六种图表画法、连线样式与走向，切换后原地重画 |
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T107 图表风格」完成图表风格。先读 CLAUDE.md、doc/01-产品方案.md §3.16、doc/02-技术设计.md §27、doc/05-验收与发布.md §8L 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
+## G108 窗口外框与标题栏
+
+2026-11-14 按用户“顶部的标题栏是一条灰条，和界面不搭”的反馈建立，用户选择“淡淡染色”，对应 T108，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G108 | T108 | T61、T64 | 叠加式标题栏，窗口外观跟随风格，界面灰淡淡染上纸色 |
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T108 窗口外框与标题栏」完成窗口外框与标题栏。先读 CLAUDE.md、doc/01-产品方案.md §3.17、doc/02-技术设计.md §28、doc/05-验收与发布.md §8M 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
+## G109 文件栏整理与拖入
+
+2026-11-14 按用户“我们可以自由的拖动笔记和目录拖拽到另一个目录下”等要求建立，对应 T109，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G109 | T109 | T18、T79、T105 | 文件栏拖动移动、非空目录的重命名与删除、Dock 拖入 |
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T109 文件栏整理与拖入」完成文件栏整理与拖入。先读 CLAUDE.md、doc/01-产品方案.md §3.18、doc/02-技术设计.md §29、doc/05-验收与发布.md §8N 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
 ## 连续开发总 Goal（逐项读取列表）
 
 此命令只负责开发阶段。每轮读取 G01–G29 的当前任务，依据代码依赖推进；已实现的任务先复核，不重复开发。最终原生验收层级与 Gate 留待集中测试，不能虚报 PASS。单项命令和本总 Goal 共用进度表，不创建嵌套 Goal。

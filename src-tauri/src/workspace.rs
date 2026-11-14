@@ -1,4 +1,4 @@
-use crate::documents::{DocumentStore, OpenDocument, grants_within, moved_path, open_granted_path, relocate_grants, forget_grants};
+use crate::documents::{DocumentStore, OpenDocument, grants_within, moved_path, open_granted_path, relocating, removing, forget_grants};
 use crate::file_kinds::{self, DocumentKind};
 use serde::Serialize;
 use std::{collections::{HashMap, HashSet}, fs, path::{Path, PathBuf}, sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex}};
@@ -254,12 +254,22 @@ pub(crate) fn entry_path(store: &WorkspaceStore, token: &str) -> Result<(PathBuf
     Ok((checked_path(&grant)?, grant.directory))
 }
 
-/// Sidebar entries follow a document renamed from its tab, so their tokens keep working.
-/// Follows a rename in the sidebar: the renamed entry and, for a folder, every entry below it keep their tokens.
-pub(crate) fn relocate_entries(store: &WorkspaceStore, old: &Path, new: &Path) -> Result<(), String> {
-    for entry in store.0.lock().map_err(|_| "IO_ERROR")?.values_mut() { if let Some(moved) = moved_path(&entry.path, old, new) { entry.path = moved; } }
+/// Follows a rename or move, made in the sidebar or from a tab: the entry and, for a folder, every entry below it
+/// keep their tokens. An open folder inside a moved one moves with it, so roots are rewritten too. An entry that
+/// lands outside its open folder belongs from then on to `adopt`, the open folder it was moved under.
+fn relocate_entries_into(store: &WorkspaceStore, old: &Path, new: &Path, adopt: Option<(&str, &Path)>) -> Result<(), String> {
+    for entry in store.0.lock().map_err(|_| "IO_ERROR")?.values_mut() {
+        if let Some(root) = moved_path(&entry.root, old, new) { entry.root = root; }
+        let Some(path) = moved_path(&entry.path, old, new) else { continue };
+        entry.path = path;
+        if let Some((workspace, root)) = adopt {
+            if !entry.path.starts_with(&entry.root) { entry.workspace = workspace.to_string(); entry.root = root.to_path_buf(); }
+        }
+    }
     Ok(())
 }
+
+pub(crate) fn relocate_entries(store: &WorkspaceStore, old: &Path, new: &Path) -> Result<(), String> { relocate_entries_into(store, old, new, None) }
 
 pub(crate) fn forget_entries(store: &WorkspaceStore, path: &Path) -> Result<(), String> {
     store.0.lock().map_err(|_| "IO_ERROR")?.retain(|_, entry| entry.directory || entry.path != path);
@@ -308,31 +318,35 @@ pub fn create_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceS
 }
 
 #[tauri::command(async)]
-pub fn rename_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String, new_name: String) -> Result<WorkspaceEntry, String> {
+pub fn rename_workspace_entry(app: AppHandle, window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String, new_name: String) -> Result<WorkspaceEntry, String> {
     crate::require_workspace_window(&window)?;
-    rename_entry(&store, &documents, entry_token, new_name)
+    let (entry, source, target) = rename_entry(&store, &documents, entry_token, new_name)?;
+    crate::positions::relocate(&app, &source, &target);
+    Ok(entry)
 }
 
-fn rename_entry(store: &WorkspaceStore, documents: &DocumentStore, entry_token: String, new_name: String) -> Result<WorkspaceEntry, String> {
+fn rename_entry(store: &WorkspaceStore, documents: &DocumentStore, entry_token: String, new_name: String) -> Result<(WorkspaceEntry, PathBuf, PathBuf), String> {
     let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(&entry_token).cloned().ok_or("OUT_OF_SCOPE")?;
     if grant.path == grant.root || !valid_rename(&grant.path, &new_name, grant.directory) { return Err("INVALID_NAME".into()); }
     let source = checked_path(&grant)?;
     // A folder is renamed with everything in it; open files inside it and expanded subfolders follow it.
-    let target = rename_entry_at(&source, &new_name, grant.directory)?;
+    let target = relocating(documents, &source, || rename_entry_at(&source, &new_name, grant.directory))?;
     relocate_entries(store, &source, &target)?;
-    relocate_grants(documents, &source, &target)?;
-    Ok(WorkspaceEntry { token: entry_token, name: new_name, directory: grant.directory })
+    Ok((WorkspaceEntry { token: entry_token, name: new_name, directory: grant.directory }, source, target))
 }
 
 /// Drags a file, or a folder with everything in it, into another folder of the sidebar (T109), possibly one
 /// under another open folder. The entry, the entries below it and the open documents inside keep their tokens.
 #[tauri::command(async)]
-pub fn move_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String, target_token: String) -> Result<WorkspaceEntry, String> {
+pub fn move_workspace_entry(app: AppHandle, window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String, target_token: String) -> Result<WorkspaceEntry, String> {
     crate::require_workspace_window(&window)?;
-    move_entry(&store, &documents, &entry_token, &target_token)
+    let (entry, moved) = move_entry(&store, &documents, &entry_token, &target_token)?;
+    if let Some((source, target)) = moved { crate::positions::relocate(&app, &source, &target); }
+    Ok(entry)
 }
 
-fn move_entry(store: &WorkspaceStore, documents: &DocumentStore, entry_token: &str, target_token: &str) -> Result<WorkspaceEntry, String> {
+/// The entry, and where it was moved from and to; `None` when it was already in the target folder.
+fn move_entry(store: &WorkspaceStore, documents: &DocumentStore, entry_token: &str, target_token: &str) -> Result<(WorkspaceEntry, Option<(PathBuf, PathBuf)>), String> {
     let (grant, target_grant) = {
         let map = store.0.lock().map_err(|_| "IO_ERROR")?;
         (map.get(entry_token).cloned().ok_or("OUT_OF_SCOPE")?, map.get(target_token).cloned().ok_or("OUT_OF_SCOPE")?)
@@ -343,24 +357,12 @@ fn move_entry(store: &WorkspaceStore, documents: &DocumentStore, entry_token: &s
     let target = checked_path(&target_grant)?;
     let name = source.file_name().ok_or("INVALID_PATH")?.to_string_lossy().into_owned();
     let entry = WorkspaceEntry { token: entry_token.to_string(), name, directory: grant.directory };
-    if source.parent() == Some(target.as_path()) { return Ok(entry); }
+    if source.parent() == Some(target.as_path()) { return Ok((entry, None)); }
     // A folder cannot go into itself or into a folder inside it.
     if target.starts_with(&source) { return Err("INVALID_TARGET".into()); }
-    let moved = move_entry_at(&source, &target, grant.directory)?;
-    {
-        let mut map = store.0.lock().map_err(|_| "IO_ERROR")?;
-        for item in map.values_mut() {
-            let Some(path) = moved_path(&item.path, &source, &moved) else { continue };
-            item.path = path;
-            // Moved under another open folder, the entries belong to that folder from now on.
-            if !item.path.starts_with(&item.root) {
-                item.workspace = target_grant.workspace.clone();
-                item.root = target_grant.root.clone();
-            }
-        }
-    }
-    relocate_grants(documents, &source, &moved)?;
-    Ok(entry)
+    let moved = relocating(documents, &source, || move_entry_at(&source, &target, grant.directory))?;
+    relocate_entries_into(store, &source, &moved, Some((&target_grant.workspace, &target_grant.root)))?;
+    Ok((entry, Some((source, moved))))
 }
 
 #[cfg(target_os = "macos")]
@@ -421,7 +423,7 @@ pub fn trash_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceSt
     let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(&entry_token).cloned().ok_or("OUT_OF_SCOPE")?;
     if grant.path == grant.root { return Err("OUT_OF_SCOPE".into()); }
     let path = checked_path(&grant)?;
-    move_to_trash(&path)?;
+    removing(&documents, &path, || move_to_trash(&path))?;
     forget_within(&store, &documents, &path)
 }
 
@@ -677,7 +679,7 @@ mod tests {
         for file in ["sub/a.md", "sub/deep/b.md", "sub-other/d.md"] { open_granted_path(&documents, &dir.join(file)).unwrap(); }
         let opened = grants_within(&documents, &dir.join("sub/deep/b.md")).unwrap().pop().unwrap();
 
-        let renamed = rename_entry(&store, &documents, sub.clone(), "新名字".into()).unwrap();
+        let renamed = rename_entry(&store, &documents, sub.clone(), "新名字".into()).unwrap().0;
         assert_eq!((renamed.token.as_str(), renamed.name.as_str(), renamed.directory), (sub.as_str(), "新名字", true));
         assert!(!dir.join("sub").exists());
         assert_eq!(fs::read_to_string(dir.join("新名字/deep/b.md")).unwrap(), "# sub/deep/b.md\n");
@@ -723,7 +725,7 @@ mod tests {
         let opened = grants_within(&documents, &dir.join("sub/deep/b.md")).unwrap().pop().unwrap();
 
         // A file into a folder of the same open folder.
-        let moved = move_entry(&store, &documents, &a, &boxed).unwrap();
+        let moved = move_entry(&store, &documents, &a, &boxed).unwrap().0;
         assert_eq!((moved.token.as_str(), moved.name.as_str(), moved.directory), (a.as_str(), "a.md", false));
         assert!(dir.join("box/a.md").is_file() && !dir.join("sub/a.md").exists());
         assert_eq!(token_of(&dir.join("box/a.md")), Some(a.clone()));
@@ -755,6 +757,19 @@ mod tests {
         // Closing the first open folder leaves what now belongs to the second.
         store.0.lock().unwrap().retain(|_, entry| entry.workspace != root.token);
         assert!(token_of(&other.join("inbox/sub")).is_some());
+
+        // An open folder inside a moved folder moves with it and keeps working.
+        fs::create_dir_all(other.join("outer/opened")).unwrap();
+        fs::write(other.join("outer/opened/e.md"), "# e\n").unwrap();
+        list_at(&store, &second.token, 0).unwrap();
+        let outer = token_of(&other.join("outer")).unwrap();
+        let nested = register_workspace(&store, other.join("outer/opened")).unwrap();
+        list_at(&store, &nested.token, 0).unwrap();
+        let e = token_of(&other.join("outer/opened/e.md")).unwrap();
+        move_entry(&store, &documents, &outer, &inbox).unwrap();
+        assert_eq!(workspace_path(&store, &nested.token).unwrap(), other.join("inbox/outer/opened"));
+        assert!(list_at(&store, &nested.token, 0).is_ok());
+        assert_eq!(entry_path(&store, &e).unwrap().0, other.join("inbox/outer/opened/e.md"));
         fs::remove_dir_all(dir).unwrap();
         fs::remove_dir_all(other).unwrap();
     }

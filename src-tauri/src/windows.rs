@@ -21,8 +21,10 @@ pub fn create(app: &AppHandle, transfers: &TransferStore, transfer: Option<serde
         .min_inner_size(720.0, 520.0)
         .visible(false);
     // Like the main window (tauri.conf.json): no system title bar, the traffic lights sit on the app's own top row.
+    // tao makes the title bar `button height + y` tall and keeps the buttons 10 pt above its bottom, so y = 24 puts
+    // their top 14 pt down and their center on the center of the 44 pt top row (measured through Accessibility).
     #[cfg(target_os = "macos")]
-    let builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true).traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0));
+    let builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true).traffic_light_position(tauri::LogicalPosition::new(16.0, 24.0));
     match builder.build() {
         Ok(_) => { show_if_webview_stalls(app.clone(), label.clone()); Ok(label) }
         Err(_) => { let _ = transfers.0.lock().map(|mut map| map.remove(&label)); Err("WINDOW_CREATE_FAILED".into()) }

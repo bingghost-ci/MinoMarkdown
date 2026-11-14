@@ -1,7 +1,7 @@
 //! Right-click menus (T105). The frontend describes a menu from a fixed set of item ids; Rust labels it in the
 //! menu language, shows it as a native macOS menu, and reports the chosen item to the window as
 //! `context-action`. File actions here resolve opaque document or sidebar tokens, never paths from the webview.
-use crate::documents::{forget_grants, granted_file, relocate_grants, DocumentStore};
+use crate::documents::{granted_file, relocating, removing, DocumentStore};
 use crate::workspace::{self, WorkspaceStore};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -146,13 +146,13 @@ pub fn write_clipboard_text(window: WebviewWindow, text: String) -> Result<(), S
 
 /// Renames an open document's file in place. It keeps its kind, as a rename in the sidebar does.
 #[tauri::command(async)]
-pub fn rename_document(window: WebviewWindow, documents: State<'_, DocumentStore>, entries: State<'_, WorkspaceStore>, token: String, new_name: String) -> Result<String, String> {
+pub fn rename_document(app: AppHandle, window: WebviewWindow, documents: State<'_, DocumentStore>, entries: State<'_, WorkspaceStore>, token: String, new_name: String) -> Result<String, String> {
     crate::require_workspace_window(&window)?;
     let source = granted_file(&documents, &token)?;
     if !workspace::valid_rename(&source, &new_name, false) { return Err("INVALID_NAME".into()); }
-    let target = workspace::rename_entry_at(&source, &new_name, false)?;
-    relocate_grants(&documents, &source, &target)?;
+    let target = relocating(&documents, &source, || workspace::rename_entry_at(&source, &new_name, false))?;
     workspace::relocate_entries(&entries, &source, &target)?;
+    crate::positions::relocate(&app, &source, &target);
     Ok(new_name)
 }
 
@@ -161,8 +161,7 @@ pub fn rename_document(window: WebviewWindow, documents: State<'_, DocumentStore
 pub fn trash_document(window: WebviewWindow, documents: State<'_, DocumentStore>, entries: State<'_, WorkspaceStore>, token: String) -> Result<(), String> {
     crate::require_workspace_window(&window)?;
     let path = granted_file(&documents, &token)?;
-    workspace::move_to_trash(&path)?;
-    forget_grants(&documents, &path)?;
+    removing(&documents, &path, || workspace::move_to_trash(&path))?;
     workspace::forget_entries(&entries, &path)
 }
 

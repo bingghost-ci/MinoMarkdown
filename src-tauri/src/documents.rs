@@ -110,11 +110,19 @@ pub(crate) fn moved_path(path: &Path, old: &Path, new: &Path) -> Option<PathBuf>
     path.strip_prefix(old).ok().map(|rest| if rest.as_os_str().is_empty() { new.to_path_buf() } else { new.join(rest) })
 }
 
-/// Follows a rename: the grant of the renamed file, or of every file inside a renamed folder, points to the new place.
-pub(crate) fn relocate_grants(store: &DocumentStore, old: &Path, new: &Path) -> Result<(), String> {
+/// Held for reading while an open document is saved and for writing while files are renamed, moved or removed, so
+/// a save never writes to a path that is changing under it.
+pub(crate) static PATHS: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+/// Renames or moves `old` with `change`, which returns where it went, and points the grant of the file, or of every
+/// file inside a folder, to the new place (T105, T109). The grants stay locked from before the change on disk until
+/// they are updated, so a disk check or a read of an open document never sees the file missing in between.
+pub(crate) fn relocating(store: &DocumentStore, old: &Path, change: impl FnOnce() -> Result<PathBuf, String>) -> Result<PathBuf, String> {
+    let _paths = PATHS.write().map_err(|_| "IO_ERROR")?;
     let mut grants = store.0.lock().map_err(|_| "IO_ERROR")?;
-    for grant in grants.values_mut() { if let Some(moved) = moved_path(&grant.path, old, new) { grant.path = moved; } }
-    Ok(())
+    let new = change()?;
+    for grant in grants.values_mut() { if let Some(moved) = moved_path(&grant.path, old, &new) { grant.path = moved; } }
+    Ok(new)
 }
 
 /// The file a document token was granted, checked to still be that regular file and not a link (T105).
@@ -122,6 +130,13 @@ pub(crate) fn granted_file(store: &DocumentStore, token: &str) -> Result<PathBuf
     let path = store.grant(token)?.path;
     if validate_selected_file(&path)? != path { return Err("OUT_OF_SCOPE".into()); }
     Ok(path)
+}
+
+/// Removes `path` with `change` (to the Trash) and ends the grants at or inside it, while no save runs (T109).
+pub(crate) fn removing(store: &DocumentStore, path: &Path, change: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+    let _paths = PATHS.write().map_err(|_| "IO_ERROR")?;
+    change()?;
+    forget_grants(store, path)
 }
 
 /// Ends the grants of `path` and, when it is a folder, of every file inside it.
@@ -642,6 +657,9 @@ pub async fn save_document(
     crate::require_workspace_window(&window)?;
     let assets = staged_uploads(&staging, assets)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
+    // A rename, move or removal in the sidebar waits for this save, and this save waits for it, so the file is
+    // never written back to the place it just left (T109). Saving a new file shows a panel first and takes no lock.
+    let _paths = match token { Some(_) => Some(PATHS.read().map_err(|_| "IO_ERROR")?), None => None };
     let grant = match token.as_ref() {
         Some(id) => Some(store.grant(id)?),
         None => None,
