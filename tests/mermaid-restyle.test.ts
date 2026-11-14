@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
+import DOMPurify from 'dompurify'
 
 // Mermaid needs real layout; this stand-in draws the text color it was configured with.
 let configured: { themeVariables?: Record<string, unknown> } = {}
@@ -42,6 +43,23 @@ describe('restyling drawn diagrams', () => {
 })
 
 describe('diagram looks (T107)', () => {
+  it('redraws the copy Crepe shows, not only the element the preview hook returned', async () => {
+    document.documentElement.dataset.theme = 'paper'
+    document.documentElement.dataset.diagram = 'page'
+    const returned = await draw('graph LR\n X-->Y')
+    // Crepe serializes the returned element, sanitizes the markup and shows a copy.
+    const shown = document.createElement('div')
+    shown.innerHTML = DOMPurify().sanitize(returned.outerHTML)
+    const copy = shown.firstElementChild as HTMLElement
+    expect(copy).not.toBe(returned)
+    document.documentElement.dataset.diagram = 'scifi'
+    expect(await restyleDiagrams(shown)).toBe(1)
+    expect(copy.dataset.diagramKey).toBe('paper:scifi:auto:auto')
+    expect(copy.innerHTML).toContain('X--&gt;Y')
+    expect(await restyleDiagrams(shown)).toBe(0)
+    delete document.documentElement.dataset.diagram
+  })
+
   it('redraws in place when only the look changes, and keys a bare style ID to the default look', async () => {
     document.documentElement.dataset.theme = 'paper'
     document.documentElement.dataset.diagram = 'page'

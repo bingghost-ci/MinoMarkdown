@@ -26,6 +26,20 @@ describe('T81 document kinds', () => {
     expect(config.bundle.fileAssociations.find((item) => item.ext.includes('pdf'))?.role).toBe('Viewer')
   })
 
+  it('declares types the Dock accepts: folders, and extensions without a system type apart from typed ones', () => {
+    type Association = { ext: string[]; contentTypes?: string[]; name: string }
+    const associations = (JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')) as { bundle: { fileAssociations: Association[] } }).bundle.fileAssociations
+    // A folder dropped on the icon opens in the sidebar.
+    expect(associations.find((item) => item.contentTypes?.includes('public.folder'))?.ext).toEqual([])
+    expect(associations.find((item) => item.ext.includes('md'))?.contentTypes).toEqual(['net.daringfireball.markdown'])
+    // macOS ignores an entry's extensions once it lists content types, so extensions that have no system type
+    // (they resolve to a dynamic type) must sit in an entry without them. `.ts` resolves to MPEG-2 video.
+    const untyped = associations.filter((item) => !item.contentTypes)
+    for (const ext of ['ts', 'rs', 'go', 'jsonc', 'vue', 'kt']) expect(untyped.some((item) => item.ext.includes(ext)), ext).toBe(true)
+    // The Markdown type is imported for macOS versions that do not declare it.
+    expect(readFileSync('src-tauri/Info.plist', 'utf8')).toContain('<string>net.daringfireball.markdown</string>')
+  })
+
   it('tells the kind from the name, whatever its case', () => {
     expect(kindOfName('笔记.md')).toBe('markdown')
     expect(kindOfName('README.MARKDOWN')).toBe('markdown')

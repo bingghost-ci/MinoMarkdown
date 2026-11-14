@@ -123,7 +123,7 @@ export function SettingsDialog({ workspace: w }: { workspace: DocumentWorkspace 
             <label>{t('白天')}<select value={settings.dayTheme} onChange={(event) => update({ dayTheme: event.target.value as Settings['dayTheme'] })}>{readingStyles.filter((style) => !style.dark).map((style) => <option key={style.id} value={style.id}>{t(style.name)}</option>)}</select></label>
             <label>{t('夜间')}<select value={settings.nightTheme} onChange={(event) => update({ nightTheme: event.target.value as Settings['nightTheme'] })}>{readingStyles.filter((style) => style.dark).map((style) => <option key={style.id} value={style.id}>{t(style.name)}</option>)}</select></label>
           </div>}
-          <div className="settings-section-heading"><strong>{t('阅读风格')}</strong><small>{t('画布和界面保持中性灰，颜色只在纸面和标题上')}</small></div>
+          <div className="settings-section-heading"><strong>{t('阅读风格')}</strong><small>{t('窗口和标题栏带一点纸张的色调，颜色主要在纸面和标题上')}</small></div>
           <StyleSwatches workspace={w} />
           {active.texture && <Row title={t('纸张纹理')} note={t('纸面纤维、压纹和做旧的明显程度')}><input type="range" aria-label={t('纸张纹理')} min={0} max={100} step={10} value={settings.textureStrength} onChange={(event) => update({ textureStrength: Number(event.target.value) })} /></Row>}
           <div className="settings-section-heading"><strong>{t('图表风格')}</strong><small>{t('Mermaid 流程图、时序图等的画法：字体、笔触、边角和连线；颜色始终取自当前纸张，导出也用这里的选择')}</small></div>

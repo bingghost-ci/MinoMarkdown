@@ -156,6 +156,8 @@ export function errorText(error: unknown): string {
     READING_MODE: '阅读模式下不能修改文档，按 ⌘⇧R 开始编辑。',
     COMMIT_UNCERTAIN: '文件可能已写入，但原目录在操作期间发生变化。请先到磁盘确认文件位置，再决定是否重试。',
     TARGET_EXISTS: '目标文件已存在，请选择其他文件名。',
+    INVALID_TARGET: '不能把文件夹移到它自己或它里面的文件夹中。',
+    CROSS_DEVICE: '不能在不同的磁盘之间移动，请在 Finder 中拷贝。',
     INVALID_ENCODING: '无法识别这个文件的文字编码，没有打开，原文件未改动。',
     UNSUPPORTED_FORMAT: '文件内容不是它的扩展名所表示的格式（可能是二进制文件），没有打开。',
     UNSUPPORTED_FILE_TYPE: '不支持这种文件类型。可以打开 Markdown、纯文本、常见代码与配置文件和 PDF。',
@@ -169,7 +171,6 @@ export function errorText(error: unknown): string {
     INVALID_IMAGE: '图片内容无法解码或格式与类型不匹配。',
     INVALID_ASSET: '图片引用与附件不一致，正文没有写入。',
     INVALID_NAME: '名称为空、包含路径字符，或扩展名不受支持。',
-    DIR_NOT_EMPTY: '首版只允许移动空目录到废纸篓或重命名空目录。',
     TRASH_FAILED: '系统废纸篓操作失败，原文件仍保留。',
     SNAPSHOT_TOO_LARGE: '当前导出快照超过大小限制。',
     OUT_OF_SCOPE: '文件或图片路径超出本次打开的范围。',
@@ -883,6 +884,30 @@ export function useDocumentWorkspace() {
     if (window.document.querySelector('.mermaid-preview')) void import('../features/diagrams/mermaid').then((module) => module.restyleDiagrams(window.document))
   }, [style.id, settings.diagramStyle, settings.diagramLine, settings.diagramCurve])
 
+  // The window takes the style's light or dark appearance rather than the system's, so the traffic lights, native
+  // menus, dialogs and the color shown while the window is resized match the page.
+  useEffect(() => {
+    if (!desktop) return
+    const current = getCurrentWindow()
+    void current.setTheme(style.dark ? 'dark' : 'light').catch(() => undefined)
+    void current.setBackgroundColor(style.desk).catch(() => undefined)
+  }, [desktop, style.id])
+
+  // There is no system title bar (titleBarStyle Overlay): the traffic lights sit on the app's top row, which leaves
+  // room for them. In full screen macOS hides them, and the room goes away.
+  useEffect(() => {
+    if (!desktop) return
+    const root = window.document.documentElement
+    const current = getCurrentWindow()
+    let alive = true
+    let stop: (() => void) | undefined
+    const update = () => void current.isFullscreen().then((full) => { if (alive) root.classList.toggle('window-overlay', !full) }).catch(() => undefined)
+    root.classList.add('window-overlay')
+    update()
+    void current.onResized(update).then((off) => { if (alive) stop = off; else off() }).catch(() => undefined)
+    return () => { alive = false; stop?.(); root.classList.remove('window-overlay') }
+  }, [desktop])
+
   // Western layout follows the text the document had when it was opened or last saved, so typing never reflows the page.
   const docScript = useMemo(() => dominantScript(document.sourceText), [document.id, document.revision])
   const latinLayout = layoutScript(settings, docScript) === 'latin'
@@ -1595,16 +1620,50 @@ export function useDocumentWorkspace() {
     } catch (error) { setStatus(errorText(error)) }
   }
 
+  /**
+   * Moves a file, or a folder with everything in it, into the folder `targetToken` (T109), dragged in the sidebar.
+   * Rust moves the grants with it, so open tabs of files inside keep saving to the new place.
+   */
+  async function moveEntry(entry: WorkspaceEntry & { parentToken: string }, targetToken: string) {
+    if (entry.token === targetToken || entry.parentToken === targetToken) return
+    try {
+      await invoke<WorkspaceEntry>('move_workspace_entry', { entryToken: entry.token, targetToken })
+      setTree((current) => {
+        const parent = current[entry.parentToken]
+        return parent ? { ...current, [entry.parentToken]: { ...parent, entries: parent.entries.filter((item) => item.token !== entry.token) } } : current
+      })
+      if (selectedEntry?.token === entry.token) setSelectedEntry({ ...selectedEntry, parentToken: targetToken })
+      if (selectedDirectory === entry.token || !entry.directory && selectedDirectory === entry.parentToken) setSelectedDirectory(entry.directory ? entry.token : targetToken)
+      await Promise.all([loadChildren(entry.parentToken), loadChildren(targetToken)])
+      setStatus(`已移动：${entry.name}`)
+    } catch (error) {
+      const code = error instanceof Error ? error.message : String(error)
+      setStatus(code === 'TARGET_EXISTS' ? `目标文件夹里已有同名项目：${entry.name}` : errorText(error))
+    }
+  }
+
+  /** Moves a file, or a folder with everything in it, to the Trash. Tabs of files inside a folder are closed first. */
   async function trashEntry(entry?: WorkspaceEntry & { parentToken: string }) {
     const target = entry ?? selectedEntry
-    if (!target || !window.confirm(settings.language === 'en-US' ? `Move “${target.name}” to the Trash?` : `将“${target.name}”移到废纸篓？`)) return
-    const affected = tabsRef.current.filter((tab) => tab.document.entryToken === target.token).map((tab) => tab.key)
-    if (affected.length && !await closeTabs(affected)) return
+    if (!target) return
+    const english = settings.language === 'en-US'
+    const question = target.directory
+      ? (english ? `Move the folder “${target.name}” and everything in it to the Trash?` : `将文件夹“${target.name}”及其中的所有内容移到废纸篓？`)
+      : (english ? `Move “${target.name}” to the Trash?` : `将“${target.name}”移到废纸篓？`)
+    if (!window.confirm(question)) return
     try {
+      // Rust names the sidebar entries and open documents inside a folder by token; the frontend never sees paths.
+      const inside = target.directory ? await invoke<{ entryTokens: string[]; documentTokens: string[] }>('workspace_entry_contents', { entryToken: target.token }) : { entryTokens: [target.token], documentTokens: [] }
+      const entries = new Set(inside.entryTokens), documents = new Set(inside.documentTokens)
+      const affected = tabsRef.current.filter((tab) => (tab.document.entryToken && entries.has(tab.document.entryToken)) || documents.has(tab.document.token)).map((tab) => tab.key)
+      // A tab with unsaved changes asks first; canceling keeps the folder where it is.
+      if (affected.length && !await closeTabs(affected)) return
       await invoke('trash_workspace_entry', { entryToken: target.token })
+      setTree((current) => Object.fromEntries(Object.entries(current).filter(([token]) => !entries.has(token))))
+      if (selectedEntry && entries.has(selectedEntry.token)) setSelectedEntry(null)
+      if (selectedDirectory && entries.has(selectedDirectory)) setSelectedDirectory(target.parentToken)
       await loadChildren(target.parentToken)
       setStatus(`已移到废纸篓：${target.name}`)
-      if (selectedEntry?.token === target.token) setSelectedEntry(null)
     } catch (error) { setStatus(errorText(error)) }
   }
 
@@ -2522,7 +2581,7 @@ export function useDocumentWorkspace() {
     onStatus: setStatus,
   })
   const sourceDark = style.dark
-  return useStableFunctions({ openBodyMenu, openTabMenu, openEntryMenu, openRootMenu, documentRename, setDocumentRename, confirmDocumentRename, updateSettings, activeEntryToken: document.entryToken, findCapped, queueFind, plain, isPdf, tableView, setTableView, pdfBridge, pdfPages: pdfPages?.id === document.id ? pdfPages.pages : null, selectedDirectory, previewPartial, ai, panel, setPanel, systemFonts, loadSystemFonts, pickStyle, toggleDayNight, latinLayout, style, sourceDark, reading, setReading, lightbox, setLightbox, openImageFromClick, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettingsOpen, setSettingsTab, setSourceView, setStatus, settings, settingsOpen, settingsTab, sidebarOpen, sourceEditor, sourceView: sourceShown, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspaces }, STABLE_EXCEPT)
+  return useStableFunctions({ openBodyMenu, openTabMenu, openEntryMenu, openRootMenu, documentRename, setDocumentRename, confirmDocumentRename, updateSettings, activeEntryToken: document.entryToken, findCapped, queueFind, plain, isPdf, tableView, setTableView, pdfBridge, pdfPages: pdfPages?.id === document.id ? pdfPages.pages : null, selectedDirectory, previewPartial, ai, panel, setPanel, systemFonts, loadSystemFonts, pickStyle, toggleDayNight, latinLayout, style, sourceDark, reading, setReading, lightbox, setLightbox, openImageFromClick, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, moveEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettingsOpen, setSettingsTab, setSourceView, setStatus, settings, settingsOpen, settingsTab, sidebarOpen, sourceEditor, sourceView: sourceShown, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspaces }, STABLE_EXCEPT)
 }
 
 export type DocumentWorkspace = ReturnType<typeof useDocumentWorkspace>

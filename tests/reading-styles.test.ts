@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { contrast, parseHex, toHsl } from '../src/features/reading/color'
 import { appStylesheet, documentElementCss, styleVariables, typographyVariables, DOC_ROOT, PAGE_BACKGROUND, type Typography } from '../src/features/reading/css'
-import { dayStyleIds, isStyleId, legacyStyleIds, migrateStyleId, nightStyleIds, readingStyle, readingStyles, resolveStyleId, styleIds, themeIds, type ReadingStyle } from '../src/features/reading/styles'
+import { CHROME_TINT, dayStyleIds, isStyleId, legacyStyleIds, migrateStyleId, nightStyleIds, readingStyle, readingStyles, resolveStyleId, styleIds, themeIds, type ReadingStyle } from '../src/features/reading/styles'
 import { activeStyle, defaultReadingSettings, documentFontFamily, documentTypography, latinLineHeights, latinMeasures, layoutScript, lineHeights, pickedStyle, toggledDayNight } from '../src/app/readingSettings'
 
 const colorFields = ['paper', 'text', 'secondary', 'link', 'heading', 'title', 'muted', 'codeInk', 'codeBg', 'quoteLine', 'rule', 'tableLine', 'tableRule', 'selection', 'desk', 'edge'] as const
@@ -87,25 +87,24 @@ describe('reading styles', () => {
   // neutrality is measured as the spread between the color channels as well.
   const channelSpread = (hex: string) => { const rgb = parseHex(hex); return Math.max(...rgb) - Math.min(...rgb) }
 
-  it('keeps the chrome neutral: no tint from the page, and dark chrome for night styles only', () => {
+  it('tints the chrome lightly toward the paper (T108), and keeps dark chrome for night styles only', () => {
     for (const style of readingStyles) {
       const page = channelSpread(style.paper)
       for (const [name, color] of [...(['sidebar', 'chrome', 'raised', 'line', 'hover'] as const).map((field) => [`ui.${field}`, style.ui[field]] as const), ['desk', style.desk] as const]) {
         const spread = channelSpread(color)
-        expect(spread, `${style.id}.${name} ${color} is ${spread}/255 off gray`).toBeLessThanOrEqual(8)
-        // Where HSL saturation means something (the dark palettes), it stays under 0.08 too.
-        const saturation = toHsl(color)[1]
-        if (style.dark) expect(saturation, `${style.id}.${name} ${color} saturation ${saturation.toFixed(3)}`).toBeLessThanOrEqual(0.08)
-        // A tinted page (parchment is 66/255 off gray) leaves the chrome as gray as a white page does.
-        if (page > 16) expect(spread, `${style.id}.${name}`).toBeLessThan(page / 2)
+        // The chrome leans toward the page, at most a third as colorful as the paper itself (plus the base grays' own 8/255).
+        expect(spread, `${style.id}.${name} ${color} is ${spread}/255 off gray, paper ${page}/255`).toBeLessThanOrEqual(Math.ceil(page * CHROME_TINT) + 8)
       }
       expect(style.dark).toBe(style.group === 'night')
       for (const color of [style.ui.chrome, style.ui.sidebar, style.ui.raised, style.desk]) expect(toHsl(color)[2] < 0.5, `${style.id} ${color}`).toBe(style.dark)
       expect(styleVariables(style)['color-scheme']).toBe(style.dark ? 'dark' : 'light')
     }
-    // The page color does not reach the window: every day style shares one chrome, whatever its paper.
-    for (const field of ['sidebar', 'chrome', 'raised', 'line', 'hover'] as const) expect(new Set(dayStyleIds.map((id) => readingStyle(id).ui[field])).size, field).toBe(1)
-    expect(new Set(['white', 'paper', 'xuan', 'parchment', 'kraft', 'mint'].map((id) => readingStyle(id).desk)).size).toBe(1)
+    // A warm paper warms the window: red leads blue in the sidebar of the paper styles, unlike the plain white one.
+    const warmth = (hex: string) => { const [r, , b] = parseHex(hex); return r - b }
+    for (const id of ['paper', 'xuan', 'parchment', 'kraft']) expect(warmth(readingStyle(id).ui.sidebar), id).toBeGreaterThan(warmth(readingStyle('white').ui.sidebar))
+    expect(warmth(readingStyle('dusk').ui.sidebar)).toBeGreaterThan(warmth(readingStyle('dark').ui.sidebar))
+    // The chrome's text stays neutral: the page's ink belongs to the page.
+    expect(new Set(dayStyleIds.map((id) => styleVariables(readingStyle(id))['--ui-text'])).size).toBe(1)
   })
 
   /**

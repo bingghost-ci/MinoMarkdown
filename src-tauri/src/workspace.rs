@@ -1,4 +1,4 @@
-use crate::documents::{DocumentStore, OpenDocument, open_granted_path, relocate_grants, forget_grants};
+use crate::documents::{DocumentStore, OpenDocument, grants_within, moved_path, open_granted_path, relocate_grants, forget_grants};
 use crate::file_kinds::{self, DocumentKind};
 use serde::Serialize;
 use std::{collections::{HashMap, HashSet}, fs, path::{Path, PathBuf}, sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex}};
@@ -142,6 +142,39 @@ pub(crate) fn rename_entry_at(source: &Path, new_name: &str, directory: bool) ->
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn rename_entry_at(_source: &Path, _new_name: &str, _directory: bool) -> Result<PathBuf, String> { Err("UNSUPPORTED_PLATFORM".into()) }
+
+/// Moves `source` into the folder `target_parent` under the same name, never replacing an entry there.
+/// Both folders are held open and checked again afterwards, as in `rename_entry_at`.
+#[cfg(target_os = "macos")]
+fn move_entry_at(source: &Path, target_parent: &Path, directory: bool) -> Result<PathBuf, String> {
+    use std::os::fd::AsRawFd;
+    let parent = source.parent().ok_or("INVALID_PATH")?;
+    let from_dir = directory_handle(parent)?;
+    let to_dir = directory_handle(target_parent)?;
+    let name = entry_name(source.file_name().ok_or("INVALID_PATH")?)?;
+    let before = entry_stat(&from_dir, &name)?.ok_or("NOT_FOUND")?;
+    if before.st_mode & libc::S_IFMT != if directory { libc::S_IFDIR } else { libc::S_IFREG } { return Err("OUT_OF_SCOPE".into()); }
+    if entry_stat(&to_dir, &name)?.is_some() { return Err("TARGET_EXISTS".into()); }
+    if unsafe { libc::renameatx_np(from_dir.as_raw_fd(), name.as_ptr(), to_dir.as_raw_fd(), name.as_ptr(), libc::RENAME_EXCL) } < 0 {
+        let error = std::io::Error::last_os_error();
+        return Err(match error.raw_os_error() {
+            Some(libc::EEXIST) => "TARGET_EXISTS",
+            Some(libc::EXDEV) => "CROSS_DEVICE",
+            Some(libc::EINVAL) => "INVALID_TARGET",
+            _ => "IO_ERROR",
+        }.into());
+    }
+    from_dir.sync_all().map_err(|_| "COMMIT_UNCERTAIN")?;
+    to_dir.sync_all().map_err(|_| "COMMIT_UNCERTAIN")?;
+    same_directory(parent, &from_dir)?;
+    same_directory(target_parent, &to_dir)?;
+    let after = entry_stat(&to_dir, &name)?.ok_or("COMMIT_UNCERTAIN")?;
+    if after.st_dev != before.st_dev || after.st_ino != before.st_ino { return Err("COMMIT_UNCERTAIN".into()); }
+    Ok(target_parent.join(source.file_name().ok_or("INVALID_PATH")?))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn move_entry_at(_source: &Path, _target_parent: &Path, _directory: bool) -> Result<PathBuf, String> { Err("UNSUPPORTED_PLATFORM".into()) }
 fn checked_path(grant: &EntryGrant) -> Result<PathBuf, String> {
     let meta = fs::symlink_metadata(&grant.path).map_err(|_| "NOT_FOUND")?;
     if meta.file_type().is_symlink() || (grant.directory && !meta.is_dir()) || (!grant.directory && !meta.is_file()) { return Err("OUT_OF_SCOPE".into()); }
@@ -222,8 +255,9 @@ pub(crate) fn entry_path(store: &WorkspaceStore, token: &str) -> Result<(PathBuf
 }
 
 /// Sidebar entries follow a document renamed from its tab, so their tokens keep working.
+/// Follows a rename in the sidebar: the renamed entry and, for a folder, every entry below it keep their tokens.
 pub(crate) fn relocate_entries(store: &WorkspaceStore, old: &Path, new: &Path) -> Result<(), String> {
-    for entry in store.0.lock().map_err(|_| "IO_ERROR")?.values_mut() { if entry.path == old { entry.path = new.to_path_buf(); } }
+    for entry in store.0.lock().map_err(|_| "IO_ERROR")?.values_mut() { if let Some(moved) = moved_path(&entry.path, old, new) { entry.path = moved; } }
     Ok(())
 }
 
@@ -276,14 +310,57 @@ pub fn create_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceS
 #[tauri::command(async)]
 pub fn rename_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String, new_name: String) -> Result<WorkspaceEntry, String> {
     crate::require_workspace_window(&window)?;
+    rename_entry(&store, &documents, entry_token, new_name)
+}
+
+fn rename_entry(store: &WorkspaceStore, documents: &DocumentStore, entry_token: String, new_name: String) -> Result<WorkspaceEntry, String> {
     let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(&entry_token).cloned().ok_or("OUT_OF_SCOPE")?;
     if grant.path == grant.root || !valid_rename(&grant.path, &new_name, grant.directory) { return Err("INVALID_NAME".into()); }
     let source = checked_path(&grant)?;
-    if grant.directory && fs::read_dir(&source).map_err(|_| "IO_ERROR")?.next().is_some() { return Err("DIR_NOT_EMPTY".into()); }
+    // A folder is renamed with everything in it; open files inside it and expanded subfolders follow it.
     let target = rename_entry_at(&source, &new_name, grant.directory)?;
-    store.0.lock().map_err(|_| "IO_ERROR")?.get_mut(&entry_token).ok_or("OUT_OF_SCOPE")?.path = target.clone();
-    relocate_grants(&documents, &source, &target)?;
+    relocate_entries(store, &source, &target)?;
+    relocate_grants(documents, &source, &target)?;
     Ok(WorkspaceEntry { token: entry_token, name: new_name, directory: grant.directory })
+}
+
+/// Drags a file, or a folder with everything in it, into another folder of the sidebar (T109), possibly one
+/// under another open folder. The entry, the entries below it and the open documents inside keep their tokens.
+#[tauri::command(async)]
+pub fn move_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String, target_token: String) -> Result<WorkspaceEntry, String> {
+    crate::require_workspace_window(&window)?;
+    move_entry(&store, &documents, &entry_token, &target_token)
+}
+
+fn move_entry(store: &WorkspaceStore, documents: &DocumentStore, entry_token: &str, target_token: &str) -> Result<WorkspaceEntry, String> {
+    let (grant, target_grant) = {
+        let map = store.0.lock().map_err(|_| "IO_ERROR")?;
+        (map.get(entry_token).cloned().ok_or("OUT_OF_SCOPE")?, map.get(target_token).cloned().ok_or("OUT_OF_SCOPE")?)
+    };
+    // An open folder is not moved; it is closed instead.
+    if grant.path == grant.root || !target_grant.directory { return Err("OUT_OF_SCOPE".into()); }
+    let source = checked_path(&grant)?;
+    let target = checked_path(&target_grant)?;
+    let name = source.file_name().ok_or("INVALID_PATH")?.to_string_lossy().into_owned();
+    let entry = WorkspaceEntry { token: entry_token.to_string(), name, directory: grant.directory };
+    if source.parent() == Some(target.as_path()) { return Ok(entry); }
+    // A folder cannot go into itself or into a folder inside it.
+    if target.starts_with(&source) { return Err("INVALID_TARGET".into()); }
+    let moved = move_entry_at(&source, &target, grant.directory)?;
+    {
+        let mut map = store.0.lock().map_err(|_| "IO_ERROR")?;
+        for item in map.values_mut() {
+            let Some(path) = moved_path(&item.path, &source, &moved) else { continue };
+            item.path = path;
+            // Moved under another open folder, the entries belong to that folder from now on.
+            if !item.path.starts_with(&item.root) {
+                item.workspace = target_grant.workspace.clone();
+                item.root = target_grant.root.clone();
+            }
+        }
+    }
+    relocate_grants(documents, &source, &moved)?;
+    Ok(entry)
 }
 
 #[cfg(target_os = "macos")]
@@ -307,17 +384,45 @@ pub(crate) fn move_to_trash(path: &Path) -> Result<(), String> {
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn move_to_trash(_path: &Path) -> Result<(), String> { Err("UNSUPPORTED_PLATFORM".into()) }
 
+/// What removing an entry takes with it: the sidebar entries and the open documents at or inside its path.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EntryContents { entry_tokens: Vec<String>, document_tokens: Vec<String> }
+
+fn contents_at(store: &WorkspaceStore, documents: &DocumentStore, entry_token: &str) -> Result<EntryContents, String> {
+    let entries = store.0.lock().map_err(|_| "IO_ERROR")?;
+    let path = entries.get(entry_token).ok_or("OUT_OF_SCOPE")?.path.clone();
+    let mut entry_tokens: Vec<String> = entries.iter().filter(|(_, item)| item.path.starts_with(&path)).map(|(token, _)| token.clone()).collect();
+    drop(entries);
+    let mut document_tokens = grants_within(documents, &path)?;
+    entry_tokens.sort();
+    document_tokens.sort();
+    Ok(EntryContents { entry_tokens, document_tokens })
+}
+
+/// Lets the frontend close the tabs of files inside a folder before the folder goes to the Trash. It names tokens only, never paths.
+#[tauri::command(async)]
+pub fn workspace_entry_contents(window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String) -> Result<EntryContents, String> {
+    crate::require_workspace_window(&window)?;
+    contents_at(&store, &documents, &entry_token)
+}
+
+/// Ends the grants of an entry that left the disk and of everything that was inside it.
+fn forget_within(store: &WorkspaceStore, documents: &DocumentStore, path: &Path) -> Result<(), String> {
+    store.0.lock().map_err(|_| "IO_ERROR")?.retain(|_, item| !item.path.starts_with(path));
+    forget_grants(documents, path)
+}
+
+/// Moves a file, or a folder with everything in it, to the Trash. The Trash keeps it whole, so it can be put back.
+/// The open folder itself is closed rather than trashed.
 #[tauri::command(async)]
 pub fn trash_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String) -> Result<(), String> {
     crate::require_workspace_window(&window)?;
     let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(&entry_token).cloned().ok_or("OUT_OF_SCOPE")?;
     if grant.path == grant.root { return Err("OUT_OF_SCOPE".into()); }
     let path = checked_path(&grant)?;
-    if grant.directory && fs::read_dir(&path).map_err(|_| "IO_ERROR")?.next().is_some() { return Err("DIR_NOT_EMPTY".into()); }
     move_to_trash(&path)?;
-    store.0.lock().map_err(|_| "IO_ERROR")?.retain(|_, item| item.path != path);
-    forget_grants(&documents, &path)?;
-    Ok(())
+    forget_within(&store, &documents, &path)
 }
 
 fn snippet_around(line: &str, match_char: usize) -> String {
@@ -514,6 +619,144 @@ mod tests {
             let results = searched(&store, &root.token, query);
             println!("query={query} hits={} truncated={} skipped={} elapsed_ms={}", results.hits.len(), results.truncated, results.skipped, started.elapsed().as_millis());
         }
+    }
+    /// A folder goes to the Trash with everything in it: the tabs of files anywhere inside it are named so they can
+    /// be closed first, and every grant at or below it ends. A sibling whose name starts the same is left alone.
+    #[test]
+    fn removing_a_folder_covers_everything_inside_it() {
+        let dir = fs::canonicalize(temp()).unwrap();
+        fs::create_dir_all(dir.join("sub/deep")).unwrap();
+        fs::create_dir(dir.join("sub-other")).unwrap();
+        for file in ["sub/a.md", "sub/deep/b.md", "c.md", "sub-other/d.md"] { fs::write(dir.join(file), "# x\n").unwrap(); }
+        let store = WorkspaceStore::default();
+        let documents = DocumentStore::default();
+        let root = register_workspace(&store, dir.clone()).unwrap();
+        let token_of = |name: &str| store.0.lock().unwrap().iter().find(|(_, item)| item.path == dir.join(name)).map(|(token, _)| token.clone());
+        list_at(&store, &root.token, 0).unwrap();
+        let sub = token_of("sub").unwrap();
+        list_at(&store, &sub, 0).unwrap();
+        list_at(&store, &token_of("sub/deep").unwrap(), 0).unwrap();
+        list_at(&store, &token_of("sub-other").unwrap(), 0).unwrap();
+        for file in ["sub/a.md", "sub/deep/b.md", "c.md", "sub-other/d.md"] { open_granted_path(&documents, &dir.join(file)).unwrap(); }
+
+        let contents = contents_at(&store, &documents, &sub).unwrap();
+        let mut expected: Vec<String> = ["sub", "sub/a.md", "sub/deep", "sub/deep/b.md"].iter().map(|name| token_of(name).unwrap()).collect();
+        expected.sort();
+        assert_eq!(contents.entry_tokens, expected);
+        let mut inside = [grants_within(&documents, &dir.join("sub/a.md")).unwrap(), grants_within(&documents, &dir.join("sub/deep/b.md")).unwrap()].concat();
+        inside.sort();
+        assert_eq!(contents.document_tokens, inside);
+        assert_eq!(inside.len(), 2);
+
+        forget_within(&store, &documents, &dir.join("sub")).unwrap();
+        assert!(store.0.lock().unwrap().values().all(|item| !item.path.starts_with(dir.join("sub"))));
+        assert!(token_of("sub-other/d.md").is_some() && token_of("c.md").is_some());
+        assert!(grants_within(&documents, &dir.join("sub")).unwrap().is_empty());
+        assert_eq!(grants_within(&documents, &dir).unwrap().len(), 2);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    /// A folder with files in it can be renamed: open files inside it, at any depth, keep working at the new
+    /// place, sidebar entries below it keep their tokens, and a sibling whose name starts the same is left alone.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn renaming_a_folder_moves_everything_inside_it() {
+        let dir = fs::canonicalize(temp()).unwrap();
+        fs::create_dir_all(dir.join("sub/deep")).unwrap();
+        fs::create_dir(dir.join("sub-other")).unwrap();
+        for file in ["sub/a.md", "sub/deep/b.md", "sub-other/d.md"] { fs::write(dir.join(file), format!("# {file}\n")).unwrap(); }
+        let store = WorkspaceStore::default();
+        let documents = DocumentStore::default();
+        let root = register_workspace(&store, dir.clone()).unwrap();
+        let token_of = |path: &Path| store.0.lock().unwrap().iter().find(|(_, item)| item.path == path).map(|(token, _)| token.clone());
+        list_at(&store, &root.token, 0).unwrap();
+        let sub = token_of(&dir.join("sub")).unwrap();
+        list_at(&store, &sub, 0).unwrap();
+        let deep = token_of(&dir.join("sub/deep")).unwrap();
+        list_at(&store, &deep, 0).unwrap();
+        list_at(&store, &token_of(&dir.join("sub-other")).unwrap(), 0).unwrap();
+        for file in ["sub/a.md", "sub/deep/b.md", "sub-other/d.md"] { open_granted_path(&documents, &dir.join(file)).unwrap(); }
+        let opened = grants_within(&documents, &dir.join("sub/deep/b.md")).unwrap().pop().unwrap();
+
+        let renamed = rename_entry(&store, &documents, sub.clone(), "新名字".into()).unwrap();
+        assert_eq!((renamed.token.as_str(), renamed.name.as_str(), renamed.directory), (sub.as_str(), "新名字", true));
+        assert!(!dir.join("sub").exists());
+        assert_eq!(fs::read_to_string(dir.join("新名字/deep/b.md")).unwrap(), "# sub/deep/b.md\n");
+        // The open file inside the folder is found at its new place, through the same token.
+        assert_eq!(crate::documents::granted_file(&documents, &opened).unwrap(), dir.join("新名字/deep/b.md"));
+        assert_eq!(grants_within(&documents, &dir.join("新名字")).unwrap().len(), 2);
+        assert!(grants_within(&documents, &dir.join("sub")).unwrap().is_empty());
+        assert_eq!(token_of(&dir.join("新名字/deep")), Some(deep.clone()));
+        assert!(list_at(&store, &deep, 0).is_ok());
+        assert!(token_of(&dir.join("sub-other/d.md")).is_some());
+        assert_eq!(grants_within(&documents, &dir.join("sub-other")).unwrap().len(), 1);
+        // The open folder itself is not renamed from inside.
+        assert_eq!(rename_entry(&store, &documents, root.token.clone(), "x".into()).err(), Some("INVALID_NAME".into()));
+        fs::remove_dir_all(dir).unwrap();
+    }
+    /// Files and folders are dragged into other folders, also under another open folder: tokens and open files
+    /// follow them, a name already there is not replaced, and a folder cannot go into itself.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn moving_entries_into_other_folders() {
+        let dir = fs::canonicalize(temp()).unwrap();
+        let other = fs::canonicalize(temp()).unwrap();
+        fs::create_dir_all(dir.join("sub/deep")).unwrap();
+        fs::create_dir(dir.join("box")).unwrap();
+        fs::create_dir(other.join("inbox")).unwrap();
+        for file in ["sub/a.md", "sub/deep/b.md", "c.md", "box/c.md"] { fs::write(dir.join(file), format!("# {file}\n")).unwrap(); }
+        let store = WorkspaceStore::default();
+        let documents = DocumentStore::default();
+        let root = register_workspace(&store, dir.clone()).unwrap();
+        let second = register_workspace(&store, other.clone()).unwrap();
+        let token_of = |path: &Path| store.0.lock().unwrap().iter().find(|(_, item)| item.path == path).map(|(token, _)| token.clone());
+        list_at(&store, &root.token, 0).unwrap();
+        list_at(&store, &second.token, 0).unwrap();
+        let sub = token_of(&dir.join("sub")).unwrap();
+        let boxed = token_of(&dir.join("box")).unwrap();
+        let inbox = token_of(&other.join("inbox")).unwrap();
+        list_at(&store, &sub, 0).unwrap();
+        let deep = token_of(&dir.join("sub/deep")).unwrap();
+        list_at(&store, &deep, 0).unwrap();
+        let a = token_of(&dir.join("sub/a.md")).unwrap();
+        let c = token_of(&dir.join("c.md")).unwrap();
+        open_granted_path(&documents, &dir.join("sub/deep/b.md")).unwrap();
+        let opened = grants_within(&documents, &dir.join("sub/deep/b.md")).unwrap().pop().unwrap();
+
+        // A file into a folder of the same open folder.
+        let moved = move_entry(&store, &documents, &a, &boxed).unwrap();
+        assert_eq!((moved.token.as_str(), moved.name.as_str(), moved.directory), (a.as_str(), "a.md", false));
+        assert!(dir.join("box/a.md").is_file() && !dir.join("sub/a.md").exists());
+        assert_eq!(token_of(&dir.join("box/a.md")), Some(a.clone()));
+        // A name already in the target folder is kept, and the dragged file stays where it was.
+        assert_eq!(move_entry(&store, &documents, &c, &boxed).err(), Some("TARGET_EXISTS".into()));
+        assert_eq!(fs::read_to_string(dir.join("box/c.md")).unwrap(), "# box/c.md\n");
+        assert!(dir.join("c.md").is_file());
+        // Into its own folder again it is left alone.
+        assert!(move_entry(&store, &documents, &c, &root.token).is_ok());
+        assert!(dir.join("c.md").is_file());
+        // A folder cannot go into itself or below itself, and the open folder itself is not moved.
+        assert_eq!(move_entry(&store, &documents, &sub, &sub).err(), Some("INVALID_TARGET".into()));
+        assert_eq!(move_entry(&store, &documents, &sub, &deep).err(), Some("INVALID_TARGET".into()));
+        assert_eq!(move_entry(&store, &documents, &root.token, &boxed).err(), Some("OUT_OF_SCOPE".into()));
+        // Nothing is moved into a file.
+        assert_eq!(move_entry(&store, &documents, &sub, &c).err(), Some("OUT_OF_SCOPE".into()));
+
+        // A folder into a folder of another open folder, with an open file inside it.
+        move_entry(&store, &documents, &sub, &inbox).unwrap();
+        assert!(!dir.join("sub").exists());
+        assert_eq!(fs::read_to_string(other.join("inbox/sub/deep/b.md")).unwrap(), "# sub/deep/b.md\n");
+        assert_eq!(crate::documents::granted_file(&documents, &opened).unwrap(), other.join("inbox/sub/deep/b.md"));
+        assert_eq!(token_of(&other.join("inbox/sub/deep")), Some(deep.clone()));
+        {
+            let map = store.0.lock().unwrap();
+            assert_eq!((map[&deep].workspace.as_str(), map[&deep].root.as_path()), (second.token.as_str(), other.as_path()));
+        }
+        assert!(list_at(&store, &deep, 0).is_ok());
+        // Closing the first open folder leaves what now belongs to the second.
+        store.0.lock().unwrap().retain(|_, entry| entry.workspace != root.token);
+        assert!(token_of(&other.join("inbox/sub")).is_some());
+        fs::remove_dir_all(dir).unwrap();
+        fs::remove_dir_all(other).unwrap();
     }
     fn temp() -> PathBuf { let dir = std::env::temp_dir().join(format!("mino-workspace-test-{}-{}",std::process::id(),NEXT_ENTRY.fetch_add(1,Ordering::Relaxed))); fs::create_dir(&dir).unwrap(); dir }
     #[cfg(target_os = "macos")]

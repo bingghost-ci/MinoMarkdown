@@ -5,8 +5,9 @@ import type { TextureId } from './textures'
  * Reading styles are data. The app, the source-protected preview, HTML export and print all build their
  * CSS from these records (see `css.ts`), so a style looks the same everywhere.
  *
- * Since T61 the window around the page is a neutral gray that does not take the page's hue: the page is a
- * rounded card on a quiet desk, and a style's color shows on the page and in its accent only.
+ * Since T61 the window around the page is a quiet gray desk with the page as a rounded card on it. Since T108
+ * that gray takes a light tint of the paper (`CHROME_TINT`), so a warm paper sits in a warm window instead of a
+ * cool one; the page and the accent still carry the style's color, and the chrome's text stays neutral.
  */
 export type { TextureId }
 export type StyleGroup = 'plain' | 'paper' | 'eye' | 'night'
@@ -88,15 +89,20 @@ const sources: ReadingStyleSource[] = [
   { id: 'dusk', name: '暖灰', group: 'night', dark: true, paper: '#2e2a26', text: '#dad3c9', secondary: '#a89e91', link: '#e2b17c', texture: null, font: 'song', codeTheme: 'night' },
 ]
 
-/** §4.3 (v0.4): two neutral chrome palettes. Only the accent comes from the style. */
+/** §4.3 (v0.4): two gray chrome palettes, light and dark, which each style tints toward its paper. */
 const lightUi = { desk: '#f2f3f5', sidebar: '#f7f8fa', chrome: '#fbfbfc', raised: '#eceef1', line: '#e2e4e8', hover: '#eceef1' }
 const darkUi = { desk: '#1c1c1e', sidebar: '#202022', chrome: '#232325', raised: '#303033', line: '#343437', hover: '#2c2c2f' }
 
+/** How far the window's grays lean toward the paper (T108): enough to match a warm or green page, not to compete with it. */
+export const CHROME_TINT = 0.3
+const tinted = (gray: string, source: ReadingStyleSource) => mix(gray, source.paper, CHROME_TINT)
+
 function deriveUi(source: ReadingStyleSource): UiColors {
   const base = source.dark ? darkUi : lightUi
+  const raised = tinted(base.raised, source)
   return {
-    sidebar: base.sidebar, chrome: base.chrome, raised: base.raised, line: base.line, hover: base.hover,
-    selected: mix(base.raised, source.link, source.dark ? 0.2 : 0.12),
+    sidebar: tinted(base.sidebar, source), chrome: tinted(base.chrome, source), raised, line: tinted(base.line, source), hover: tinted(base.hover, source),
+    selected: mix(raised, source.link, source.dark ? 0.2 : 0.12),
     accent: source.link,
     accentInk: source.dark ? '#16171a' : '#ffffff',
     danger: source.dark ? '#e59a8c' : '#a43737',
@@ -119,7 +125,7 @@ function derive(source: ReadingStyleSource): ReadingStyle {
     tableLine: mix(source.text, source.paper, 0.84),
     tableRule: mix(source.text, source.paper, 0.4),
     selection: mix(source.link, source.paper, dark ? 0.62 : 0.78),
-    desk: dark ? darkUi.desk : lightUi.desk,
+    desk: tinted(dark ? darkUi.desk : lightUi.desk, source),
     edge: dark ? mix(source.paper, '#ffffff', 0.07) : mix(source.paper, source.text, 0.08),
     shadow: dark ? '0 1px 2px #0006, 0 12px 32px #0005' : `0 1px 2px ${ink}14, 0 10px 30px ${ink}1c`,
     imageMat: source.group === 'paper' ? 'mat' : 'line',

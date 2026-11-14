@@ -4,7 +4,7 @@ import { Code2, Download, FileText, FolderOpen, MoreHorizontal, PanelLeft, Plus,
 export function FileControls({ workspace: w }: { workspace: DocumentWorkspace }) {
   const { busy, chooseWorkspace, desktop, document, exportPage, exportSnapshotMD, newDocument, openDocument, saveDocument, updateSettings, settings, sidebarOpen, switchToSource, switchToVisual, t } = w
   return <>
-      {settings.showFileToolbar && <div className="file-controls" aria-label={t('文档操作')}>
+      {settings.showFileToolbar && <div className="file-controls" aria-label={t('文档操作')} data-tauri-drag-region>
         <button type="button" className="icon-button sidebar-toggle" onClick={() => updateSettings((current) => ({ showSidebar: !current.showSidebar }))} aria-expanded={sidebarOpen} aria-controls="document-sidebar" aria-label={sidebarOpen ? t('隐藏文件栏') : t('显示文件栏')} title={sidebarOpen ? t('隐藏文件栏') : t('显示文件栏')}><PanelLeft aria-hidden="true" /></button>
         <span className="control-divider" aria-hidden="true" />
         <button type="button" className="control-button" onClick={() => void chooseWorkspace()} disabled={!desktop || busy}><FolderOpen aria-hidden="true" />{t('打开文件夹')}</button>

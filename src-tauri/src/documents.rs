@@ -105,9 +105,15 @@ pub(crate) fn document_identity(store: &DocumentStore, token: &str) -> Result<(P
     Ok((grant.path, grant.kind))
 }
 
+/// Where `path` is after `old` was renamed to `new`: itself, or a file inside a renamed folder. `None` when it is elsewhere.
+pub(crate) fn moved_path(path: &Path, old: &Path, new: &Path) -> Option<PathBuf> {
+    path.strip_prefix(old).ok().map(|rest| if rest.as_os_str().is_empty() { new.to_path_buf() } else { new.join(rest) })
+}
+
+/// Follows a rename: the grant of the renamed file, or of every file inside a renamed folder, points to the new place.
 pub(crate) fn relocate_grants(store: &DocumentStore, old: &Path, new: &Path) -> Result<(), String> {
     let mut grants = store.0.lock().map_err(|_| "IO_ERROR")?;
-    for grant in grants.values_mut() { if grant.path == old { grant.path = new.to_path_buf(); } }
+    for grant in grants.values_mut() { if let Some(moved) = moved_path(&grant.path, old, new) { grant.path = moved; } }
     Ok(())
 }
 
@@ -118,9 +124,15 @@ pub(crate) fn granted_file(store: &DocumentStore, token: &str) -> Result<PathBuf
     Ok(path)
 }
 
+/// Ends the grants of `path` and, when it is a folder, of every file inside it.
 pub(crate) fn forget_grants(store: &DocumentStore, path: &Path) -> Result<(), String> {
-    store.0.lock().map_err(|_| "IO_ERROR")?.retain(|_, grant| grant.path != path);
+    store.0.lock().map_err(|_| "IO_ERROR")?.retain(|_, grant| !grant.path.starts_with(path));
     Ok(())
+}
+
+/// The document tokens granted for `path` or for a file inside it: the tabs a folder's removal affects.
+pub(crate) fn grants_within(store: &DocumentStore, path: &Path) -> Result<Vec<String>, String> {
+    Ok(store.0.lock().map_err(|_| "IO_ERROR")?.iter().filter(|(_, grant)| grant.path.starts_with(path)).map(|(token, _)| token.clone()).collect())
 }
 
 #[derive(Serialize)]

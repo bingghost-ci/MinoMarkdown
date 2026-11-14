@@ -16,8 +16,6 @@ let renderChain: Promise<unknown> = Promise.resolve()
 let pending: Job[] = []
 let timer: number | undefined
 let nextDiagramId = 1
-// Drawn diagrams remember their source and style, so a style change can redraw them in place.
-const drawn = new WeakMap<HTMLElement, { content: string; theme: Theme }>()
 
 // Mermaid only loads when a document actually has a diagram.
 function loadMermaid() {
@@ -102,35 +100,45 @@ function errorElement(source: string, error: unknown): HTMLElement {
   return element
 }
 
+/**
+ * A drawn diagram carries its source and the key it was drawn with as attributes, so a change of style can
+ * redraw it in place. Crepe does not show the element the preview hook returns: it serializes it, sanitizes
+ * the markup and shows a copy, so the copy has to carry this itself. `data-*` survives its sanitizer, but an
+ * attribute holding `-->` (every arrow) does not, so the source is stored URI-encoded.
+ */
 function tracked(element: HTMLElement, content: string, theme: Theme): HTMLElement {
-  drawn.set(element, { content, theme })
+  element.dataset.diagramSource = encodeURIComponent(content)
+  element.dataset.diagramKey = theme
   return element
 }
 
 /**
- * Redraws the diagrams under `root` in the current reading style and diagram look (T56). Crepe only calls the preview hook
- * when a code block changes, so a style switch updates the drawn elements in place: the document, the
- * editor and its history are untouched. Diagrams with syntax errors do not depend on the style.
+ * Redraws the diagrams under `root` in the current reading style and diagram options (T56, T107). Crepe only
+ * calls the preview hook when a code block changes, so a change of style updates the shown elements in place:
+ * the document, the editor and its history are untouched. Diagrams with syntax errors do not depend on the style.
  */
 export async function restyleDiagrams(root: ParentNode, requested: Theme = currentDiagramKey()): Promise<number> {
   // A bare style ID means that style with the default diagram options.
   const { styleId, ...options } = parseDiagramKey(requested)
   const theme = diagramKey(styleId, options)
   let redrawn = 0
-  for (const element of Array.from(root.querySelectorAll<HTMLElement>('.mermaid-preview'))) {
-    const state = drawn.get(element)
-    if (!state || state.theme === theme) continue
-    const key = `${theme}\0${state.content}`
+  for (const element of Array.from(root.querySelectorAll<HTMLElement>('.mermaid-preview[data-diagram-source]'))) {
+    const stored = element.dataset.diagramSource ?? ''
+    let content: string
+    try { content = decodeURIComponent(stored) } catch { continue }
+    const drawnWith = element.dataset.diagramKey
+    if (drawnWith === theme) continue
+    const key = `${theme}\0${content}`
     try {
       let svg = cache.get(key)?.innerHTML
       if (svg === undefined) {
-        svg = await renderSvg(state.content, theme)
+        svg = await renderSvg(content, theme)
         remember(key, diagramElement(svg))
       }
-      // The block may have been edited or restyled again while this diagram was drawing.
-      if (drawn.get(element) !== state) continue
+      // The block may have been edited, replaced or restyled again while this diagram was drawing.
+      if (element.dataset.diagramSource !== stored || element.dataset.diagramKey !== drawnWith) continue
       element.innerHTML = svg
-      drawn.set(element, { content: state.content, theme })
+      element.dataset.diagramKey = theme
       redrawn++
     } catch {
       // The diagram keeps its previous colors.

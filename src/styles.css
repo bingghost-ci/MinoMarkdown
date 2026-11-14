@@ -95,7 +95,7 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .tree-form button { height: 28px; border: 1px solid var(--line); border-radius: 5px; padding: 0 8px; color: var(--text); background: var(--surface); font-size: 12px; }
 .editor-panel { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; background: var(--desk); }
 .document-tabbar { display: flex; align-items: stretch; justify-content: space-between; height: 40px; min-height: 40px; border-bottom: 1px solid var(--line); background: var(--chrome); }
-.document-tabs { display: flex; align-items: stretch; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.document-tabs { display: flex; flex: 1 1 auto; align-items: stretch; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .document-tabs::-webkit-scrollbar { display: none; }
 .document-tab { display: flex; align-items: center; flex: none; min-width: 100px; max-width: 240px; border-right: 1px solid var(--line); border-bottom: 2px solid transparent; color: var(--secondary); font-size: 12px; }
 .document-tab[aria-selected="true"] { border-bottom-color: var(--accent); background: var(--surface); color: var(--text); }
@@ -293,6 +293,10 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .tree-chevron, .tree-note, .search-hit small, .find-count, .file-controls kbd { color: var(--ui-muted); }
 .tree-header { border-color: transparent; }
 .tree-entry { border-left: 0; border-radius: 7px; width: calc(100% - 16px); margin: 0 8px; padding: 0 8px; }
+/* T109: dragging an entry onto a folder. */
+.tree-entry[data-dragging] { opacity: 0.5; }
+.tree-entry[data-drop-target], .tree-header[data-drop-target] { background: var(--selected); box-shadow: inset 0 0 0 1.5px var(--accent); color: var(--ui-text); }
+.file-tree[data-dragging], .file-tree[data-dragging] * { cursor: grabbing; }
 .tree-actions { border-top-color: var(--line); }
 .document-tabbar { height: 42px; min-height: 42px; padding: 6px 8px 0; }
 .document-tab { border: 0; border-radius: 8px 8px 0 0; margin-right: 2px; }
@@ -494,3 +498,12 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .rename-dialog { width: min(380px, calc(100vw - 48px)); }
 .rename-field { display: flex; flex-direction: column; gap: 8px; padding: 14px 0 4px; font-size: 12px; color: var(--ui-secondary); }
 .rename-field input { height: 32px; border: 1px solid var(--line); border-radius: 7px; padding: 0 10px; background: var(--raised); color: var(--ui-text); font-size: 13px; }
+
+/* No system title bar on macOS (titleBarStyle Overlay): the traffic lights sit on the top row of the app, which takes
+   the style's colors, and its empty parts drag the window. The row leaves room for them: the toolbar when it is shown,
+   otherwise the sidebar heading, otherwise the tab bar. `window-overlay` is off in full screen, where they are hidden. */
+.window-overlay { --traffic-room: 84px; }
+.window-overlay .file-controls { padding-left: var(--traffic-room); }
+.window-overlay .app-shell:not(:has(.file-controls)) .document-sidebar .sidebar-heading { padding-left: var(--traffic-room); }
+.window-overlay .app-shell:not(:has(.file-controls)):not(:has(.document-sidebar)) .document-tabbar { padding-left: var(--traffic-room); }
+[data-tauri-drag-region] { -webkit-user-select: none; user-select: none; }
