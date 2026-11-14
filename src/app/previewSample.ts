@@ -128,9 +128,71 @@ def mean(values: list[float]) -> float:
 \`\`\`
 `
 
+/** Several kinds of Mermaid diagram, for `?ui-preview=editor&ui-sample=diagram` screenshots of the diagram looks. */
+export const diagramSample = `# 图表样例
+
+\`\`\`mermaid
+flowchart LR
+  A[打开文档] --> B{需要编辑?}
+  B -- 是 --> C[编辑模式]
+  B -- 否 --> D[阅读模式]
+  C --> E[(保存到磁盘)]
+  D --> F([导出 PDF])
+\`\`\`
+
+\`\`\`mermaid
+graph TD
+  S[开始] --> P{检查}
+  subgraph 本地
+    P -->|通过| W[写入]
+    W -.-> L[记录日志]
+  end
+  P -->|失败| X[提示错误]
+\`\`\`
+
+\`\`\`mermaid
+stateDiagram-v2
+  [*] --> 阅读
+  阅读 --> 编辑: ⌘⇧R
+  编辑 --> 阅读: 保存
+  编辑 --> [*]
+\`\`\`
+
+\`\`\`mermaid
+sequenceDiagram
+  participant 用户
+  participant 编辑器
+  participant 磁盘
+  用户->>编辑器: 输入文字
+  编辑器->>磁盘: 自动保存草稿
+  Note right of 磁盘: 原子写入
+  磁盘-->>编辑器: 返回修订号
+\`\`\`
+
+\`\`\`mermaid
+classDiagram
+  class Document {
+    +string path
+    +save()
+  }
+  class Session {
+    +number revision
+  }
+  Document <|-- Session
+\`\`\`
+
+\`\`\`mermaid
+pie title 阅读时间
+  "小说" : 42
+  "技术" : 30
+  "随笔" : 18
+\`\`\`
+`
+
 /** The document shown by `?ui-preview=editor&ui-sample=…` (development screenshots and measurements). */
 export function previewSampleSource(name: string | null): string {
   if (name === 'reading') return readingSample
+  if (name === 'diagram') return diagramSample
   if (name === 'english') return englishSample
   if (name === 'code') return codeSample
   if (name === 'reading-preview') return `${readingSample}\n$$\nE = mc^2\n$$\n`

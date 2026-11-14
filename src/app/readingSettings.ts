@@ -3,6 +3,7 @@ import type { Measure, PageMargin, PageSize, ParagraphSpacing, TableStyle, Typog
 import type { DocumentScript } from '../features/reading/script'
 import { readingStyle, resolveStyleId, type ReadingStyle, type StyleId, type ThemeId } from '../features/reading/styles'
 import { DEFAULT_EDITOR_FONT_SIZE } from './textZoom'
+import type { DiagramCurve, DiagramLine, DiagramLook } from '../features/diagrams/looks'
 
 /** The reading-related settings; `settings.rs` keeps the same whitelist and defaults. */
 export type ReadingSettings = {
@@ -21,6 +22,12 @@ export type ReadingSettings = {
   textAlign: 'left' | 'justify'
   firstLineIndent: boolean
   tableStyle: TableStyle
+  /** How Mermaid diagrams are drawn; every look takes its colors from the reading style. */
+  diagramStyle: DiagramLook
+  /** The pattern of plain edges; `auto` uses the look's own. */
+  diagramLine: DiagramLine
+  /** How edges are routed; `auto` uses the look's own. */
+  diagramCurve: DiagramCurve
   /** 0–100 in steps of 10. */
   textureStrength: number
   /** `auto` lays out mostly-Western documents the Western way. */
@@ -37,7 +44,7 @@ export type ReadingSettings = {
 /** New installs; `settings.rs` fills missing fields of older files so their look does not change. */
 export const defaultReadingSettings: ReadingSettings = {
   theme: 'system', dayTheme: 'white', nightTheme: 'dark', cjkFont: 'auto', latinFont: 'auto', codeFont: 'auto', editorFontSize: DEFAULT_EDITOR_FONT_SIZE, editorLineHeight: 'comfortable',
-  paragraphSpacing: 'standard', measure: '36', textAlign: 'left', firstLineIndent: false, tableStyle: 'three-line', textureStrength: 60, latinLayout: 'auto',
+  paragraphSpacing: 'standard', measure: '36', textAlign: 'left', firstLineIndent: false, tableStyle: 'three-line', diagramStyle: 'page', diagramLine: 'auto', diagramCurve: 'auto', textureStrength: 60, latinLayout: 'auto',
   imageCaptions: true, imageDimming: true, openInReadingMode: true, exportStyle: 'current', pdfMode: 'print', pageSize: 'a4', pageMargin: 'standard',
 }
 

@@ -874,10 +874,14 @@ export function useDocumentWorkspace() {
 
   const style = activeStyle(settings, systemDark)
   useEffect(() => {
-    window.document.documentElement.dataset.theme = style.id
-    // Diagrams take their colors from the style; Mermaid only loads when one is on screen.
-    if (window.document.querySelector('.mermaid-preview')) void import('../features/diagrams/mermaid').then((module) => module.restyleDiagrams(window.document, style.id))
-  }, [style.id])
+    const root = window.document.documentElement
+    root.dataset.theme = style.id
+    root.dataset.diagram = settings.diagramStyle
+    root.dataset.diagramLine = settings.diagramLine
+    root.dataset.diagramCurve = settings.diagramCurve
+    // Diagrams take their colors from the style and their drawing from the diagram settings; Mermaid only loads when one is on screen.
+    if (window.document.querySelector('.mermaid-preview')) void import('../features/diagrams/mermaid').then((module) => module.restyleDiagrams(window.document))
+  }, [style.id, settings.diagramStyle, settings.diagramLine, settings.diagramCurve])
 
   // Western layout follows the text the document had when it was opened or last saved, so typing never reflows the page.
   const docScript = useMemo(() => dominantScript(document.sourceText), [document.id, document.revision])
@@ -1711,7 +1715,7 @@ export function useDocumentWorkspace() {
         text: `${frozen.title}\n${plainText ?? frozen.markdown}`, mode, readAsset: (path) => readAppAsset(path, (assetPath) => invoke<ArrayBuffer>('read_app_asset', { path: assetPath })),
       })
       const sources = mayContainMermaid(frozen.markdown) ? await mermaidSourcesAsync(frozen.markdown) : []
-      const diagrams = sources.length ? await (await import('../features/diagrams/mermaid')).renderDiagramsForExport(sources, look.diagramStyleId) : new Map<string, string>()
+      const diagrams = sources.length ? await (await import('../features/diagrams/mermaid')).renderDiagramsForExport(sources, look.diagramStyleId, { look: current.diagramStyle, line: current.diagramLine, curve: current.diagramCurve }) : new Map<string, string>()
       const rendered = await renderExportAsync(frozen.markdown, titleOf(frozen.title), assets, diagrams, { stylesheet: look.stylesheet, fontsEmbedded: look.fontsEmbedded, captions: current.imageCaptions, lang: layoutScript(current, docScript) === 'latin' ? 'en' : 'zh-CN', bodyHtml })
       const { omittedHtml, failedDiagrams } = rendered
       const html = rendered.hasMath ? (await import('../features/export/katexStyles')).embedMathStyles(rendered.html) : rendered.html

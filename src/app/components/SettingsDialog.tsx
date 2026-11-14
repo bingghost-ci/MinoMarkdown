@@ -4,7 +4,8 @@ import { FocusTrap } from './FocusTrap'
 import type { DocumentWorkspace, Settings } from '../useDocumentWorkspace'
 import { MAX_EDITOR_FONT_SIZE, MIN_EDITOR_FONT_SIZE, zoomedFontSize } from '../textZoom'
 import { translateStatus, type Language } from '../i18n'
-import { readingStyles } from '../../features/reading/styles'
+import { readingStyles, type ReadingStyle } from '../../features/reading/styles'
+import { diagramCurveLabels, diagramCurves, diagramLineLabels, diagramLines, diagramLookLabels, diagramLooks, diagramVariables, resolvedCurve, resolvedLine, type DiagramCurve, type DiagramLine, type DiagramLook } from '../../features/diagrams/looks'
 import { modelChoices, providerHasKey, providerIds, providerLabels, type AiProvider } from '../../features/ai/client'
 import { StyleSwatches } from './AppearancePanel'
 import { FontPicker } from './FontPicker'
@@ -17,6 +18,35 @@ function Segmented<T extends string | boolean>({ value, options, onChange, t }: 
 
 function Row({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
   return <div className="settings-row"><span>{title}{note && <small>{note}</small>}</span>{children}</div>
+}
+
+/** A two-node sketch of a diagram look in the current style, drawn without loading Mermaid. */
+function DiagramSketch({ style, look, line, curve }: { style: ReadingStyle; look: DiagramLook; line: DiagramLine; curve: DiagramCurve }) {
+  const v = diagramVariables(style.id, look) as Record<string, string>
+  const pattern = resolvedLine(look, line), route = resolvedCurve(look, curve)
+  const radius = { page: 3, hand: 0, program: 0, scifi: 1, ink: 0, color: 4 }[look]
+  const width = { page: 1, hand: 1.3, program: 1.5, scifi: 1.1, ink: 1, color: 1 }[look]
+  const glow = look === 'scifi' ? { filter: `drop-shadow(0 0 1.5px ${style.link})` } : undefined
+  const box = (x: number, y: number, fill: string, stroke: string) => look === 'hand'
+    ? <path d={`M${x + 1} ${y} Q${x + 14} ${y - 1.5} ${x + 27} ${y + 0.5} Q${x + 28.5} ${y + 7} ${x + 27} ${y + 14} Q${x + 14} ${y + 15.5} ${x + 1.5} ${y + 13.5} Q${x - 0.5} ${y + 7} ${x + 1} ${y}`} fill={fill} stroke={stroke} strokeWidth={width} />
+    : <rect x={x} y={y} width="27" height="14" rx={radius} fill={fill} stroke={stroke} strokeWidth={width} style={glow} />
+  const edge = route === 'angular' ? 'M35 13 H46 V27 H55' : route === 'straight' ? 'M35 13 L55 27' : 'M35 13 C47 13 43 27 55 27'
+  const dash = pattern === 'dashed' ? '4 2.5' : pattern === 'dotted' ? '0.3 2.6' : undefined
+  return <svg viewBox="0 0 96 40" width="96" height="40" aria-hidden="true">
+    <rect width="96" height="40" rx="6" fill={style.paper} />
+    {box(7, 6, v.primaryColor, v.primaryBorderColor)}
+    {box(61, 20, v.secondaryColor, v.secondaryBorderColor)}
+    <path d={edge} fill="none" stroke={v.lineColor} strokeWidth={pattern === 'dotted' ? 1.6 : width} strokeDasharray={dash} strokeLinecap="round" style={glow} />
+    <path d="M55.5 24.5 L60 27 L55.5 29.5 Z" fill={v.lineColor} />
+  </svg>
+}
+
+function DiagramLookPicker({ style, settings, onChange, t }: { style: ReadingStyle; settings: Pick<Settings, 'diagramStyle' | 'diagramLine' | 'diagramCurve'>; onChange: (value: DiagramLook) => void; t: (text: string) => string }) {
+  return <div className="diagram-looks" role="group" aria-label={t('图表风格')}>
+    {diagramLooks.map((look) => <button key={look} type="button" aria-pressed={settings.diagramStyle === look} title={t(diagramLookLabels[look].note)} onClick={() => onChange(look)}>
+      <DiagramSketch style={style} look={look} line={settings.diagramLine} curve={settings.diagramCurve} /><span>{t(diagramLookLabels[look].name)}</span>
+    </button>)}
+  </div>
 }
 
 function isLoopback(baseUrl: string): boolean {
@@ -96,6 +126,11 @@ export function SettingsDialog({ workspace: w }: { workspace: DocumentWorkspace 
           <div className="settings-section-heading"><strong>{t('阅读风格')}</strong><small>{t('画布和界面保持中性灰，颜色只在纸面和标题上')}</small></div>
           <StyleSwatches workspace={w} />
           {active.texture && <Row title={t('纸张纹理')} note={t('纸面纤维、压纹和做旧的明显程度')}><input type="range" aria-label={t('纸张纹理')} min={0} max={100} step={10} value={settings.textureStrength} onChange={(event) => update({ textureStrength: Number(event.target.value) })} /></Row>}
+          <div className="settings-section-heading"><strong>{t('图表风格')}</strong><small>{t('Mermaid 流程图、时序图等的画法：字体、笔触、边角和连线；颜色始终取自当前纸张，导出也用这里的选择')}</small></div>
+          <DiagramLookPicker style={active} settings={settings} onChange={(diagramStyle) => update({ diagramStyle })} t={t} />
+          <p className="settings-note">{t(diagramLookLabels[settings.diagramStyle].note)}</p>
+          <Row title={t('连线样式')} note={t('普通连线的线型；图里本来写成虚线的连线不变')}><Segmented t={t} value={settings.diagramLine} onChange={(value) => update({ diagramLine: value })} options={diagramLines.map((line) => [line, diagramLineLabels[line]] as const)} /></Row>
+          <Row title={t('连线走向')} note={t('流程图和状态图的连线怎样绕到下一个节点')}><Segmented t={t} value={settings.diagramCurve} onChange={(value) => update({ diagramCurve: value })} options={diagramCurves.map((curve) => [curve, diagramCurveLabels[curve]] as const)} /></Row>
         </>}
         {settingsTab === 'typography' && <>
           <div className="settings-section-heading"><strong>{t('字体')}</strong><small>{t('中文和西文分开选择；随应用提供的字体离线可用')}</small></div>

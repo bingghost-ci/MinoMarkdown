@@ -1,8 +1,9 @@
 import DOMPurify, { type DOMPurify as Purifier } from 'dompurify'
-import { mix } from '../reading/color'
-import { readingStyle } from '../reading/styles'
+import { diagramConfig, diagramKey, diagramVariables, parseDiagramKey, type DiagramOptions } from './looks'
 
-/** A reading style ID; diagrams take their colors from it. */
+export { diagramVariables } from './looks'
+
+/** A reading style and a diagram look, as `diagramKey` writes them; diagrams take their colors from both. */
 type Theme = string
 type Job = { content: string; theme: Theme; apply: (value: HTMLElement) => void; typing: boolean }
 
@@ -48,17 +49,16 @@ export function sanitizeDiagramSvg(svg: string): string {
   return root.innerHTML
 }
 
-/** Mermaid's base theme, colored from the reading style so diagrams sit on the page like text. */
-export function diagramVariables(styleId: string): Record<string, string | boolean> {
-  const style = readingStyle(styleId)
-  const node = style.dark ? mix(style.paper, '#ffffff', 0.1) : mix(style.paper, style.link, 0.08)
-  return {
-    darkMode: style.dark, background: style.paper, fontFamily: 'inherit',
-    primaryColor: node, primaryTextColor: style.text, primaryBorderColor: mix(style.text, style.paper, 0.55),
-    secondaryColor: style.codeBg, tertiaryColor: mix(style.paper, style.text, 0.05),
-    lineColor: style.secondary, textColor: style.text, mainBkg: node, nodeBorder: mix(style.text, style.paper, 0.55),
-    clusterBkg: style.codeBg, clusterBorder: style.tableLine, edgeLabelBackground: style.paper, noteBkgColor: style.codeBg, noteTextColor: style.text,
-  }
+/** The style and diagram options the page shows now: `data-theme`, `data-diagram`, `data-diagram-line` and `data-diagram-curve` on `<html>`. */
+export function currentDiagramKey(): Theme {
+  const root = document.documentElement
+  return diagramKey(root.dataset.theme ?? 'white', { look: root.dataset.diagram, line: root.dataset.diagramLine, curve: root.dataset.diagramCurve })
+}
+
+/** Mermaid sizes boxes by measuring their labels, so a look's own font must be ready before it draws. */
+async function fontReady(family: string): Promise<void> {
+  if (family === 'inherit' || typeof document.fonts?.load !== 'function') return
+  try { await document.fonts.load(`16px ${family}`, '图Aa') } catch { /* Drawn in the fallback font. */ }
 }
 
 /** Mermaid keeps global state, so renders run strictly one at a time. */
@@ -68,8 +68,12 @@ function renderSvg(source: string, theme: Theme): Promise<string> {
     // scrolling and typing through while they fill in (T96).
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     const mermaid = await loadMermaid()
+    const { styleId, ...options } = parseDiagramKey(theme)
+    const { curve, ...config } = diagramConfig(styleId, options, source)
+    await fontReady(config.fontFamily)
     mermaid.initialize({
-      startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, theme: 'base', themeVariables: diagramVariables(theme), htmlLabels: false, flowchart: { htmlLabels: false },
+      ...config,
+      startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, theme: 'base', themeVariables: diagramVariables(styleId, options.look), htmlLabels: false, flowchart: { htmlLabels: false, curve }, state: { curve } as never,
       secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'suppressErrorRendering', 'maxEdges', 'themeCSS', 'themeVariables', 'fontFamily', 'altFontFamily', 'htmlLabels'],
     })
     const { svg } = await mermaid.render(`mino-mermaid-${nextDiagramId++}`, source)
@@ -104,11 +108,14 @@ function tracked(element: HTMLElement, content: string, theme: Theme): HTMLEleme
 }
 
 /**
- * Redraws the diagrams under `root` in the current reading style (T56). Crepe only calls the preview hook
+ * Redraws the diagrams under `root` in the current reading style and diagram look (T56). Crepe only calls the preview hook
  * when a code block changes, so a style switch updates the drawn elements in place: the document, the
  * editor and its history are untouched. Diagrams with syntax errors do not depend on the style.
  */
-export async function restyleDiagrams(root: ParentNode, theme: Theme = document.documentElement.dataset.theme ?? 'white'): Promise<number> {
+export async function restyleDiagrams(root: ParentNode, requested: Theme = currentDiagramKey()): Promise<number> {
+  // A bare style ID means that style with the default diagram options.
+  const { styleId, ...options } = parseDiagramKey(requested)
+  const theme = diagramKey(styleId, options)
   let redrawn = 0
   for (const element of Array.from(root.querySelectorAll<HTMLElement>('.mermaid-preview'))) {
     const state = drawn.get(element)
@@ -152,7 +159,7 @@ function flush(): void {
 /** Crepe's code block preview hook. Returning `undefined` tells it the result will arrive through `apply`. */
 export function renderMermaidPreview(language: string, content: string, apply: (value: HTMLElement) => void): HTMLElement | null | undefined {
   if (language.toLowerCase() !== 'mermaid' || !content.trim()) return null
-  const theme: Theme = document.documentElement.dataset.theme ?? 'white'
+  const theme = currentDiagramKey()
   const cached = cache.get(`${theme}\0${content}`)
   if (cached) return tracked(cached.cloneNode(true) as HTMLElement, content, theme)
   // Only one block can be focused, so older pending edits from typing are already out of date.
@@ -164,11 +171,12 @@ export function renderMermaidPreview(language: string, content: string, apply: (
   return undefined
 }
 
-/** Exports draw diagrams in the export's style. A diagram that fails is left out, and the page keeps its code. */
-export async function renderDiagramsForExport(sources: readonly string[], styleId = 'white'): Promise<Map<string, string>> {
+/** Exports draw diagrams in the export's style and the chosen diagram options. A diagram that fails is left out, and the page keeps its code. */
+export async function renderDiagramsForExport(sources: readonly string[], styleId = 'white', options: Partial<DiagramOptions> = {}): Promise<Map<string, string>> {
   const diagrams = new Map<string, string>()
+  const theme = diagramKey(styleId, options)
   for (const source of sources) {
-    try { diagrams.set(source, await renderSvg(source, styleId)) }
+    try { diagrams.set(source, await renderSvg(source, theme)) }
     catch { /* The export reports how many diagrams stayed as code. */ }
   }
   return diagrams

@@ -40,3 +40,18 @@ describe('restyling drawn diagrams', () => {
     expect(diagram.innerHTML).toContain(readingStyle('paper').text)
   })
 })
+
+describe('diagram looks (T107)', () => {
+  it('redraws in place when only the look changes, and keys a bare style ID to the default look', async () => {
+    document.documentElement.dataset.theme = 'paper'
+    document.documentElement.dataset.diagram = 'page'
+    const root = document.createElement('div')
+    const diagram = await draw('graph TD\n C-->D')
+    root.append(diagram)
+    expect(await restyleDiagrams(root, 'paper')).toBe(0)
+    document.documentElement.dataset.diagram = 'ink'
+    expect(await restyleDiagrams(root)).toBe(1)
+    expect(await restyleDiagrams(root, 'paper:ink')).toBe(0)
+    delete document.documentElement.dataset.diagram
+  })
+})

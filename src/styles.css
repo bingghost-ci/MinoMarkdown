@@ -206,6 +206,10 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .settings-stepper button, .settings-segmented button { min-width: 28px; height: 28px; border: 0; border-radius: 4px; padding: 0 8px; background: transparent; color: var(--secondary); font-size: 12px; }
 .settings-stepper output { min-width: 44px; text-align: center; font-size: 12px; }
 .settings-segmented button[aria-pressed="true"] { background: var(--selected); color: var(--accent); }
+.diagram-looks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0 4px; }
+.diagram-looks button { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 6px 6px; background: transparent; color: var(--secondary); font-size: 12px; }
+.diagram-looks button svg { display: block; width: 96px; max-width: 100%; height: 40px; border-radius: 6px; box-shadow: 0 0 0 1px var(--page-edge); }
+.diagram-looks button[aria-pressed="true"] { border-color: var(--accent); background: var(--selected); color: var(--accent); }
 .settings-preview { margin-top: 20px; border: 1px solid var(--page-edge); border-radius: 10px; padding: 20px 24px; background-color: var(--surface); background-image: var(--paper-veil, none), var(--paper-texture); background-size: auto, var(--paper-texture-size, auto); }
 @media (max-width: 620px) { .settings-backdrop { padding: 12px; } .settings-title { padding: 20px 20px 12px; } .settings-tabs { padding: 0 20px; } .settings-content { padding: 8px 20px 20px; } .settings-row { gap: 12px; } }
 .drafts-dialog { width: min(820px, 100%); max-height: 80vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 20px 24px; background: var(--surface); color: var(--text); box-shadow: 0 20px 70px #0004; }
@@ -259,6 +263,13 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .reading-progress > i { position: absolute; inset: 0; background: var(--accent); opacity: .55; transform: scaleX(0); transform-origin: left; }
 .editor-panel[data-reading="true"] :is(.milkdown-block-handle, .milkdown-slash-menu, .milkdown-toolbar, .milkdown-link-edit, .milkdown-code-block .tools, .milkdown-image-block .operation, .milkdown-image-block .image-resize-handle, .milkdown-table-block .cell-handle, .milkdown-table-block .line-handle) { display: none !important; }
 .editor-panel[data-reading="true"] .editor-root .milkdown .ProseMirror { caret-color: transparent; }
+/* A diagram is drawn on the paper, not in the code box: while editing, its preview below the source has the page's
+   own color and grain; in reading mode the source is hidden and the box goes away. */
+.editor-root .milkdown .ProseMirror .milkdown-code-block:has(.mermaid-preview) .preview-panel { margin: 8px -18px -14px; padding: 2px 18px 14px; border-radius: 0 0 8px 8px; background-color: var(--surface); background-image: var(--paper-veil, none), var(--paper-texture); background-size: auto, var(--paper-texture-size, auto); }
+.editor-root .milkdown .ProseMirror .milkdown-code-block:has(.mermaid-preview) .preview-divider { display: none; }
+.editor-panel[data-reading="true"] .editor-root .milkdown .ProseMirror .milkdown-code-block:has(.mermaid-preview:not(.mermaid-error)) { padding: 0; background: transparent; }
+.editor-panel[data-reading="true"] .editor-root .milkdown .ProseMirror .milkdown-code-block:has(.mermaid-preview:not(.mermaid-error)) .preview-panel { margin: 0; padding: 0; background: none; }
+.editor-panel[data-reading="true"] .milkdown-code-block:has(.mermaid-preview:not(.mermaid-error)) .preview-label { display: none; }
 .editor-panel[data-reading="true"] .editor-root img { cursor: zoom-in; }
 .image-lightbox { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 32px; background: #000c; cursor: zoom-out; }
 .image-lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 3px; box-shadow: 0 12px 48px #0008; }
