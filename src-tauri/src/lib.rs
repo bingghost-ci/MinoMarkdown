@@ -17,6 +17,7 @@ mod file_kinds;
 mod text_encoding;
 mod positions;
 mod context_menu;
+mod pdf_export;
 
 use tauri::{Emitter, Manager};
 use tauri::menu::{Menu, MenuItemKind, PredefinedMenuItem, Submenu};
@@ -86,7 +87,9 @@ pub fn run() {
                             &PredefinedMenuItem::separator(app)?,
                             &native_menu::item(app, "export-md", english)?,
                             &native_menu::item(app, "export-text", english)?,
+                            &native_menu::item(app, "export-pdf", english)?,
                             &native_menu::item(app, "export-html", english)?,
+                            &PredefinedMenuItem::separator(app)?,
                             &native_menu::item(app, "print", english)?,
                             &PredefinedMenuItem::separator(app)?,
                         ])?;
@@ -189,6 +192,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_assets::read_app_asset,
             documents::open_document,
+            pdf_export::export_pdf,
+            pdf_export::print_page,
             documents::release_document,
             documents::find_open_document,
             documents::choose_unsaved_action,

@@ -20,11 +20,12 @@ npm run tauri -- dev                              # desktop app with Vite on 127
 node scripts/generate-font-table.mjs --check      # the generated font files match the installed font packages
 node scripts/perf-baseline.mjs out.json           # timings and bundle sizes to compare before and after a change (run npm run build first)
 ./build.sh                                        # clean release build and package; never changes the version
-./start.sh                                        # build.sh, then open the app (--build-only skips opening)
-./install.sh                                      # bump patch, build, install to /Applications, commit, tag, push, save symbols, remove build output
+./start.sh                                        # development: npm run tauri -- dev (installs npm deps if missing, checks arm64 and port 1420)
+./clean.sh                                        # remove all build output (dist, dist-package, src-tauri/target, generated schemas, Vite cache, Symbols/) and old mino-* test folders in the temp directory; keeps node_modules unless --deps; --dry-run only lists
+./install.sh                                      # build.sh, install to /Applications and open it, then clean.sh; no version change, commit, tag or push
 ```
 
-There is no linter configured. `./start.sh` exits if `mino-markdown` is already running. `./build.sh` deletes the previous bundle, `dist`, ZIP, and `dist-package/manifest.json` but keeps Cargo caches, and its output is an unsigned app at `src-tauri/target/release/bundle/macos/Mino.app`. `./install.sh` deletes all of `src-tauri/target/debug` and `release` after saving release symbols to the git-ignored `Symbols/`, so don't run it during native acceptance unless you mean to replace the installed app and push a version tag. The version lives in `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`, and they must agree.
+There is no linter configured. `./start.sh` exits if port 1420 is taken. `./build.sh` deletes the previous bundle, `dist`, ZIP, and `dist-package/manifest.json` but keeps Cargo caches, and its output is an unsigned app at `src-tauri/target/release/bundle/macos/Mino.app`. `./install.sh` asks a running Mino to quit, replaces `/Applications/Mino.app`, and its final `clean.sh` removes all of `src-tauri/target`, so don't run it during native acceptance unless you mean to replace the installed app. The version lives in `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`, and they must agree.
 
 `npm run dev` serves the UI alone in a browser, where `isTauri()` is false and no Rust commands exist.
 
@@ -89,6 +90,7 @@ The frontend never supplies arbitrary paths for reading or writing. Rust stores 
 - The window appears after the entry chunk has run. `vite.config.ts` fails the build when that chunk contains the editor, CodeMirror, PDF.js, Mermaid or KaTeX, or outgrows `ENTRY_BUDGET_BYTES`: import such code lazily, and keep modules the app shell imports free of those dependencies (`findText.ts` and `syntaxRoleNames.ts` exist for that).
 - The 2 MiB source-protection threshold is `VISUAL_SIZE_LIMIT_BYTES` in `compatibility.ts`. Raw HTML and footnotes stay visual, and the fragments are rechecked after the editor loads. The 20 MiB document and image limits (200 MiB for a PDF) are enforced in Rust.
 - HTML export, print, and preview must keep sanitizing untrusted markup and must not load remote images. Exports read immutable snapshots (`snapshots.rs`, `src/features/export/snapshot.ts`).
+- Export PDF and Print render the same page as HTML export and hand it to `src-tauri/src/pdf_export.rs`, which loads it into an offscreen `WKWebView` (JavaScript off) and prints it with `NSPrintOperation`; `window.print()` does nothing in the app's webview. An exported PDF is printed without a page background (`pdfFile` in `css.ts`) and PDFKit then paints the paper color under each whole page, because WebKit never paints the `@page` margins; this keeps text and links. AppKit may call back from its own thread when no panel is shown. Exports (PDF and HTML) write the file chosen in the save panel with `fs::write_chosen_file`, in place and with a timeout, not with `atomic_write`: opening a privacy-protected folder such as Downloads, which the save panel does not grant, blocks.
 
 ## Tests
 

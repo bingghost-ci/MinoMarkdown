@@ -190,6 +190,26 @@ describe('export style', () => {
     expect(plain.diagramStyleId).toBe('white')
   })
 
+  it('exports a PDF in the screen colors with no page background of its own, whatever the print setting (T106)', async () => {
+    for (const id of ['paper', 'dark', 'charcoal']) {
+      const style = readingStyle(id)
+      for (const pdfMode of ['print', 'screen'] as const) {
+        const { value, papers } = input({ style, mode: 'pdf', pdfMode })
+        const result = await buildExportStyle(value)
+        // Rust paints this color under every page, margins included.
+        expect(result.paper, id).toBe(style.paper)
+        expect(result.diagramStyleId, id).toBe(style.id)
+        expect(result.stylesheet, id).toContain('@media print{html,body{background:transparent}html{-webkit-print-color-adjust:exact;print-color-adjust:exact}}')
+        // The ink is not swapped for print, and the grain is left out: it could not reach the margins.
+        expect(result.stylesheet, id).not.toContain('@media print{:root{')
+        expect(papers, id).toEqual([])
+      }
+    }
+    const plain = await buildExportStyle(input({ style: readingStyle('dark'), mode: 'pdf', exportStyle: 'plain' }).value)
+    expect(plain.paper).toBe('#ffffff')
+    expect(plain.diagramStyleId).toBe('white')
+  })
+
   it('carries the page card, the paper layers with their veil and the hyphenation variables', async () => {
     const paper = (await buildExportStyle(input().value)).stylesheet
     expect(PAGE_RADIUS).toBe(14)

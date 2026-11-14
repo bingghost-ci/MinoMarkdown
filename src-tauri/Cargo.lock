@@ -1962,6 +1962,7 @@ dependencies = [
 name = "mino-markdown"
 version = "0.1.0"
 dependencies = [
+ "block2",
  "chardetng",
  "core-foundation",
  "encoding_rs",
@@ -1969,6 +1970,8 @@ dependencies = [
  "libc",
  "objc2",
  "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
  "objc2-foundation",
  "percent-encoding",
  "pulldown-cmark",

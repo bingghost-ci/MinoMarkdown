@@ -1,4 +1,4 @@
-# Shared by build.sh, install.sh and start.sh. Expects $project_dir to be set and the caller to have changed into it.
+# Shared by build.sh, clean.sh, install.sh and start.sh. Expects $project_dir to be set and the caller to have changed into it.
 
 release_dir="$project_dir/src-tauri/target/release"
 bundle_dir="$release_dir/bundle"

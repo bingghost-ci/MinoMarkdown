@@ -219,8 +219,13 @@ export type ExportStyleOptions = {
   styleId: string
   /** `plain` is the white page with the same typography. */
   exportStyle: 'current' | 'plain'
-  /** `screen` keeps the page color inside the printed area; `print` prints on white. */
+  /** Printing: `screen` keeps the page color inside the printed area; `print` prints on white. */
   pdfMode: 'screen' | 'print'
+  /**
+   * Export PDF (T106): the page prints with no background of its own, and `export_pdf` paints the paper under every
+   * page, edge to edge. Colors stay exactly as on screen, so light text on a night style stays light.
+   */
+  pdfFile?: boolean
   pageSize: PageSize
   pageMargin: PageMargin
   typography: Typography
@@ -263,7 +268,9 @@ export function exportStylesheet(options: ExportStyleOptions): string {
     `${DOC_ROOT} img{max-height:240mm;object-fit:contain}`,
     `.mermaid-diagram{margin:1.2em 0;text-align:center;break-inside:avoid}.mermaid-diagram svg{max-width:100%;height:auto}`,
     `@page{size:${options.pageSize === 'letter' ? 'letter' : 'A4'};margin:${pageMargins[options.pageMargin]}}`,
-    options.pdfMode === 'print'
+    options.pdfFile
+      ? `@media print{html,body{background:transparent}html{-webkit-print-color-adjust:exact;print-color-adjust:exact}}`
+      : options.pdfMode === 'print'
       ? `@media print{:root{${declarations(printVars)}}html,body{background:#fff}}`
       : // WebKit leaves @page margins unpainted (T52), so the page color covers the printed area only.
         `@media print{html{${PAGE_BACKGROUND};-webkit-print-color-adjust:exact;print-color-adjust:exact}}`,

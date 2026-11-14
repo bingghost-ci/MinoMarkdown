@@ -72,7 +72,7 @@ describe('right-click menus (T105)', () => {
 
   it('offers pasting, inserting, the view and the file without a selection', () => {
     const ids = menuIds(bodyMenu(base))
-    for (const id of ['paste', 'paste-plain', 'select-all', 'insert-table', 'insert-rule', 'toggle-reading', 'toggle-source', 'save', 'export-md', 'print', 'reveal', 'copy-path', 'rename', 'trash', 'close-tab']) expect(ids).toContain(id)
+    for (const id of ['paste', 'paste-plain', 'select-all', 'insert-table', 'insert-rule', 'toggle-reading', 'toggle-source', 'save', 'export-md', 'export-pdf', 'print', 'reveal', 'copy-path', 'rename', 'trash', 'close-tab']) expect(ids).toContain(id)
     expect(ids).not.toContain('ai-ask')
     expect(menuIds(bodyMenu({ ...base, ai: true }))).toContain('ai-ask')
   })

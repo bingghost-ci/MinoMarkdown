@@ -59,7 +59,7 @@ function fileItems(saved: boolean): MenuEntry[] {
 
 function exportItems(kind: DocumentKind): MenuEntry[] {
   if (kind === 'pdf') return []
-  return kind === 'markdown' ? [item('export-md'), item('export-text'), separator, item('export-html'), item('print')] : [item('export-html'), item('print')]
+  return kind === 'markdown' ? [item('export-md'), item('export-text'), separator, item('export-pdf'), item('export-html')] : [item('export-pdf'), item('export-html')]
 }
 
 /**
@@ -105,6 +105,7 @@ export function bodyMenu(context: BodyContext): MenuEntry[] {
     separator,
     ...(kind === 'pdf' ? [] : [item('save'), item('save-as')]),
     submenu('export', exportItems(kind)),
+    ...(kind === 'pdf' ? [] : [item('print')]),
     separator,
     ...fileItems(saved),
     separator,

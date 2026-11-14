@@ -17,7 +17,8 @@ pub fn label(id: &str, english: bool) -> &'static str {
         ("close-tab", true) => "Close Document", ("close-tab", false) => "关闭当前文档",
         ("export-md", true) => "Export Markdown and Images…", ("export-md", false) => "导出 Markdown 与图片…",
         ("export-html", true) => "Export HTML…", ("export-html", false) => "导出 HTML…",
-        ("print", true) => "Print / Save as PDF…", ("print", false) => "打印 / 存储为 PDF…",
+        ("print", true) => "Print…", ("print", false) => "打印…",
+        ("export-pdf", true) => "Export PDF…", ("export-pdf", false) => "导出 PDF…",
         ("view-toolbar", true) => "Toggle File Toolbar", ("view-toolbar", false) => "显示或隐藏操作栏",
         ("view-sidebar", true) => "Toggle Sidebar", ("view-sidebar", false) => "显示或隐藏文件栏",
         ("view-outline", true) => "Toggle Outline", ("view-outline", false) => "显示或隐藏大纲",
@@ -113,6 +114,7 @@ pub const MENU_ITEMS: &[(&str, Option<&str>)] = &[
     ("close-tab", Some("Cmd+W")),
     ("export-md", None),
     ("export-text", None),
+    ("export-pdf", None),
     ("export-html", None),
     ("print", Some("Cmd+P")),
     ("find", Some("Cmd+F")),
@@ -183,7 +185,7 @@ pub fn enabled_for(id: &str, kind: &str) -> bool {
     let formatting = id == "format" || id == "transform" || id.starts_with("format-") || id.starts_with("transform-");
     match kind {
         // A PDF is read-only: nothing to save, export, print from here or switch to source.
-        "pdf" => !(formatting || matches!(id, "save" | "save-as" | "export-md" | "export-text" | "export-html" | "print" | "toggle-source" | "toggle-reading")),
+        "pdf" => !(formatting || matches!(id, "save" | "save-as" | "export-md" | "export-text" | "export-pdf" | "export-html" | "print" | "toggle-source" | "toggle-reading")),
         // Text and source files have no Markdown structure.
         "text" | "code" => !(formatting || matches!(id, "export-md" | "export-text" | "toggle-source")),
         _ => true,
@@ -333,10 +335,10 @@ mod tests {
     #[test]
     fn menu_items_follow_the_kind_of_document() {
         for (id, _) in MENU_ITEMS { assert!(enabled_for(id, "markdown"), "{id}"); }
-        for id in ["save", "save-as", "export-md", "export-text", "export-html", "print", "toggle-source", "toggle-reading", "format", "format-bold", "transform-upper"] { assert!(!enabled_for(id, "pdf"), "{id}"); }
+        for id in ["save", "save-as", "export-md", "export-text", "export-pdf", "export-html", "print", "toggle-source", "toggle-reading", "format", "format-bold", "transform-upper"] { assert!(!enabled_for(id, "pdf"), "{id}"); }
         for id in ["new", "open", "open-folder", "close-tab", "find", "zoom-in", "zoom-out", "zoom-reset", "view-outline", "view-sidebar", "preferences", "quit", "new-window", "recover-drafts"] { for kind in ["pdf", "text", "code"] { assert!(enabled_for(id, kind), "{id} {kind}"); } }
         for kind in ["text", "code"] {
-            for id in ["save", "save-as", "export-html", "print", "toggle-reading"] { assert!(enabled_for(id, kind), "{id} {kind}"); }
+            for id in ["save", "save-as", "export-pdf", "export-html", "print", "toggle-reading"] { assert!(enabled_for(id, kind), "{id} {kind}"); }
             for id in ["export-md", "export-text", "toggle-source", "format", "format-heading1", "format-link", "transform", "transform-lower"] { assert!(!enabled_for(id, kind), "{id} {kind}"); }
         }
     }

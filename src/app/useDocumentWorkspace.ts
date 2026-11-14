@@ -174,6 +174,10 @@ export function errorText(error: unknown): string {
     SNAPSHOT_TOO_LARGE: '当前导出快照超过大小限制。',
     OUT_OF_SCOPE: '文件或图片路径超出本次打开的范围。',
     EXPORT_TOO_LARGE: '导出文件超过当前 100 MB 限制。',
+    EXPORT_FAILED: '没能生成 PDF，当前文档未改变。请重试；如果仍然失败，可以先导出 HTML。',
+    EXPORT_TIMEOUT: '生成 PDF 超时，当前文档未改变。',
+    WRITE_BLOCKED: 'macOS 没有允许写入所选文件夹。请看看是否有隐私授权提示，或在“系统设置 › 隐私与安全性 › 文件与文件夹”里允许 Mino，也可以换一个文件夹。',
+    PERMISSION_DENIED: '没有写入这个位置的权限，请换一个文件夹。',
     EXPORT_RESOURCE_MISSING: '图片附件缺失或包含远程图片，无法生成完整资源包。可选择“仅正文 MD”。',
     SNAPSHOT_BUDGET: '同时进行的导出作业过多，请稍后重试。',
     NOT_FOUND: '原文件或文件夹已经不在原位置，请重新选择文件或文件夹。',
@@ -1684,7 +1688,8 @@ export function useDocumentWorkspace() {
   }
   saveDocumentRef.current = (background = false) => saveDocument(false, background)
 
-  async function exportPage(mode: 'html' | 'print') {
+  /** Export HTML, Export PDF, or Print through the system panel (T106): all three render the same page. */
+  async function exportPage(mode: 'html' | 'print' | 'pdf') {
     if (busy) { noteBusy(); return }
     if (document.kind === 'pdf') { setStatus(errorText('READ_ONLY')); return }
     if ((document.mode === 'visual' && !adapter.current) || toolbar.composing) return
@@ -1714,10 +1719,13 @@ export function useDocumentWorkspace() {
       if (mode === 'html') {
         const name = await invoke<string | null>('export_html', { html })
         setStatus(name ? `已导出 ${name}${omitted}` : '已取消 HTML 导出，当前文档未改变')
+      } else if (mode === 'pdf') {
+        setStatus('正在导出 PDF…')
+        const name = await invoke<string | null>('export_pdf', { html, title: frozen.title, paper: look.paper, pageSize: current.pageSize })
+        setStatus(name ? `已导出 ${name}${omitted}` : '已取消 PDF 导出，当前文档未改变')
       } else {
-        const { printHtml } = await import('../features/export/printHtml')
-        const printState = await printHtml(html)
-        setStatus(printState === 'dialogOpened' ? `打印页已交给系统；请在系统对话框中选择“存储为 PDF”。应用无法确认最终 PDF 路径。${omitted}` : '打印未完成')
+        const printed = await invoke<boolean>('print_page', { html, title: frozen.title, pageSize: current.pageSize })
+        setStatus(printed ? `已交给打印${omitted}` : '已取消打印')
       }
     } catch (error) {
       setStatus(errorText(error))
@@ -1786,6 +1794,7 @@ export function useDocumentWorkspace() {
     if (action === 'find') openFind()
     if (action === 'toggle-source' && document.kind === 'markdown') { if (document.mode === 'visual') switchToSource(); else void switchToVisual() }
     if (action === 'export-html') void exportPage('html')
+    if (action === 'export-pdf') void exportPage('pdf')
     if (action === 'print') void exportPage('print')
     if (action === 'toggle-reading') setReading(!documentRef.current.reading)
     if (action === 'view-toolbar') updateSettings((current) => ({ showFileToolbar: !current.showFileToolbar }))

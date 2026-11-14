@@ -758,7 +758,7 @@ pub async fn export_html(app: AppHandle, window: WebviewWindow, html: String) ->
     let parent = fs::canonicalize(path.parent().ok_or("INVALID_PATH")?).map_err(|_| "INVALID_PATH")?;
     let path = parent.join(path.file_name().ok_or("INVALID_PATH")?);
     if path.exists() { return Err("TARGET_EXISTS".into()); }
-    atomic_write::commit(&path, html.as_bytes(), None)?;
+    crate::fs::write_chosen_file(&path, html.into_bytes(), crate::fs::CHOSEN_FILE_TIMEOUT)?;
     Ok(Some(filename(&path)))
 }
 

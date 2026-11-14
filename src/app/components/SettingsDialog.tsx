@@ -118,7 +118,7 @@ export function SettingsDialog({ workspace: w }: { workspace: DocumentWorkspace 
           <label className="settings-row settings-toggle"><span>{t('夜间降低图片亮度')}<small>{t('夜间风格下图片亮度降到 90%')}</small></span><input type="checkbox" checked={settings.imageDimming} onChange={(event) => update({ imageDimming: event.target.checked })} /></label>
           <div className="settings-section-heading"><strong>{t('导出 HTML 与 PDF')}</strong></div>
           <Row title={t('导出风格')}><Segmented t={t} value={settings.exportStyle} onChange={(value) => update({ exportStyle: value })} options={[['current', '当前风格'], ['plain', '简洁白底']]} /></Row>
-          <Row title={t('PDF 底色')} note={t('打印时页边距总是白色；与屏幕一致只给正文区域铺纸色')}><Segmented t={t} value={settings.pdfMode} onChange={(value) => update({ pdfMode: value })} options={[['print', '打印友好'], ['screen', '与屏幕一致']]} /></Row>
+          <Row title={t('打印底色')} note={t('只影响打印；导出 PDF 总是整页铺满导出风格的底色')}><Segmented t={t} value={settings.pdfMode} onChange={(value) => update({ pdfMode: value })} options={[['print', '打印友好'], ['screen', '与屏幕一致']]} /></Row>
           <Row title={t('纸型')}><Segmented t={t} value={settings.pageSize} onChange={(value) => update({ pageSize: value })} options={[['a4', 'A4'], ['letter', 'Letter']]} /></Row>
           <Row title={t('页边距')}><Segmented t={t} value={settings.pageMargin} onChange={(value) => update({ pageMargin: value })} options={[['narrow', '窄'], ['standard', '标准'], ['wide', '宽']]} /></Row>
         </>}

@@ -18,13 +18,18 @@ export type ExportStyleInput = {
   pageMargin: 'narrow' | 'standard' | 'wide'
   /** The text whose characters decide which font subsets are embedded. */
   text: string
-  mode: 'html' | 'print'
+  /** `pdf` is Export PDF, whose paper `export_pdf` paints under the printed pages (T106). */
+  mode: 'html' | 'print' | 'pdf'
   /** Reads a bundled font or paper layer by its built path (`/assets/…`); the app reads it through `read_app_asset`. */
   readAsset: (path: string) => Promise<Uint8Array>
   faces?: readonly FontFace[]
 }
 
-export type ExportStyle = { stylesheet: string; fontsEmbedded: boolean; fontFallback: boolean; fontBytes: number; diagramStyleId: string }
+export type ExportStyle = {
+  stylesheet: string; fontsEmbedded: boolean; fontFallback: boolean; fontBytes: number; diagramStyleId: string
+  /** The page color (`#rrggbb`) an exported PDF is painted on. */
+  paper: string
+}
 
 /**
  * Builds the stylesheet of an exported page. Only the font subsets that cover characters of the text are
@@ -59,10 +64,11 @@ export async function buildExportStyle(input: ExportStyleInput): Promise<ExportS
   const drawn = exportReadingStyle({ styleId: input.style.id, exportStyle: input.exportStyle })
   // The paper travels inside the page, like the fonts. If a layer cannot be read the page keeps its color and loses its grain.
   const textures = new Map<string, string>()
-  try {
+  // A PDF gets the paper's color only: its grain could not continue into the margins Rust paints.
+  if (input.mode !== 'pdf') try {
     for (const file of textureFiles(drawn.texture)) textures.set(file, file.startsWith('data:') ? file : `data:image/png;base64,${base64(await input.readAsset(file))}`)
   } catch { textures.clear() }
-  const options = { styleId: input.style.id, exportStyle: input.exportStyle, pdfMode: input.pdfMode, pageSize: input.pageSize, pageMargin: input.pageMargin, typography, fontFaces, textures }
+  const options = { styleId: input.style.id, exportStyle: input.exportStyle, pdfMode: input.pdfMode, pdfFile: input.mode === 'pdf', pageSize: input.pageSize, pageMargin: input.pageMargin, typography, fontFaces, textures }
   const printsWhite = input.mode === 'print' && input.pdfMode === 'print'
   return {
     stylesheet: exportStylesheet(options),
@@ -70,5 +76,6 @@ export async function buildExportStyle(input: ExportStyleInput): Promise<ExportS
     fontFallback: fallback,
     fontBytes,
     diagramStyleId: printsWhite && drawn.dark ? 'white' : drawn.id,
+    paper: drawn.paper,
   }
 }

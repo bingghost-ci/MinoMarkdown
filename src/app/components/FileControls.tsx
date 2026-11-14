@@ -18,8 +18,9 @@ export function FileControls({ workspace: w }: { workspace: DocumentWorkspace })
             ? <button type="button" onClick={switchToSource} disabled={busy}><Code2 aria-hidden="true" />{t('源码模式')}</button>
             : <button type="button" onClick={() => void switchToVisual()} disabled={busy}><FileText aria-hidden="true" />{t('可视化模式')}</button>}
           <div className="menu-separator" />
+          <button type="button" onClick={() => void exportPage('pdf')} disabled={!desktop || busy}><Download aria-hidden="true" />{t('导出 PDF')}</button>
           <button type="button" onClick={() => void exportPage('html')} disabled={!desktop || busy}><Download aria-hidden="true" />{t('导出 HTML')}</button>
-          <button type="button" onClick={() => void exportPage('print')} disabled={!desktop || busy}><Printer aria-hidden="true" />{t('打印 / PDF')}</button>
+          <button type="button" onClick={() => void exportPage('print')} disabled={!desktop || busy}><Printer aria-hidden="true" />{t('打印')}</button>
           {document.mode === 'visual' && <button type="button" onClick={() => void exportSnapshotMD(false)} disabled={!desktop || busy}><Download aria-hidden="true" />{t('导出 MD + 图片')}</button>}
           <button type="button" onClick={() => void exportSnapshotMD(true)} disabled={!desktop || busy}><Download aria-hidden="true" />{t('仅正文 MD')}</button>
         </div></details>
