@@ -283,7 +283,7 @@ const statusEnglish: [string, string][] = [
   ['目标文件已存在，请选择其他文件名。', 'The destination already exists. Choose another filename.'],
   ['不能把文件夹移到它自己或它里面的文件夹中。', 'A folder cannot be moved into itself or into a folder inside it.'],
   ['不能在不同的磁盘之间移动，请在 Finder 中拷贝。', 'Items cannot be moved between disks here. Copy them in Finder.'],
-  ['目标文件夹里已有同名项目：', 'The target folder already has an item named '], ['已移动：', 'Moved: '],
+  ['目标文件夹里已有同名项目：', 'The target folder already has an item named '], ['目标文件夹的 assets 里已有同名但内容不同的图片，未移动：', 'The target folder’s assets already has a different image with the same name; not moved: '], ['已移动：', 'Moved: '],
   ["无法识别这个文件的文字编码，没有打开，原文件未改动。", "The text encoding of this file could not be recognized. It was not opened or changed."],
   ["文件内容不是它的扩展名所表示的格式（可能是二进制文件），没有打开。", "The content does not match the file extension (it may be a binary file), so it was not opened."],
   ["不支持这种文件类型。可以打开 Markdown、纯文本、常见代码与配置文件和 PDF。", "This file type is not supported. Mino opens Markdown, plain text, common source and configuration files, and PDF."],

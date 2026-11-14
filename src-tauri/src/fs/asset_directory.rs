@@ -125,6 +125,34 @@ impl AssetDirectory {
         Ok(PutResult::Created)
     }
 
+    /// Removes a regular file from the folder, never a link or a folder (T109: undoing a copy made for a move).
+    pub fn remove(&self, name: &OsStr) -> Result<(), String> {
+        valid_name(name)?;
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::fd::AsRawFd;
+            let entry = c_name(name)?;
+            let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+            if unsafe { libc::fstatat(self.assets.as_raw_fd(), entry.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW) } < 0 { return Err("ASSET_NOT_FOUND".into()); }
+            if stat.st_mode & libc::S_IFMT != libc::S_IFREG { return Err("OUT_OF_SCOPE".into()); }
+            if unsafe { libc::unlinkat(self.assets.as_raw_fd(), entry.as_ptr(), 0) } < 0 { return Err("IO_ERROR".into()); }
+            Ok(())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let path = self.assets_path.join(name);
+            let meta = fs::symlink_metadata(&path).map_err(|_| "ASSET_NOT_FOUND")?;
+            if !meta.is_file() { return Err("OUT_OF_SCOPE".into()); }
+            fs::remove_file(path).map_err(|_| "IO_ERROR".into())
+        }
+    }
+
+    /// Where an image in the folder is on disk, for moving it to the Trash.
+    pub fn path_of(&self, name: &OsStr) -> Result<PathBuf, String> {
+        valid_name(name)?;
+        Ok(self.parent_path.join("assets").join(name))
+    }
+
     pub fn verify_location(&self) -> Result<(), String> {
         #[cfg(target_os = "macos")]
         {

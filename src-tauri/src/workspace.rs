@@ -1,4 +1,4 @@
-use crate::documents::{DocumentStore, OpenDocument, grants_within, moved_path, open_granted_path, relocating, removing, forget_grants};
+use crate::documents::{DocumentStore, OpenDocument, grants_within, moved_path, open_granted_path, relocating, removing, forget_grants, carry_assets};
 use crate::file_kinds::{self, DocumentKind};
 use serde::Serialize;
 use std::{collections::{HashMap, HashSet}, fs, path::{Path, PathBuf}, sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex}};
@@ -360,7 +360,13 @@ fn move_entry(store: &WorkspaceStore, documents: &DocumentStore, entry_token: &s
     if source.parent() == Some(target.as_path()) { return Ok((entry, None)); }
     // A folder cannot go into itself or into a folder inside it.
     if target.starts_with(&source) { return Err("INVALID_TARGET".into()); }
-    let moved = relocating(documents, &source, || move_entry_at(&source, &target, grant.directory))?;
+    let moved = relocating(documents, &source, || {
+        // A Markdown file takes the images it shows along; a folder already holds its own `assets/`.
+        let carried = if grant.directory { None } else { carry_assets(&source, &target)? };
+        let moved = move_entry_at(&source, &target, grant.directory);
+        if let Some(carried) = carried { if moved.is_ok() { carried.release() } else { carried.undo() } }
+        moved
+    })?;
     relocate_entries_into(store, &source, &moved, Some((&target_grant.workspace, &target_grant.root)))?;
     Ok((entry, Some((source, moved))))
 }
@@ -698,6 +704,71 @@ mod tests {
     /// Files and folders are dragged into other folders, also under another open folder: tokens and open files
     /// follow them, a name already there is not replaced, and a folder cannot go into itself.
     #[cfg(target_os = "macos")]
+    /// A Markdown file moved to another folder takes its `assets/` images along: copied into the target's
+    /// `assets/` (made when missing), and in the old folder only an image another file there still uses stays; an
+    /// emptied `assets/` goes too (T109).
+    #[test]
+    fn a_moved_markdown_file_takes_its_images_along() {
+        let dir = fs::canonicalize(temp()).unwrap();
+        fs::create_dir_all(dir.join("assets")).unwrap();
+        fs::create_dir_all(dir.join("box/assets")).unwrap();
+        fs::create_dir(dir.join("clash")).unwrap();
+        fs::create_dir(dir.join("clash/assets")).unwrap();
+        fs::write(dir.join("assets/own.png"), b"own").unwrap();
+        fs::write(dir.join("assets/shared.png"), b"shared").unwrap();
+        fs::write(dir.join("assets/same.png"), b"same").unwrap();
+        fs::write(dir.join("box/assets/same.png"), b"same").unwrap();
+        fs::write(dir.join("clash/assets/own.png"), b"other").unwrap();
+        fs::write(dir.join("a.md"), "![](assets/own.png)\n![](./assets/shared.png)\n![](assets/same.png)\n![](assets/missing.png)\n![](https://example.com/x.png)\n").unwrap();
+        fs::write(dir.join("b.md"), "![](assets/shared.png)\n").unwrap();
+        let store = WorkspaceStore::default();
+        let documents = DocumentStore::default();
+        let root = register_workspace(&store, dir.clone()).unwrap();
+        list_at(&store, &root.token, 0).unwrap();
+        let token_of = |path: &Path| store.0.lock().unwrap().iter().find(|(_, item)| item.path == path).map(|(token, _)| token.clone()).unwrap();
+        let (a, boxed, clash) = (token_of(&dir.join("a.md")), token_of(&dir.join("box")), token_of(&dir.join("clash")));
+
+        // An image of the same name with other bytes in the target stops the move before anything is written.
+        assert_eq!(move_entry(&store, &documents, &a, &clash).err(), Some("ASSET_CONFLICT".into()));
+        assert!(dir.join("a.md").is_file() && !dir.join("clash/a.md").exists());
+        assert_eq!(fs::read(dir.join("clash/assets/own.png")).unwrap(), b"other");
+        assert!(!dir.join("clash/assets/shared.png").exists());
+
+        move_entry(&store, &documents, &a, &boxed).unwrap();
+        assert!(dir.join("box/a.md").is_file());
+        for (name, bytes) in [("own.png", &b"own"[..]), ("shared.png", b"shared"), ("same.png", b"same")] { assert_eq!(fs::read(dir.join("box/assets").join(name)).unwrap(), bytes); }
+        assert!(!dir.join("box/assets/missing.png").exists());
+        // Unused in the old folder now, so moved to the Trash; b.md still shows shared.png.
+        assert!(!dir.join("assets/own.png").exists() && !dir.join("assets/same.png").exists());
+        assert_eq!(fs::read(dir.join("assets/shared.png")).unwrap(), b"shared");
+        // The document itself is unchanged.
+        assert!(fs::read_to_string(dir.join("box/a.md")).unwrap().starts_with("![](assets/own.png)\n"));
+        assert!(dir.join("assets").is_dir());
+
+        // The only document of a folder: a target without `assets/` gets one, and the emptied old one
+        // (Finder's `.DS_Store` aside) goes to the Trash.
+        fs::create_dir_all(dir.join("solo/assets")).unwrap();
+        fs::create_dir(dir.join("fresh")).unwrap();
+        fs::write(dir.join("solo/assets/x.png"), b"x").unwrap();
+        fs::write(dir.join("solo/assets/.DS_Store"), b"ds").unwrap();
+        fs::write(dir.join("solo/s.md"), "![](assets/x.png)\n").unwrap();
+        list_at(&store, &root.token, 0).unwrap();
+        list_at(&store, &token_of(&dir.join("solo")), 0).unwrap();
+        move_entry(&store, &documents, &token_of(&dir.join("solo/s.md")), &token_of(&dir.join("fresh"))).unwrap();
+        assert_eq!(fs::read(dir.join("fresh/assets/x.png")).unwrap(), b"x");
+        assert!(!dir.join("solo/assets").exists() && dir.join("solo").is_dir());
+        // A folder with something else in it stays.
+        fs::create_dir_all(dir.join("keep/assets")).unwrap();
+        fs::write(dir.join("keep/assets/y.png"), b"y").unwrap();
+        fs::write(dir.join("keep/assets/notes.txt"), b"mine").unwrap();
+        fs::write(dir.join("keep/k.md"), "![](assets/y.png)\n").unwrap();
+        list_at(&store, &root.token, 0).unwrap();
+        list_at(&store, &token_of(&dir.join("keep")), 0).unwrap();
+        move_entry(&store, &documents, &token_of(&dir.join("keep/k.md")), &token_of(&dir.join("fresh"))).unwrap();
+        assert!(!dir.join("keep/assets/y.png").exists() && dir.join("keep/assets/notes.txt").is_file());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn moving_entries_into_other_folders() {
         let dir = fs::canonicalize(temp()).unwrap();

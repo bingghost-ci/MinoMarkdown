@@ -1638,7 +1638,7 @@ export function useDocumentWorkspace() {
       setStatus(`已移动：${entry.name}`)
     } catch (error) {
       const code = error instanceof Error ? error.message : String(error)
-      setStatus(code === 'TARGET_EXISTS' ? `目标文件夹里已有同名项目：${entry.name}` : errorText(error))
+      setStatus(code === 'TARGET_EXISTS' ? `目标文件夹里已有同名项目：${entry.name}` : code === 'ASSET_CONFLICT' ? `目标文件夹的 assets 里已有同名但内容不同的图片，未移动：${entry.name}` : errorText(error))
     }
   }
 

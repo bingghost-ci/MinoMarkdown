@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use image::{ImageFormat, ImageReader};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
+    ffi::OsString,
     fs,
     path::{Path, PathBuf},
     sync::{atomic::{AtomicU64, Ordering}, Mutex},
@@ -534,6 +535,89 @@ fn copy_assets_for_copy(source: &Path, target: &Path, markdown: &str) -> Result<
     source_assets.verify_location()?;
     target_assets.verify_location()?;
     Ok((markdown_images::rewrite_image_urls(markdown, &replacements)?, replacements))
+}
+
+/// The images a Markdown file took along when it was moved to another folder (T109).
+pub(crate) struct CarriedAssets { source: AssetDirectory, target: AssetDirectory, source_parent: PathBuf, names: Vec<OsString>, created: Vec<OsString> }
+
+/// How many Markdown files beside a moved one are read to see whether they still use its images.
+const SIBLING_LIMIT: usize = 2_000;
+
+/// Copies the `assets/` images a Markdown file references into `assets/` of the folder it is moving to, so they
+/// still show after the move. The document is not rewritten: a name the target already holds with other bytes
+/// stops the move (`ASSET_CONFLICT`) before anything is written. A reference that was already broken is skipped.
+pub(crate) fn carry_assets(document: &Path, target_parent: &Path) -> Result<Option<CarriedAssets>, String> {
+    if DocumentKind::of(document) != Some(DocumentKind::Markdown) { return Ok(None); }
+    let references = markdown_images::referenced_assets(&read_document(document)?.text);
+    if references.is_empty() { return Ok(None); }
+    let source_parent = document.parent().ok_or("INVALID_PATH")?;
+    let source = match AssetDirectory::open(source_parent, false) { Err(code) if code == "ASSET_NOT_FOUND" => return Ok(None), other => other? };
+    let mut images = Vec::new();
+    for relative in references {
+        let path = markdown_images::local_asset_path(&relative).ok_or("OUT_OF_SCOPE")?;
+        let name = path.file_name().ok_or("OUT_OF_SCOPE")?.to_os_string();
+        if let Some(bytes) = source.read(&name)? { images.push((name, bytes)); }
+    }
+    if images.is_empty() { return Ok(None); }
+    match AssetDirectory::open(target_parent, false) {
+        Ok(existing) => for (name, bytes) in &images {
+            if existing.read(name)?.is_some_and(|other| &other != bytes) { return Err("ASSET_CONFLICT".into()); }
+        },
+        Err(code) if code == "ASSET_NOT_FOUND" => {}
+        Err(code) => return Err(code),
+    }
+    let target = AssetDirectory::open(target_parent, true)?;
+    let mut carried = CarriedAssets { source, target, source_parent: source_parent.to_path_buf(), names: Vec::new(), created: Vec::new() };
+    for (name, bytes) in images {
+        let put = carried.target.put(&name, &bytes);
+        match put {
+            Ok(PutResult::Created) => carried.created.push(name.clone()),
+            Ok(PutResult::ExistingSame) => {}
+            Ok(PutResult::ExistingDifferent) | Err(_) => { carried.undo(); return Err(put.err().unwrap_or_else(|| "ASSET_CONFLICT".into())); }
+        }
+        carried.names.push(name);
+    }
+    if let Err(code) = carried.source.verify_location().and_then(|_| carried.target.verify_location()) { carried.undo(); return Err(code); }
+    Ok(Some(carried))
+}
+
+impl CarriedAssets {
+    /// The move failed: the copies made for it are removed again.
+    pub(crate) fn undo(&self) { for name in &self.created { let _ = self.target.remove(name); } }
+
+    /// The move succeeded: an image no other Markdown file left in the old folder uses goes to the Trash, so the
+    /// images moved rather than doubled, and can still be put back; so does the `assets/` folder once it is empty.
+    /// When in doubt an image stays.
+    pub(crate) fn release(&self) {
+        let Some(used) = images_used_in(&self.source_parent) else { return };
+        for name in &self.names {
+            if used.contains(name.to_string_lossy().as_ref()) { continue; }
+            if let Ok(path) = self.source.path_of(name) { let _ = crate::workspace::move_to_trash(&path); }
+        }
+        // An `assets/` folder left empty (Finder's `.DS_Store` aside) goes to the Trash too; anything else in it keeps it.
+        let folder = self.source_parent.join("assets");
+        let Ok(entries) = fs::read_dir(&folder) else { return };
+        let mut entries = entries.map(|entry| entry.map(|entry| entry.file_name()));
+        if entries.all(|name| name.is_ok_and(|name| name == ".DS_Store")) && self.source.verify_location().is_ok() {
+            let _ = crate::workspace::move_to_trash(&folder);
+        }
+    }
+}
+
+/// The names of the `assets/` images the Markdown files in `folder` reference, or `None` when a file could not be
+/// read or there are too many to read.
+fn images_used_in(folder: &Path) -> Option<HashSet<String>> {
+    let mut used = HashSet::new();
+    for (index, entry) in fs::read_dir(folder).ok()?.enumerate() {
+        if index >= SIBLING_LIMIT { return None; }
+        let path = entry.ok()?.path();
+        let meta = fs::symlink_metadata(&path).ok()?;
+        if !meta.is_file() || DocumentKind::of(&path) != Some(DocumentKind::Markdown) { continue; }
+        for relative in markdown_images::referenced_assets(&read_document(&path).ok()?.text) {
+            if let Some(name) = markdown_images::local_asset_path(&relative).and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned())) { used.insert(name); }
+        }
+    }
+    Some(used)
 }
 
 /// A copy keeps the document's encoding unless it changes kind (a text file saved as Markdown is UTF-8).
