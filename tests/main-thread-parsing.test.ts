@@ -110,7 +110,7 @@ describe('main-thread parsing (T92)', () => {
     expect(normalizeAdjacentStrong('# 标题\n\n**普通加粗** 文字\n')).toBe('# 标题\n\n**普通加粗** 文字\n')
     expect(normalizeAdjacentStrong('没有任何强调')).toBe('没有任何强调')
     expect(parses.count).toBe(0)
-    expect(normalizeAdjacentStrong('**螺旋（spiral）**指变化，`**代码）**字`')).toBe('**螺旋（spiral）** 指变化，`**代码）**字`')
+    expect(normalizeAdjacentStrong('**螺旋（spiral）**指变化，`**代码）**字`')).toBe('**螺旋（spiral）**\u2009\u2060指变化，`**代码）**字`')
     expect(parses.count).toBe(1)
   })
 

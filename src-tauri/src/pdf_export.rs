@@ -21,8 +21,11 @@ use tauri_plugin_dialog::DialogExt;
 /// The rendered page carries its fonts and images, like an HTML export, and may be as large.
 const MAX_PAGE_BYTES: usize = 100 * 1024 * 1024;
 /// Loading the page and printing it to a file; a print panel waits for the user as long as it is open.
+/// These count from the moment printing starts; loading the page before it has its own, shorter limit.
 const EXPORT_TIMEOUT: Duration = Duration::from_secs(180);
 const PRINT_TIMEOUT: Duration = Duration::from_secs(6 * 60 * 60);
+/// Loading the page, its fonts and its images, before anything is printed or a panel is shown.
+const LOAD_TIMEOUT: Duration = Duration::from_secs(120);
 
 static NEXT_JOB: AtomicU64 = AtomicU64::new(1);
 
@@ -71,13 +74,19 @@ impl Drop for WorkDir {
 
 /// Saves the page as a PDF where the user chooses, with the paper color under every page.
 /// Returns the file name, or `None` when the save panel was canceled.
-#[tauri::command(async)]
-pub fn export_pdf(app: AppHandle, window: WebviewWindow, html: String, title: String, paper: String, page_size: String) -> Result<Option<String>, String> {
+/// Both commands wait for panels and for printing, so they run on the blocking pool and leave the async
+/// command threads free.
+#[tauri::command]
+pub async fn export_pdf(app: AppHandle, window: WebviewWindow, html: String, title: String, paper: String, page_size: String) -> Result<Option<String>, String> {
     crate::require_workspace_window(&window)?;
+    tauri::async_runtime::spawn_blocking(move || export_pdf_blocking(&app, &window, html, &title, &paper, &page_size)).await.map_err(|_| "EXPORT_FAILED".to_string())?
+}
+
+fn export_pdf_blocking(app: &AppHandle, window: &WebviewWindow, html: String, title: &str, paper: &str, page_size: &str) -> Result<Option<String>, String> {
     check_page(&html)?;
-    let color = paper_color(&paper)?;
-    let size = paper_size(&page_size)?;
-    let selected = app.dialog().file().add_filter("PDF", &["pdf"]).set_file_name(suggested_name(&title)).set_parent(&window).blocking_save_file();
+    let color = paper_color(paper)?;
+    let size = paper_size(page_size)?;
+    let selected = app.dialog().file().add_filter("PDF", &["pdf"]).set_file_name(suggested_name(title)).set_parent(window).blocking_save_file();
     let Some(selected) = selected else { return Ok(None); };
     let path = selected.into_path().map_err(|_| "INVALID_PATH")?;
     if !path.extension().and_then(|v| v.to_str()).is_some_and(|v| v.eq_ignore_ascii_case("pdf")) {
@@ -91,7 +100,7 @@ pub fn export_pdf(app: AppHandle, window: WebviewWindow, html: String, title: St
     let work = WorkDir::new()?;
     let printed = work.0.join("printed.pdf");
     let painted = work.0.join("painted.pdf");
-    if !mac::run(&app, mac::Job { html, title, size, target: mac::Target::File(printed.clone()) }, EXPORT_TIMEOUT)? {
+    if !mac::run(app, mac::Job { html, title: title.to_owned(), size, target: mac::Target::File(printed.clone()) }, LOAD_TIMEOUT, EXPORT_TIMEOUT)? {
         return Err("EXPORT_FAILED".into());
     }
     mac::paint_paper(&printed, &painted, color)?;
@@ -102,22 +111,24 @@ pub fn export_pdf(app: AppHandle, window: WebviewWindow, html: String, title: St
 }
 
 /// Shows the system print panel for the page. Returns whether it was printed (false when canceled).
-#[tauri::command(async)]
-pub fn print_page(app: AppHandle, window: WebviewWindow, html: String, title: String, page_size: String) -> Result<bool, String> {
+#[tauri::command]
+pub async fn print_page(app: AppHandle, window: WebviewWindow, html: String, title: String, page_size: String) -> Result<bool, String> {
     crate::require_workspace_window(&window)?;
     check_page(&html)?;
     let size = paper_size(&page_size)?;
-    mac::run(&app, mac::Job { html, title, size, target: mac::Target::Panel(window.label().to_owned()) }, PRINT_TIMEOUT)
+    let label = window.label().to_owned();
+    tauri::async_runtime::spawn_blocking(move || mac::run(&app, mac::Job { html, title, size, target: mac::Target::Panel(label) }, LOAD_TIMEOUT, PRINT_TIMEOUT))
+        .await.map_err(|_| "EXPORT_FAILED".to_string())?
 }
 
 #[cfg(target_os = "macos")]
 mod mac {
     use std::cell::RefCell;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::ffi::c_void;
     use std::path::{Path, PathBuf};
     use std::sync::mpsc::{self, Sender};
-    use std::sync::Mutex;
+    use std::sync::{Mutex, OnceLock};
     use std::time::Duration;
 
     use block2::RcBlock;
@@ -159,14 +170,32 @@ mod mac {
     thread_local! {
         static RUNNING: RefCell<HashMap<u64, Running>> = RefCell::new(HashMap::new());
     }
-    /// Where each job's outcome goes. AppKit may report a print without a panel from its own thread, so this is
+    /// What a job tells the thread waiting for it: printing has started, or the job's outcome.
+    enum Event {
+        Started,
+        Done(Result<bool, String>),
+    }
+    /// Where each job's events go. AppKit may report a print without a panel from its own thread, so this is
     /// not kept with the main-thread objects.
-    type Outcome = Sender<Result<bool, String>>;
+    type Outcome = Sender<Event>;
     static WAITING: Mutex<Option<HashMap<u64, Outcome>>> = Mutex::new(None);
+    /// Jobs whose print operation has started and not yet called back. AppKit does not retain the operation's
+    /// delegate, so until the callback the job's objects must stay, even when nobody waits for it any more.
+    static PRINTING: Mutex<Option<HashSet<u64>>> = Mutex::new(None);
+    /// For the print callback, which has to schedule the release of its job on the main thread.
+    static APP: OnceLock<AppHandle> = OnceLock::new();
 
-    /// Runs a job on the main thread and waits for it. The webview and window are let go afterwards, from a later
-    /// turn of the main loop, never from inside one of their own callbacks.
-    pub fn run(app: &AppHandle, job: Job, timeout: Duration) -> Result<bool, String> {
+    fn printing<T>(change: impl FnOnce(&mut HashSet<u64>) -> T) -> T {
+        let mut jobs = PRINTING.lock().unwrap_or_else(|e| e.into_inner());
+        change(jobs.get_or_insert_with(HashSet::new))
+    }
+
+    /// Runs a job on the main thread and waits for it: `load` for the page to load and printing to start, then
+    /// `timeout` for printing (and a print panel) to end. The webview and window are let go afterwards, from a
+    /// later turn of the main loop, never from inside one of their own callbacks, and never while the print
+    /// operation can still call back.
+    pub fn run(app: &AppHandle, job: Job, load: Duration, timeout: Duration) -> Result<bool, String> {
+        let _ = APP.set(app.clone());
         let id = super::NEXT_JOB.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let (done, result) = mpsc::channel();
         waiting(|senders| { senders.insert(id, done); });
@@ -175,13 +204,23 @@ mod mac {
             waiting(|senders| { senders.remove(&id); });
             return Err("EXPORT_FAILED".into());
         }
-        let outcome = result.recv_timeout(timeout).unwrap_or_else(|_| Err("EXPORT_TIMEOUT".into()));
+        let mut wait = load;
+        let outcome = loop {
+            match result.recv_timeout(wait) {
+                Ok(Event::Started) => wait = timeout,
+                Ok(Event::Done(outcome)) => break outcome,
+                Err(_) => break Err("EXPORT_TIMEOUT".into()),
+            }
+        };
         waiting(|senders| { senders.remove(&id); });
         let _ = app.run_on_main_thread(move || finish(id));
         outcome
     }
 
+    /// Lets a job's objects go, unless its print operation is still running: then the print callback calls
+    /// this again once the operation has ended.
     fn finish(id: u64) {
+        if printing(|jobs| jobs.contains(&id)) { return; }
         let running = RUNNING.with(|jobs| jobs.borrow_mut().remove(&id));
         if let Some(running) = running {
             unsafe {
@@ -200,7 +239,12 @@ mod mac {
 
     /// The first outcome of a job is the one that counts.
     fn report(id: u64, outcome: Result<bool, String>) {
-        if let Some(done) = waiting(|senders| senders.remove(&id)) { let _ = done.send(outcome); }
+        if let Some(done) = waiting(|senders| senders.remove(&id)) { let _ = done.send(Event::Done(outcome)); }
+    }
+
+    /// Printing has started: from now on the waiting thread allows the printing time instead of the load time.
+    fn report_started(id: u64) {
+        waiting(|senders| { if let Some(done) = senders.get(&id) { let _ = done.send(Event::Started); } });
     }
 
     fn start(id: u64, job: Job, app: AppHandle) {
@@ -287,6 +331,9 @@ mod mac {
                 let _: () = msg_send![&*view, setFrame: bounds];
             }
             let host: &AnyObject = match parent { Some(pointer) => &*(pointer as *const AnyObject), None => &offscreen };
+            // Until `printed` runs, `finish` keeps the delegate, the webview and the window.
+            printing(|jobs| { jobs.insert(id); });
+            report_started(id);
             let _: () = msg_send![&*operation, runOperationModalForWindow: host, delegate: &*delegate, didRunSelector: sel!(printOperationDidRun:success:contextInfo:), contextInfo: std::ptr::null_mut::<c_void>()];
         }
     }
@@ -313,7 +360,14 @@ mod mac {
             fn terminated(&self, _web: &AnyObject) { report(self.ivars().id, Err("EXPORT_FAILED".into())); }
 
             #[unsafe(method(printOperationDidRun:success:contextInfo:))]
-            fn printed(&self, _operation: &AnyObject, success: Bool, _context: *mut c_void) { report(self.ivars().id, Ok(success.as_bool())); }
+            fn printed(&self, _operation: &AnyObject, success: Bool, _context: *mut c_void) {
+                let id = self.ivars().id;
+                printing(|jobs| { jobs.remove(&id); });
+                report(id, Ok(success.as_bool()));
+                // The waiting thread may have given up already; release the job from a later turn of the main loop
+                // either way. A second `finish` for the same job does nothing.
+                if let Some(app) = APP.get() { let _ = app.run_on_main_thread(move || finish(id)); }
+            }
         }
     );
 
@@ -368,7 +422,13 @@ mod mac {
 
     /// Writes `printed` again as `painted` with the paper color under every page. PDFKit keeps the text, the
     /// embedded fonts and the link annotations of the printed file.
+    /// Runs on a command thread that lives as long as the app, so what PDFKit autoreleases (the pages' data
+    /// among it) is drained by a pool of its own instead of piling up on that thread.
     pub fn paint_paper(printed: &Path, painted: &Path, color: [f64; 3]) -> Result<(), String> {
+        objc2::rc::autoreleasepool(|_| paint_paper_in_pool(printed, painted, color))
+    }
+
+    fn paint_paper_in_pool(printed: &Path, painted: &Path, color: [f64; 3]) -> Result<(), String> {
         let _painting = PAINTING.lock().unwrap_or_else(|e| e.into_inner());
         *PAPER.lock().unwrap_or_else(|e| e.into_inner()) = color;
         let source = NSURL::from_file_path(printed).ok_or("EXPORT_FAILED")?;
@@ -394,7 +454,7 @@ mod mac {
     use tauri::AppHandle;
     pub enum Target { File(PathBuf), Panel(String) }
     pub struct Job { pub html: String, pub title: String, pub size: (f64, f64), pub target: Target }
-    pub fn run(_app: &AppHandle, _job: Job, _timeout: Duration) -> Result<bool, String> { Err("UNSUPPORTED_PLATFORM".into()) }
+    pub fn run(_app: &AppHandle, _job: Job, _load: Duration, _timeout: Duration) -> Result<bool, String> { Err("UNSUPPORTED_PLATFORM".into()) }
     pub fn paint_paper(_printed: &Path, _painted: &Path, _color: [f64; 3]) -> Result<(), String> { Err("UNSUPPORTED_PLATFORM".into()) }
 }
 

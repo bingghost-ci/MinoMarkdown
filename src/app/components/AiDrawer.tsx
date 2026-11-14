@@ -23,7 +23,8 @@ function Answer({ turn, workspace: w }: { turn: AiTurn; workspace: DocumentWorks
     {turn.progress && <p className="ai-progress" role="status">{t(turn.progress)}</p>}
     {turn.status === 'done' && turn.html
       // The HTML comes from the preview renderer, which sanitizes it; remote images are blocked by the app's CSP.
-      ? <div className="ai-text mino-doc" dangerouslySetInnerHTML={{ __html: turn.html }} />
+      // Its links go through the same safe path as the preview's and never navigate the window.
+      ? <div className="ai-text mino-doc" onClick={w.onAnswerClick} onAuxClick={w.onAnswerClick} dangerouslySetInnerHTML={{ __html: turn.html }} />
       : text ? <div className="ai-text ai-text-plain">{text}{turn.status === 'streaming' && <i className="ai-caret" aria-hidden="true" />}</div>
       : turn.status === 'streaming' && !turn.progress ? <p className="ai-progress" role="status">{t('正在思考…')}</p> : null}
     {turn.status === 'cancelled' && <p className="ai-note">{t('已停止。')}</p>}

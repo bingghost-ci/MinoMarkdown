@@ -29,7 +29,7 @@ function followSelection(tr: Transaction, selection: Selection, delta: number, s
 /** Swaps the current block with its neighbor. At the edge of its container the key is consumed and nothing moves. */
 export function moveBlock(direction: 1 | -1): Command {
   return (state, dispatch, view) => {
-    if (view?.composing) return false
+    if (view && (view.composing || !view.editable)) return false
     const block = currentBlock(state)
     if (!block) return false
     const sibling = block.index + direction
@@ -47,7 +47,7 @@ export function moveBlock(direction: 1 | -1): Command {
 
 /** Inserts a copy of the current block after it and moves the selection into the copy. */
 export const duplicateBlock: Command = (state, dispatch, view) => {
-  if (view?.composing) return false
+  if (view && (view.composing || !view.editable)) return false
   const block = currentBlock(state)
   if (!block) return false
   if (dispatch) dispatch(closeHistory(followSelection(state.tr.insert(block.end, block.node), state.selection, block.node.nodeSize, block.start)).scrollIntoView())

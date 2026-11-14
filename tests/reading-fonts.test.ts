@@ -221,9 +221,12 @@ describe('font stacks', () => {
   })
 
   it('applies the same rule as is_font_choice in settings.rs', () => {
-    const rule = /fn is_font_choice\(value: &str\) -> bool \{([\s\S]*?)\n\}/.exec(rust)?.[1]
-    expect(rule, 'is_font_choice in settings.rs').toBeTruthy()
-    expect(rule).toContain('strip_prefix("sys:")')
+    const choice = /fn is_font_choice\(value: &str\) -> bool \{([\s\S]*?)\n\}/.exec(rust)?.[1]
+    expect(choice, 'is_font_choice in settings.rs').toBeTruthy()
+    expect(choice).toContain('strip_prefix("sys:")')
+    expect(choice).toContain('is_system_family_name(name)')
+    const rule = /fn is_system_family_name\(name: &str\) -> bool \{([\s\S]*?)\n\}/.exec(rust)?.[1]
+    expect(rule, 'is_system_family_name in settings.rs').toBeTruthy()
     expect(rule).toContain('!name.is_empty()')
     expect(rule).toContain('name.chars().count() <= 100')
     expect(rule).toContain('name.trim() == name')

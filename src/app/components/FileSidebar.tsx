@@ -133,8 +133,8 @@ const FileSidebarView = memo(function FileSidebarView(w: Pick<DocumentWorkspace,
                   {renderChildren(root.token)}
                 </div>
               })}</div>}
-            <div className="tree-actions"><button type="button" onClick={() => { setNewEntryType('file'); setNewEntryName('新文档.md') }}><FilePlus2 aria-hidden="true" />{t('新建文档')}</button><details className="tree-action-menu"><summary aria-label={t('目录操作')} title={t('目录操作')}><MoreHorizontal aria-hidden="true" /></summary><div className="tree-action-popup">
-              <button type="button" onClick={() => { setNewEntryType('directory'); setNewEntryName('新目录') }}><FolderPlus aria-hidden="true" />{t('新建目录')}</button>
+            <div className="tree-actions"><button type="button" onClick={() => { setNewEntryType('file'); setNewEntryName(t('新文档.md')) }}><FilePlus2 aria-hidden="true" />{t('新建文档')}</button><details className="tree-action-menu"><summary aria-label={t('目录操作')} title={t('目录操作')}><MoreHorizontal aria-hidden="true" /></summary><div className="tree-action-popup">
+              <button type="button" onClick={() => { setNewEntryType('directory'); setNewEntryName(t('新目录')) }}><FolderPlus aria-hidden="true" />{t('新建目录')}</button>
               <button type="button" disabled={!selectedEntry} onClick={() => { setRenameName(selectedEntry?.name ?? ''); setRenaming(true) }}><Pencil aria-hidden="true" />{t('重命名')}</button>
               <button type="button" disabled={!selectedEntry} onClick={() => void trashEntry()}><Trash2 aria-hidden="true" />{t('移到废纸篓')}</button>
               <div className="menu-separator" />

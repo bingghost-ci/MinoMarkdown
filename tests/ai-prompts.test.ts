@@ -354,6 +354,20 @@ describe('inserting an answer', () => {
     expect(insertableMarkdown('```html\n<p>段落</p>\n```')).toBe('```html\n<p>段落</p>\n```')
   })
 
+  it('removes images and tags that a line pattern would miss (review finding 3)', () => {
+    expect(insertableMarkdown('<img\nsrc="https://e.example/x.png">正文')).toBe('正文')
+    expect(insertableMarkdown('![a][r]\n\n[r]: https://e.example/p.png')).toBe('a')
+    expect(insertableMarkdown('![a [b]](https://e.example/x.png)')).toBe('a \\[b\\]')
+    expect(insertableMarkdown('![a](<https://e.example/x).png>)')).toBe('a')
+    expect(insertableMarkdown('![a](https://e.example/x.png "t)")')).toBe('a')
+    expect(insertableMarkdown('<!-- c --><img src=x onerror=1>')).toBe('')
+    expect(insertableMarkdown('<div>![a](https://e.example/x.png)</div>')).toBe('a')
+    expect(insertableMarkdown('<div>\n<script>alert(1)</script>\n</div>')).toBe('')
+    // A link that shares its definition with an image keeps the definition.
+    expect(insertableMarkdown('![a][r] [b][r]\n\n[r]: https://e.example/p')).toBe('a [b][r]\n\n[r]: https://e.example/p')
+    for (const out of ['<img\nsrc=x>', '![x](<u>)', '<a\nhref="javascript:x">y</a>']) expect(insertableMarkdown(out)).not.toMatch(/<[a-z]|!\[/i)
+  })
+
   it('keeps autolinks', () => {
     expect(insertableMarkdown('出处：<https://example.com/book>')).toBe('出处：<https://example.com/book>')
   })

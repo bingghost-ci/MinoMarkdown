@@ -719,6 +719,44 @@ describe('AI assistant', () => {
     expect(backend.handlers.get('ai-stream')!.size).toBe(1)
   })
 
+  it('clears the current conversation without stopping a request that belongs to another document', async () => {
+    const backend = fakeBackend()
+    const { ai, rerender } = await mount(backend.transport)
+    backend.replies.push('pending')
+    let asking!: Promise<void>
+    act(() => { asking = ai().ask('文档一的问题') as Promise<void> })
+    await settle()
+    rerender({ documentId: 2 })
+    act(() => ai().clear())
+    expect(backend.commands('ai_cancel')).toEqual([])
+    act(() => backend.delta(backend.chats[0].requestId, '文档一的回答'))
+    act(() => backend.finish(backend.chats[0].requestId))
+    await act(async () => { await asking })
+    await settle()
+    rerender({ documentId: 1 })
+    expect(ai().turns[1]).toMatchObject({ text: '文档一的回答', status: 'done' })
+  })
+
+  it('forgets a closed document: its conversation goes and its running request stops', async () => {
+    const backend = fakeBackend()
+    const { ai, rerender } = await mount(backend.transport)
+    await run(() => ai().ask('文档一的问题'))
+    rerender({ documentId: 2 })
+    backend.replies.push('pending')
+    let asking!: Promise<void>
+    act(() => { asking = ai().ask('文档二的问题') as Promise<void> })
+    await settle()
+    // Forgetting another document leaves this one's request alone.
+    act(() => ai().forget(1))
+    expect(backend.commands('ai_cancel')).toEqual([])
+    await act(async () => { ai().forget(2); await asking })
+    await settle()
+    expect(backend.commands('ai_cancel')).toEqual([{ command: 'ai_cancel', args: { requestId: backend.chats[1].requestId } }])
+    expect(ai().turns).toEqual([])
+    rerender({ documentId: 1 })
+    expect(ai().turns).toEqual([])
+  })
+
   it('finishes an answer in the document it was asked in after the user switches to another', async () => {
     const backend = fakeBackend()
     const { ai, rerender } = await mount(backend.transport)

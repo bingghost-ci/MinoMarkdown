@@ -2,7 +2,7 @@
 //! The API key lives in the macOS Keychain and never reaches `ai.json`, error codes or events.
 use crate::fs::{app_data::ensure_dir, atomic_write, bounded_file::read_canonical_parent};
 use serde::{Deserialize, Serialize};
-use std::{collections::{BTreeMap, BTreeSet, HashMap}, io::Read, path::{Path, PathBuf}, sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc, Mutex}, time::{Duration, Instant}};
+use std::{collections::{BTreeMap, BTreeSet, HashMap}, io::Read, path::{Path, PathBuf}, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, mpsc, Arc, Mutex}, time::{Duration, Instant}};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewWindow};
 
 const KEYCHAIN_SERVICE: &str = "app.mino.markdown.ai";
@@ -117,6 +117,9 @@ fn valid(config: &AiConfig) -> bool {
         && config.providers.iter().all(|(id, memory)| is_provider(id) && parse_base_url(&memory.base_url).is_some() && valid_model(&memory.model))
 }
 
+/// Scheme, host and port of a base URL, as requests to it would reach them.
+fn origin_of(raw: &str) -> Option<String> { parse_base_url(raw).map(|url| url.origin().ascii_serialization()) }
+
 fn apply_patch(current: &AiConfig, patch: serde_json::Value) -> Result<AiConfig, String> {
     let patch: AiConfigPatch = serde_json::from_value(patch).map_err(|_| "AI_INVALID_CONFIG")?;
     let mut next = current.clone();
@@ -142,6 +145,9 @@ fn apply_patch(current: &AiConfig, patch: serde_json::Value) -> Result<AiConfig,
     }
     if let Some(base_url) = patch.base_url { next.base_url = base_url.trim().into(); }
     if let Some(model) = patch.model { next.model = model.trim().into(); }
+    // Consent is given for the service it was asked for. When requests would go to another origin (another
+    // provider or another address), it has to be given again, unless this same patch gives it.
+    if origin_of(&current.base_url) != origin_of(&next.base_url) && patch.consented != Some(true) { next.consented = false; }
     if valid(&next) { Ok(next) } else { Err("AI_INVALID_CONFIG".into()) }
 }
 
@@ -271,7 +277,16 @@ fn remove_key(config: AiConfig, secrets: &dyn SecretStore, provider: Option<&str
 
 pub struct AiState {
     secrets: Box<dyn SecretStore>,
-    requests: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    requests: Mutex<HashMap<String, InFlight>>,
+    /// HTTP threads still alive, including those of requests that were cancelled and are waiting for a read
+    /// to return. They count against `MAX_CONCURRENT` too.
+    http_threads: Arc<AtomicUsize>,
+}
+
+/// A registered request: the window it answers to and its cancel flag.
+struct InFlight {
+    window: String,
+    cancel: Arc<AtomicBool>,
 }
 
 impl Default for AiState {
@@ -280,7 +295,7 @@ impl Default for AiState {
         let secrets: Box<dyn SecretStore> = Box::new(KeychainStore { service: KEYCHAIN_SERVICE });
         #[cfg(not(target_os = "macos"))]
         let secrets: Box<dyn SecretStore> = Box::new(MemoryStore::default());
-        Self { secrets, requests: Mutex::new(HashMap::new()) }
+        Self { secrets, requests: Mutex::new(HashMap::new()), http_threads: Arc::default() }
     }
 }
 
@@ -299,17 +314,23 @@ impl Drop for Ticket<'_> {
 
 impl AiState {
     /// Registers a request so that `ai_cancel` can reach it. An id that is already in flight is refused.
-    fn begin(&self, id: &str) -> Result<Ticket<'_>, String> {
+    fn begin(&self, id: &str, window: &str) -> Result<Ticket<'_>, String> {
         let mut requests = self.requests.lock().map_err(|_| "AI_BUSY")?;
         if requests.contains_key(id) { return Err("AI_INVALID_REQUEST".into()); }
         let cancel = Arc::new(AtomicBool::new(false));
-        requests.insert(id.into(), cancel.clone());
+        requests.insert(id.into(), InFlight { window: window.into(), cancel: cancel.clone() });
         Ok(Ticket { state: self, id: id.into(), cancel })
     }
     fn active(&self) -> usize { self.requests.lock().map(|requests| requests.len()).unwrap_or(usize::MAX) }
-    fn cancel(&self, id: &str) -> bool {
+    /// Cancels a request of this window. Another window's request is left alone.
+    fn cancel(&self, id: &str, window: &str) -> bool {
         let Ok(requests) = self.requests.lock() else { return false };
-        requests.get(id).map(|cancel| cancel.store(true, Ordering::SeqCst)).is_some()
+        requests.get(id).filter(|request| request.window == window).map(|request| request.cancel.store(true, Ordering::SeqCst)).is_some()
+    }
+    /// Cancels every request of a window that is gone, so no stream keeps running for nobody. Returns how many.
+    pub fn cancel_window(&self, window: &str) -> usize {
+        let Ok(requests) = self.requests.lock() else { return 0 };
+        requests.values().filter(|request| request.window == window).map(|request| request.cancel.store(true, Ordering::SeqCst)).count()
     }
 }
 
@@ -358,6 +379,17 @@ struct ChatCall {
     key: Option<String>,
     messages: Vec<ChatMessage>,
     temperature: Option<f32>,
+    /// The live HTTP thread count this call's thread is counted in.
+    threads: Arc<AtomicUsize>,
+}
+
+/// Counts a thread as live from its creation until it is dropped at the end of the thread.
+struct LiveThread(Arc<AtomicUsize>);
+impl LiveThread {
+    fn new(count: Arc<AtomicUsize>) -> Self { count.fetch_add(1, Ordering::SeqCst); Self(count) }
+}
+impl Drop for LiveThread {
+    fn drop(&mut self) { self.0.fetch_sub(1, Ordering::SeqCst); }
 }
 
 fn valid_request_id(id: &str) -> bool { (1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') }
@@ -500,7 +532,9 @@ fn stream_chat(call: ChatCall, timing: Timing, cancel: &AtomicBool, sink: &mut d
     let stop = Arc::new(AtomicBool::new(false));
     let _stop_on_return = StopOnDrop(stop.clone());
     let (sender, receiver) = mpsc::sync_channel::<Wire>(32);
+    let live = LiveThread::new(call.threads.clone());
     std::thread::Builder::new().name("mino-ai-http".into()).spawn(move || {
+        let _live = live;
         let last = match http_worker(&endpoint, loopback, key.as_deref(), &body, timing, &stop, &sender) { Ok(()) => Wire::End, Err(code) => Wire::Fail(code) };
         let _ = sender.send(last);
     }).map_err(|_| "AI_NETWORK")?;
@@ -589,8 +623,8 @@ fn list_models(config: &AiConfig, secrets: &dyn SecretStore, timing: Timing) -> 
 fn run_chat(config: &AiConfig, state: &AiState, ticket: &Ticket, request: ChatRequest, timing: Timing, sink: &mut dyn FnMut(&str)) -> Result<(), String> {
     if !valid_shape(&request) { return Err("AI_INVALID_REQUEST".into()); }
     let key = check_gates(config, state.secrets.as_ref(), &request.messages)?;
-    if state.active() > MAX_CONCURRENT { return Err("AI_BUSY".into()); }
-    let call = ChatCall { base_url: config.base_url.clone(), model: config.model.clone(), key, messages: request.messages, temperature: request.temperature };
+    if state.active() > MAX_CONCURRENT || state.http_threads.load(Ordering::SeqCst) >= MAX_CONCURRENT { return Err("AI_BUSY".into()); }
+    let call = ChatCall { base_url: config.base_url.clone(), model: config.model.clone(), key, messages: request.messages, temperature: request.temperature, threads: state.http_threads.clone() };
     stream_chat(call, timing, &ticket.cancel, sink)
 }
 
@@ -641,7 +675,7 @@ fn chat_blocking(app: &AppHandle, label: &str, request: serde_json::Value) -> Re
     let request: ChatRequest = serde_json::from_value(request).map_err(|_| "AI_INVALID_REQUEST")?;
     if !valid_request_id(&request.request_id) { return Err("AI_INVALID_REQUEST".into()); }
     let state = app.state::<AiState>();
-    let ticket = state.begin(&request.request_id)?;
+    let ticket = state.begin(&request.request_id, label)?;
     let id = request.request_id.clone();
     let result = path(app).and_then(|file| {
         let config = read_at(&file);
@@ -670,7 +704,7 @@ pub async fn ai_chat(app: AppHandle, window: WebviewWindow, request: serde_json:
 #[tauri::command(async)]
 pub fn ai_cancel(window: WebviewWindow, state: tauri::State<AiState>, request_id: String) -> Result<(), String> {
     crate::require_workspace_window(&window)?;
-    state.cancel(&request_id);
+    state.cancel(&request_id, window.label());
     Ok(())
 }
 
@@ -724,7 +758,7 @@ mod tests {
     fn delta(text: &str) -> String { format!("data: {}\n\n", serde_json::json!({ "id": "c1", "choices": [{ "index": 0, "delta": { "content": text } }] })) }
     fn message(role: &str, content: &str) -> ChatMessage { ChatMessage { role: role.into(), content: content.into() } }
     fn call(base_url: &str, key: Option<&str>) -> ChatCall {
-        ChatCall { base_url: base_url.into(), model: "deepseek-chat".into(), key: key.map(str::to_owned), messages: vec![message("system", "简洁回答"), message("user", "你好")], temperature: None }
+        ChatCall { base_url: base_url.into(), model: "deepseek-chat".into(), key: key.map(str::to_owned), messages: vec![message("system", "简洁回答"), message("user", "你好")], temperature: None, threads: Arc::default() }
     }
     fn collect(call: ChatCall, timing: Timing, cancel: &AtomicBool) -> (Result<(), String>, Vec<String>) {
         let mut deltas = Vec::new();
@@ -738,13 +772,13 @@ mod tests {
         fs::canonicalize(dir).unwrap()
     }
     fn patch(current: &AiConfig, value: serde_json::Value) -> Result<AiConfig, String> { apply_patch(current, value) }
-    fn memory_state() -> AiState { AiState { secrets: Box::new(MemoryStore::default()), requests: Mutex::new(HashMap::new()) } }
+    fn memory_state() -> AiState { AiState { secrets: Box::new(MemoryStore::default()), requests: Mutex::new(HashMap::new()), http_threads: Arc::default() } }
     fn ready_config(base_url: &str) -> AiConfig {
         AiConfig { schema_version: 1, enabled: true, consented: true, provider: "custom".into(), base_url: base_url.into(), model: "local-model".into(), providers: BTreeMap::new() }
     }
     fn request(messages: Vec<ChatMessage>) -> ChatRequest { ChatRequest { request_id: "r1".into(), messages, temperature: None } }
     fn run(config: &AiConfig, state: &AiState, request: ChatRequest) -> (Result<(), String>, String) {
-        let ticket = state.begin(&request.request_id).unwrap();
+        let ticket = state.begin(&request.request_id, "main").unwrap();
         let mut text = String::new();
         let result = run_chat(config, state, &ticket, request, FAST, &mut |delta| text.push_str(delta));
         (result, text)
@@ -1003,20 +1037,32 @@ mod tests {
     #[test]
     fn requests_are_tracked_cancelled_capped_and_released() {
         let state = memory_state();
-        let first = state.begin("a").unwrap();
-        assert_eq!(state.begin("a").err(), Some("AI_INVALID_REQUEST".into()));
-        assert!(state.cancel("a"));
+        let first = state.begin("a", "main").unwrap();
+        assert_eq!(state.begin("a", "main").err(), Some("AI_INVALID_REQUEST".into()));
+        // Another window cannot cancel it.
+        assert!(!state.cancel("a", "workspace-2"));
+        assert!(!first.cancel.load(Ordering::SeqCst));
+        assert!(state.cancel("a", "main"));
         assert!(first.cancel.load(Ordering::SeqCst));
-        assert!(!state.cancel("missing"));
+        assert!(!state.cancel("missing", "main"));
         drop(first);
         assert_eq!(state.active(), 0);
-        assert!(!state.cancel("a"));
+        assert!(!state.cancel("a", "main"));
+
+        // A window that is destroyed cancels its own requests and no others.
+        let mine = [state.begin("w1", "workspace-3").unwrap(), state.begin("w2", "workspace-3").unwrap()];
+        let other = state.begin("w3", "main").unwrap();
+        assert_eq!(state.cancel_window("workspace-3"), 2);
+        assert!(mine.iter().all(|ticket| ticket.cancel.load(Ordering::SeqCst)));
+        assert!(!other.cancel.load(Ordering::SeqCst));
+        drop(mine);
+        drop(other);
 
         // Four requests may run. A fifth is refused once it has passed the other gates.
         state.secrets.set("custom", SECRET).unwrap();
         let config = ready_config("https://api.example.com/v1");
-        let running: Vec<_> = ["r1", "r2", "r3", "r4"].iter().map(|id| state.begin(id).unwrap()).collect();
-        let fifth = state.begin("r5").unwrap();
+        let running: Vec<_> = ["r1", "r2", "r3", "r4"].iter().map(|id| state.begin(id, "main").unwrap()).collect();
+        let fifth = state.begin("r5", "main").unwrap();
         assert_eq!(run_chat(&config, &state, &fifth, ChatRequest { request_id: "r5".into(), messages: vec![message("user", "hi")], temperature: None }, FAST, &mut |_| {}), Err("AI_BUSY".into()));
         let mut disabled = config.clone();
         disabled.enabled = false;
@@ -1024,6 +1070,14 @@ mod tests {
         drop(fifth);
         drop(running);
         assert_eq!(state.active(), 0);
+
+        // HTTP threads of cancelled requests that have not ended yet count too.
+        let lingering: Vec<_> = (0..MAX_CONCURRENT).map(|_| LiveThread::new(state.http_threads.clone())).collect();
+        let next = state.begin("r6", "main").unwrap();
+        assert_eq!(run_chat(&config, &state, &next, ChatRequest { request_id: "r6".into(), messages: vec![message("user", "hi")], temperature: None }, FAST, &mut |_| {}), Err("AI_BUSY".into()));
+        drop(lingering);
+        assert_eq!(state.http_threads.load(Ordering::SeqCst), 0);
+        drop(next);
 
         for id in ["a", "A-b_9", &"x".repeat(64)] { assert!(valid_request_id(id), "{id}"); }
         for id in ["", "a b", "a.b", "请求", &"x".repeat(65)] { assert!(!valid_request_id(id), "{id}"); }
@@ -1106,6 +1160,20 @@ mod tests {
         assert_eq!((both.base_url.as_str(), both.model.as_str()), ("http://localhost:8080/v1", "local"));
         let consent = patch(&defaults, serde_json::json!({ "enabled": true, "consented": true })).unwrap();
         assert_eq!(consent, AiConfig { enabled: true, consented: true, ..defaults.clone() });
+        // Consent stays while requests go to the same origin, and is withdrawn when they would go elsewhere.
+        assert!(patch(&consent, serde_json::json!({ "model": "deepseek-reasoner" })).unwrap().consented);
+        assert!(patch(&consent, serde_json::json!({ "baseUrl": "https://api.deepseek.com/beta/" })).unwrap().consented);
+        assert!(patch(&consent, serde_json::json!({ "baseUrl": "https://API.deepseek.com:443/v1" })).unwrap().consented);
+        for moved in [serde_json::json!({ "baseUrl": "https://evil.example/v1" }), serde_json::json!({ "baseUrl": "https://api.deepseek.com:8443/v1" }), serde_json::json!({ "provider": "openai" }), serde_json::json!({ "provider": "custom", "baseUrl": "http://127.0.0.1:11434/v1" })] {
+            let next = patch(&consent, moved.clone()).unwrap();
+            assert!(next.enabled && !next.consented, "{moved}");
+            // Without consent nothing is sent, the key included.
+            let state = memory_state();
+            state.secrets.set(&next.provider, SECRET).unwrap();
+            assert_eq!(check_access(&next, state.secrets.as_ref()), Err("AI_NO_CONSENT".into()), "{moved}");
+        }
+        // Consent given in the same patch is for the new address.
+        assert!(patch(&consent, serde_json::json!({ "baseUrl": "https://other.example/v1", "consented": true })).unwrap().consented);
 
         // Each provider comes back as it was left: DeepSeek → OpenAI → DeepSeek → OpenAI.
         let memory = |base_url: &str, model: &str| ProviderMemory { base_url: base_url.into(), model: model.into() };
@@ -1155,7 +1223,8 @@ mod tests {
         assert_eq!(deepseek.model, "deepseek-chat");
         assert_eq!(read_at(&file), deepseek);
         let stored: serde_json::Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
-        assert_eq!(stored, serde_json::json!({ "schemaVersion": 1, "enabled": true, "consented": true, "provider": "deepseek", "baseUrl": "https://api.deepseek.com/v1", "model": "deepseek-chat", "providers": { "openai": { "baseUrl": "https://api.openai.com/v1", "model": "gpt-4o" } } }));
+        // Requests now go to another service, so consent has to be given again.
+        assert_eq!(stored, serde_json::json!({ "schemaVersion": 1, "enabled": true, "consented": false, "provider": "deepseek", "baseUrl": "https://api.deepseek.com/v1", "model": "deepseek-chat", "providers": { "openai": { "baseUrl": "https://api.openai.com/v1", "model": "gpt-4o" } } }));
         assert_eq!(update_at(&file, serde_json::json!({ "provider": "openai" })).unwrap().model, "gpt-4o");
         // With every provider back on its defaults the field is not written at all.
         update_at(&file, serde_json::json!({ "model": "gpt-4o-mini" })).unwrap();

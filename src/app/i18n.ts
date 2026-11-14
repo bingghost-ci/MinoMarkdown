@@ -215,11 +215,20 @@ const english: Record<string, string> = {
   '撤销': 'Undo', '重做': 'Redo',
   '输入验证': 'Input Test', 'F01 标题与文字': 'F01 Headings and Text', 'F02 列表与引用': 'F02 Lists and Quotes',
   'F03 代码与转义': 'F03 Code and Escaping', 'F04 链接与图片': 'F04 Links and Images', 'F05 表格': 'F05 Tables',
+  // Templates for `translateWith`: `{name}` and the like are filled in after translating.
+  '关闭 {name}': 'Close {name}',
+  '将“{name}”移到废纸篓？': 'Move “{name}” to the Trash?',
+  '将文件夹“{name}”及其中的所有内容移到废纸篓？': 'Move the folder “{name}” and everything in it to the Trash?',
+  '将“{name}”移到废纸篓？未保存的修改会一并丢弃。': 'Move “{name}” to the Trash? Its unsaved changes will be discarded.',
+  '内容里有原编码无法表示的字符。\n要把这个文件改存为 UTF-8 吗？': 'Some characters cannot be written in this file\'s encoding.\nSave the file as UTF-8 instead?',
+  '内容里有原编码（{encoding}）无法表示的字符。\n要把这个文件改存为 UTF-8 吗？': 'Some characters cannot be written in this file\'s encoding ({encoding}).\nSave the file as UTF-8 instead?',
+  // Names suggested for a new file or folder in the sidebar.
+  '新文档.md': 'New Document.md', '新目录': 'New Folder',
 }
 
 const statusEnglish: [string, string][] = [
   ['已关闭全部文件夹', 'All folders closed'], ['同名文件已存在，请换一个名字。', 'A file with that name already exists. Choose another name.'], ['保存失败，请重试。', 'Could not save. Try again.'], ['已关闭文件夹 ', 'Closed folder '], [' · 阅读模式，按 ⌘⇧R 开始编辑', ' · Reading mode. Press ⌘⇧R to edit.'], [' · 大文档快速阅读，按 ⌘⇧R 开始编辑', ' · Large document, quick reading. Press ⌘⇧R to edit.'], ['正在准备编辑器，大文档需要一些时间…', 'Preparing the editor. A large document takes a while…'], ['无法准备编辑器，文档保持源码模式', 'The editor could not be prepared; the document stays in source mode'], ['阅读模式 · 按 ⌘⇧R 开始编辑', 'Reading mode · Press ⌘⇧R to edit'], ['编辑模式', 'Editing mode'], ['阅读模式下不能修改文档', 'The document cannot be changed in reading mode'],
-  ['当前操作尚未完成，请稍后再试', 'Another action is still running. Try again shortly.'], ['正在保存，完成后会再保存一次', 'Saving. It will save once more when finished.'],
+  ['当前操作尚未完成，请稍后再试', 'Another action is still running. Try again shortly.'], ['编辑器尚未就绪，请稍后再保存', 'The editor is not ready yet. Save again in a moment.'], ['编辑器尚未就绪，操作已取消，内容没有改变', 'The editor is not ready yet. Nothing was done and the content is unchanged.'], ['正在保存，完成后会再保存一次', 'Saving. It will save once more when finished.'],
   ['正在打开文档…', 'Opening document…'], ['正在打开 ', 'Opening '], ['草稿保存失败：', 'Draft could not be saved: '], ['保存失败：', 'Save failed: '], ['无法加载磁盘版本：', 'Could not load the disk version: '],
   ['已加载磁盘最新版本；未保存修改已留在恢复草稿中', 'Loaded the disk version. Your unsaved changes are kept as a recovery draft.'], ['已加载磁盘最新版本', 'Loaded the disk version'],
   ['已取消另存，当前内容仍在编辑器中', 'Save As canceled. Your text is still in the editor.'], ['已另存副本 ', 'Saved a copy as '], ['；可继续选择使用磁盘版本', '. You can still use the disk version.'],
@@ -242,7 +251,7 @@ const statusEnglish: [string, string][] = [
   ['源码保护模式不能直接插入图片', 'Images cannot be inserted directly in source protection mode'],
   ['macOS 未提供拖入文件路径，请从 Finder 拖入本地 Markdown 文件', 'macOS did not provide a file path. Drag a local Markdown file from Finder.'],
   ['已新建 ', 'Created '], ['已重命名为 ', 'Renamed to '], ['移到废纸篓？', ' to the Trash?'],
-  ['已移到废纸篓：', 'Moved to Trash: '], ['已拷贝文件路径', 'Copied the file path'], ['已拷贝 ', 'Copied '], [' 个字符', ' characters'], ['已拷贝', 'Copied'], ['请先完成当前中文输入，再保存', 'Finish the current text input before saving'],
+  ['；标签页未能关闭', '; its tab could not be closed'], ['已移到废纸篓：', 'Moved to Trash: '], ['已拷贝文件路径', 'Copied the file path'], ['已拷贝 ', 'Copied '], [' 个字符', ' characters'], ['已拷贝', 'Copied'], ['请先完成当前中文输入，再保存', 'Finish the current text input before saving'],
   ['内容未修改，磁盘文件无需重写', 'No changes to save'], ['已取消保存，当前内容仍在编辑器中', 'Save canceled. Your edits remain in the editor.'],
   ['；草稿清理失败：', '; failed to clear draft: '], ['已保存 ', 'Saved '], ['；保存期间的新修改仍未保存', '; new edits made during saving remain unsaved'],
   ['已导出 ', 'Exported '], ['已取消 HTML 导出，当前文档未改变', 'HTML export canceled. The document was not changed.'],
@@ -290,6 +299,7 @@ const statusEnglish: [string, string][] = [
   ["内容里有原编码无法表示的字符，文件没有写入。", "The text has characters its original encoding cannot represent. The file was not written."],
   ["PDF 只能阅读，不能保存或导出。", "A PDF can only be read; it cannot be saved or exported."],
   ["磁盘上的文件已经变化，正在重新载入。", "The file changed on disk. Reloading."],
+  ["文件在操作期间被移动或改名，请稍后重试。", "The file was moved or renamed during the operation. Try again in a moment."],
   ["文件超过大小上限（PDF 200 MiB，其他 20 MiB），未截断或修改原文件。请在 Finder 中选择其他应用打开。", "The file exceeds the size limit (200 MiB for PDF, 20 MiB otherwise). It was not changed; open it in another app from Finder."],
   ["PDF 只能阅读", "A PDF can only be read"],
   ["这类文档不能插入图片", "Images cannot be inserted into this kind of document"],
@@ -323,6 +333,11 @@ const statusEnglish: [string, string][] = [
 
 export function translate(text: string, language: Language): string {
   return language === 'en-US' ? english[text] ?? text : text
+}
+
+/** Translates a template such as `关闭 {name}` and then fills in its `{…}` placeholders. */
+export function translateWith(template: string, language: Language, values: Record<string, string>): string {
+  return translate(template, language).replace(/\{(\w+)\}/g, (whole, key: string) => values[key] ?? whole)
 }
 
 export function translateStatus(text: string, language: Language): string {

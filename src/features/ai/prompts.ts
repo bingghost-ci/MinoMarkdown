@@ -2,6 +2,10 @@
  * Prompt building for the optional AI assistant (T71–T73). Everything here is pure: the workspace hook
  * sends the resulting messages to Rust, which is the only place that talks to the network.
  */
+import remarkGfm from 'remark-gfm'
+import remarkParse from 'remark-parse'
+import { unified } from 'unified'
+
 export type ChatRole = 'system' | 'user' | 'assistant'
 export type ChatMessage = { role: ChatRole; content: string }
 export type AiLanguage = 'zh-CN' | 'en-US'
@@ -184,15 +188,69 @@ export function parseSuggestions(reply: string, count = 3): string[] {
  * is opened.
  */
 export function insertableMarkdown(answer: string): string {
-  // Code keeps its text exactly: fenced blocks and inline code are the odd-numbered pieces of the split.
-  const pieces = answer.split(/(^(?:```|~~~)[^\n]*\n[\s\S]*?^(?:```|~~~)[^\n]*$|`[^`\n]+`)/m)
-  return pieces.map((piece, index) => index % 2 === 1 ? piece : piece
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-    // Autolinks such as <https://example.com> are Markdown, not HTML.
-    .replace(/<\/?[A-Za-z][^>\n]*>/g, (tag) => /^<(?:https?:\/\/|mailto:)[^\s>]+>$/i.test(tag) ? tag : ''))
-    .join('')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  // Removing a tag can join text into a new image or tag (`<div>![a](u)</div>`), so passes repeat until
+  // nothing changes. Each pass removes at least one node, so a handful is enough for any real answer.
+  let text = answer
+  for (let pass = 0; pass < 8; pass++) {
+    const next = insertablePass(text)
+    if (next === text) return tidy(text)
+    text = next
+  }
+  // Still changing: neutralize what is left rather than insert it.
+  return tidy(text.replaceAll('<', '&lt;').replaceAll('![', '!\\['))
+}
+
+function tidy(text: string): string {
+  return text.replace(/\n{3,}/g, '\n\n').trim()
+}
+
+type MdNode = { type: string; alt?: string | null; identifier?: string; value?: string; position?: { start: { offset?: number }; end: { offset?: number } }; children?: MdNode[] }
+
+/** Alt text written back as Markdown text: characters that could start an image, link or tag are escaped. */
+function escapeAlt(alt: string): string {
+  return alt.replace(/[\\[\]!<>`]/g, '\\$&')
+}
+
+/** Raw HTML reduced to its text: scripts and styles go with their content, comments and tags go. */
+function htmlText(html: string): string {
+  return html
+    .replace(/<(script|style|textarea|title)\b[\s\S]*?<\/\1\s*>/gi, '')
+    .replace(/<!--[\s\S]*?(?:-->|$)|<\?[\s\S]*?(?:\?>|$)|<![\s\S]*?(?:>|$)|<\/?[A-Za-z][^>]*(?:>|$)/g, '')
+}
+
+/** One pass over the parsed answer: images and image references become their alt text, raw HTML its text. */
+function insertablePass(markdown: string): string {
+  const tree = unified().use(remarkParse).use(remarkGfm).parse(markdown) as unknown as MdNode
+  const edits: { start: number; end: number; value: string }[] = []
+  const imageReferences = new Set<string>()
+  const linkReferences = new Set<string>()
+  const definitions: MdNode[] = []
+  const span = (node: MdNode, value: string) => {
+    const start = node.position?.start.offset, end = node.position?.end.offset
+    if (start !== undefined && end !== undefined) edits.push({ start, end, value })
+  }
+  const walk = (node: MdNode) => {
+    if (node.type === 'image') span(node, escapeAlt(node.alt ?? ''))
+    else if (node.type === 'imageReference') { span(node, escapeAlt(node.alt ?? '')); if (node.identifier) imageReferences.add(node.identifier.toLowerCase()) }
+    else if (node.type === 'html') span(node, htmlText(node.value ?? ''))
+    else if (node.type === 'linkReference' && node.identifier) linkReferences.add(node.identifier.toLowerCase())
+    else if (node.type === 'definition') definitions.push(node)
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(tree)
+  // A definition that only images used would be a dangling remote address in the document.
+  for (const definition of definitions) {
+    const id = definition.identifier?.toLowerCase()
+    if (id && imageReferences.has(id) && !linkReferences.has(id)) span(definition, '')
+  }
+  let output = markdown
+  let limit = Infinity
+  for (const edit of edits.sort((a, b) => b.start - a.start)) {
+    if (edit.end > limit) continue
+    output = output.slice(0, edit.start) + edit.value + output.slice(edit.end)
+    limit = edit.start
+  }
+  return output
 }
 
 /** Messages for errors reported by the `ai_*` commands. */

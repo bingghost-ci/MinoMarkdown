@@ -33,10 +33,30 @@ fn focused_workspace(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
         .or_else(|| app.webview_windows().into_values().find(|window| is_workspace_window(window.label())))
 }
 
+/// Whether a webview may load this URL as a page or a frame: only the app's own entry page (the bundled one, or
+/// Vite's in a development build) and empty frames. A link that escaped the frontend's own handling, a remote
+/// page, and any other page of the app's origin (a relative link such as `notes.md` resolves there) are refused.
+fn navigation_allowed(url: &tauri::Url, development: bool) -> bool {
+    let entry = matches!(url.path(), "/" | "/index.html");
+    match url.scheme() {
+        "tauri" => url.host_str() == Some("localhost") && entry,
+        "http" if development => url.host_str() == Some("127.0.0.1") && url.port() == Some(1420) && entry,
+        "about" => matches!(url.path(), "blank" | "srcdoc"),
+        _ => false,
+    }
+}
+
+fn navigation_guard() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("mino-navigation")
+        .on_navigation(|_webview, url| navigation_allowed(url, cfg!(debug_assertions)))
+        .build()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(navigation_guard())
         .register_asynchronous_uri_scheme_protocol("mino-asset", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             let label = ctx.webview_label().to_owned();
@@ -170,14 +190,22 @@ pub fn run() {
                 }
             } else if event.id().as_ref() == "new-window" {
                 let _ = windows::create(app, &app.state::<windows::TransferStore>(), None);
+            } else if let Some(rest) = event.id().as_ref().strip_prefix(context_menu::PREFIX) {
+                // A right-click menu item never runs as the main-menu item of the same name (T105), and it goes
+                // to the window that showed the menu, which need not be the focused one.
+                if let Some((label, id)) = context_menu::target(rest) {
+                    if app.get_webview_window(label).is_some() { context_menu::chosen(app, label, id); }
+                }
             } else if let Some(window) = focused_workspace(app) {
-                // A right-click menu item never runs as the main-menu item of the same name (T105).
-                if let Some(id) = event.id().as_ref().strip_prefix(context_menu::PREFIX) { context_menu::chosen(app, window.label(), id); return; }
                 let _ = app.emit_to(window.label(), "menu-action", event.id().as_ref());
             }
         })
         .on_window_event(|window, event| {
             if !is_workspace_window(window.label()) { return; }
+            if let tauri::WindowEvent::Destroyed = event {
+                // A stream for a window that is gone would run to its end for nobody.
+                window.app_handle().state::<ai::AiState>().cancel_window(window.label());
+            }
             if let tauri::WindowEvent::Focused(true) = event {
                 if let Ok(mut active) = window.app_handle().state::<windows::ActiveWindow>().0.lock() { *active = window.label().into(); }
             }
@@ -275,4 +303,24 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::navigation_allowed;
+
+    #[test]
+    fn webviews_only_load_the_entry_page_of_the_app() {
+        let url = |raw: &str| tauri::Url::parse(raw).unwrap();
+        for ok in ["tauri://localhost/", "tauri://localhost/index.html", "tauri://localhost/index.html?ui-preview=editor#x", "about:blank", "about:srcdoc"] {
+            assert!(navigation_allowed(&url(ok), false), "{ok}");
+        }
+        assert!(navigation_allowed(&url("http://127.0.0.1:1420/"), true));
+        assert!(navigation_allowed(&url("http://127.0.0.1:1420/index.html?ui-file=a.md"), true));
+        for bad in ["http://127.0.0.1:1420/", "https://example.com/", "http://example.com/index.html", "tauri://localhost/notes.md", "tauri://localhost/assets/x.html", "tauri://evil/index.html",
+            "file:///etc/passwd", "mino-asset://localhost/x", "data:text/html,hi", "blob:tauri://localhost/1", "javascript:alert(1)", "ipc://localhost/cmd"] {
+            assert!(!navigation_allowed(&url(bad), false), "{bad}");
+        }
+        for bad in ["http://127.0.0.1:1421/", "http://localhost:1420/notes.md", "http://127.0.0.1:1420/docs/a.md"] { assert!(!navigation_allowed(&url(bad), true), "{bad}"); }
+    }
 }

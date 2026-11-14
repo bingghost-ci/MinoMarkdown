@@ -227,9 +227,17 @@ export function useAiAssistant(input: AiAssistantInput) {
     if (state.requestId && client) await client.cancel(state.requestId)
   }
 
+  /** Empties the conversation of the document in front; a request still running for another document goes on. */
   function clear() {
-    void stop()
+    if (running.current?.documentId === documentId) void stop()
     setConversations((current) => { const next = new Map(current); next.delete(documentId); return next })
+  }
+
+  /** Drops what is kept for a document that has left the window, and stops a request still running for it. */
+  function forget(forDocument: number) {
+    if (running.current?.documentId === forDocument) void stop()
+    setConversations((current) => { if (!current.has(forDocument)) return current; const next = new Map(current); next.delete(forDocument); return next })
+    setSuggested((current) => { if (!current.has(forDocument)) return current; const next = new Map(current); next.delete(forDocument); return next })
   }
 
   /** Puts an answer into the document; the editor applies it as one undoable change. */
@@ -321,7 +329,7 @@ export function useAiAssistant(input: AiAssistantInput) {
 
   // Heading-based questions are only worked out while the empty drawer shows them.
   const suggestions = !open || turns.length > 0 ? [] : suggested.get(documentId) ?? localSuggestions(input.getHeadings(), input.language)
-  return { stream, saveNote, available: transport !== null, config, open, setOpen, toggleOpen, consentOpen, setConsentOpen, confirmConsent, setEnabled, saveConfig, setKey, clearKey, pickModel, fetchModels, fetchedModels: listed?.source === modelSource ? listed.ids : null, modelsBusy, modelsError: modelsFailure?.source === modelSource ? modelsFailure.text : null, turns, busy, ask, runPreset, runSelection, stop, clear, insertAnswer, suggestions, refreshSuggestions, canReplace: answerReplacesSelection }
+  return { stream, saveNote, available: transport !== null, config, open, setOpen, toggleOpen, consentOpen, setConsentOpen, confirmConsent, setEnabled, saveConfig, setKey, clearKey, pickModel, fetchModels, fetchedModels: listed?.source === modelSource ? listed.ids : null, modelsBusy, modelsError: modelsFailure?.source === modelSource ? modelsFailure.text : null, turns, busy, ask, runPreset, runSelection, stop, clear, forget, insertAnswer, suggestions, refreshSuggestions, canReplace: answerReplacesSelection }
 }
 
 export type AiAssistant = ReturnType<typeof useAiAssistant>

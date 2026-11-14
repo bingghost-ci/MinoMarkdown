@@ -13,15 +13,26 @@ export const FIND_DECORATION_LIMIT = 2000
 type FindState = { query: string; options: FindOptions; matches: FindMatch[]; index: number; /** The first highlighted match. */ first: number; decorations: DecorationSet }
 type FindMeta = { query?: string; index?: number; options?: FindOptions }
 
-/** Matches inside each text block; inline atoms occupy one placeholder character. */
+/**
+ * Matches inside each run of text between inline nodes such as images, formulas and line breaks. A pattern
+ * like `.` or `[^,]+` never spans one of those nodes, so replacing a match cannot delete it.
+ */
 export function findInDoc(doc: ProseNode, query: string, options: FindOptions = defaultFindOptions): FindMatch[] {
   if (!query) return []
   const matches: FindMatch[] = []
   doc.descendants((node, position) => {
     if (!node.isTextblock) return true
     let text = ''
-    node.forEach((child) => { text += child.isText ? child.text ?? '' : '￼'.repeat(child.nodeSize) })
-    for (const { from, to, captures } of findInText(text, query, options)) matches.push({ from: position + 1 + from, to: position + 1 + to, ...(captures ? { captures } : {}) })
+    let start = position + 1
+    const flush = () => {
+      if (text) for (const { from, to, captures } of findInText(text, query, options)) matches.push({ from: start + from, to: start + to, ...(captures ? { captures } : {}) })
+      text = ''
+    }
+    node.forEach((child, offset) => {
+      if (child.isText) { if (!text) start = position + 1 + offset; text += child.text ?? ''; return }
+      flush()
+    })
+    flush()
     return false
   })
   return matches

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { mayContainMermaid, mermaidSources } from '../src/core/markdown/diagrams'
 import { analyzeMarkdown } from '../src/core/markdown/compatibility'
 import { renderExport } from '../src/features/export/renderHtml'
-import { renderMermaidPreview, sanitizeDiagramSvg } from '../src/features/diagrams/mermaid'
+import { localOnlyCss, renderMermaidPreview, sanitizeDiagramSvg } from '../src/features/diagrams/mermaid'
 
 const fence = (code: string) => `# 图\n\n\`\`\`mermaid\n${code}\n\`\`\`\n`
 
@@ -32,6 +32,26 @@ describe('sanitizing a diagram', () => {
     expect(svg).toContain('<rect')
     expect(svg).toContain('fill: red')
     expect(svg).toContain('href="#marker"')
+  })
+
+  // What could still make a request: a url() that is not a fragment, an image function, an import.
+  const fetchable = /url\((?!\s*["']?#)|image-set\s*\(|@import|\\/i
+
+  it('removes remote CSS spelled with escapes, image functions or tricky quoting (review finding 4)', () => {
+    for (const css of ['background:\\75rl(https://evil.test/x)', '@\\69mport "https://evil.test/a.css";', 'background-image:image-set("https://evil.test/x" 1x)', 'background:-webkit-image-set("https://evil.test/x" 1x)', 'background:url("#x)")url(https://evil.test/y)', 'background:url("data:x"),url("https://evil.test/x")', 'background:url(https://evil.test/x', 'background:URL( \'https://evil.test/x\' )']) {
+      expect(localOnlyCss(css), css).not.toMatch(fetchable)
+    }
+    expect(localOnlyCss('marker-end:url(#arrow);fill:red')).toBe('marker-end:url(#arrow);fill:red')
+    expect(localOnlyCss("filter:url('#glow')")).toBe("filter:url('#glow')")
+  })
+
+  it('removes remote references from presentation attributes and style text', () => {
+    const svg = sanitizeDiagramSvg('<svg xmlns="http://www.w3.org/2000/svg"><style>.a{fill:\\75rl(https://evil.test/s)}</style><rect fill="url(https://evil.test/a.svg#g)" filter="url(#glow)" mask="url(\'https://evil.test/m\')" width="1" height="1"/><path style="stroke:red;background:image-set(&quot;https://evil.test/i&quot; 1x)" marker-end="url(#end)" d="M0 0"/></svg>')
+    expect(svg).not.toMatch(fetchable)
+    expect(svg).not.toMatch(/fill="[^"]*evil|mask=/)
+    expect(svg).toContain('filter="url(#glow)"')
+    expect(svg).toContain('marker-end="url(#end)"')
+    expect(svg).toContain('stroke:red')
   })
 })
 

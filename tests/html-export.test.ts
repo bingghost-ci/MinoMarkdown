@@ -48,6 +48,23 @@ describe('self-contained HTML export', () => {
     expect(html).toContain("default-src 'none'")
   })
 
+  it('embeds the definition that renders when a label is defined twice (review finding 2)', async () => {
+    const asked: string[] = []
+    const html = await renderHtml('![a][r]\n\n[r]: assets/first.png\n[R]: //tracker.example/p.png\n', 't', async (url) => {
+      asked.push(url)
+      return { mime: 'image/png', bytes: new Uint8Array([1]) }
+    })
+    expect(asked).toEqual(['assets/first.png'])
+    expect(html).toContain('src="data:image/png;base64,')
+    expect(html).not.toContain('tracker.example')
+    expect(html).not.toContain('first.png')
+  })
+
+  it('never leaves an image that refers outside the page', async () => {
+    const html = await renderHtml('![empty](<>)\n\ntext\n', 't', async () => null)
+    expect(html).not.toMatch(/<img(?![^>]*src="data:)/)
+  })
+
   it('leaves front matter out of the page body', async () => {
     const html = await renderHtml('---\ntitle: 机密元数据\n---\n# 正文\n', '文档', async () => null)
     expect(html).toContain('<h1>正文</h1>')

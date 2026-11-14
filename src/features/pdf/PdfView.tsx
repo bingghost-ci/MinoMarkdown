@@ -97,6 +97,8 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
   const search = useRef<{ matches: PdfMatch[]; index: number; pageTexts: string[] }>({ matches: [], index: 0, pageTexts: [] })
   const pendingPosition = useRef<PdfPosition | null>(null)
   const saveTimer = useRef<number | undefined>(undefined)
+  /** Counts searches, so one that finishes after a newer search (or a cleared query) is dropped. */
+  const findGeneration = useRef(0)
 
   function layout(): { tops: number[]; heights: number[] } {
     const tops: number[] = []
@@ -219,8 +221,18 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
       }
       paintMatches()
     } catch (reason) {
-      if (rendered.current.get(pageNumber) === entry) rendered.current.delete(pageNumber)
-      if (!cancelled && !(reason instanceof Error && reason.name === 'RenderingCancelledException')) { host.dataset.failed = 'true'; host.dataset.reason = String(reason instanceof Error ? `${reason.name}: ${reason.message}` : reason) }
+      const current = rendered.current.get(pageNumber) === entry
+      if (current) rendered.current.delete(pageNumber)
+      if (cancelled || (reason instanceof Error && reason.name === 'RenderingCancelledException')) return
+      host.dataset.failed = 'true'
+      host.dataset.reason = String(reason instanceof Error ? `${reason.name}: ${reason.message}` : reason)
+      // The entry is gone, so `release` can no longer reach this page: free its canvas and what it decoded now.
+      if (pending) { pending.width = 0; pending.height = 0 }
+      if (current) {
+        for (const canvas of host.querySelectorAll('canvas')) { canvas.width = 0; canvas.height = 0 }
+        host.replaceChildren()
+      }
+      try { entry.page?.cleanup() } catch { /* The document is already closing. */ }
     }
   }
 
@@ -289,7 +301,10 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
         if (disposed) { void closePdf(document).catch(() => undefined); return }
         pdf.current = document
         texts.current = new PdfTextCache(document)
-        const first = (await document.getPage(1)).getViewport({ scale: 1 })
+        const firstPage = await document.getPage(1)
+        const first = firstPage.getViewport({ scale: 1 })
+        // Only its size is needed now; it is fetched again when it is drawn.
+        try { firstPage.cleanup() } catch { /* The document is already closing. */ }
         if (disposed) return
         pendingPosition.current = await bridgeRef.current.loadPosition().catch(() => null)
         if (disposed) return
@@ -307,6 +322,7 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
     })()
     return () => {
       disposed = true
+      findGeneration.current++
       passwordReply.current?.(null)
       texts.current?.stop()
       for (const pageNumber of [...rendered.current.keys()]) release(pageNumber)
@@ -403,10 +419,12 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
       zoom: changeZoom,
       goToPage: (target) => scrollToPage(target),
       find: async (query, options) => {
+        const generation = ++findGeneration.current
         const cache = texts.current
         if (!cache || !query) { search.current = { matches: [], index: 0, pageTexts: [] }; paintMatches(); return count() }
         bridgeRef.current.onStatus(t('正在读取 PDF 文字…'))
         const pageTexts = await cache.all(Number.MAX_SAFE_INTEGER)
+        if (generation !== findGeneration.current) return count()
         const matches = searchPages(pageTexts, query, options)
         // Start from the first match at or after the page being read.
         const start = matches.findIndex((match) => match.page >= page)

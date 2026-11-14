@@ -57,6 +57,40 @@ pub fn read_canonical_parent(path: &Path, limit: u64) -> Result<Vec<u8>, String>
     read_no_follow(path, limit)
 }
 
+/// The SHA-256 of an app record of any size, read in pieces through its canonical parent and never through a
+/// link: what `replace_record` compares before replacing a record that outgrew its limit.
+pub fn revision_canonical_parent(path: &Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    #[cfg(target_os = "macos")]
+    let mut file = {
+        use std::{ffi::CString, fs::File, os::{fd::{AsRawFd, FromRawFd}, unix::ffi::OsStrExt}};
+        let parent = path.parent().ok_or("INVALID_PATH")?;
+        if fs::canonicalize(parent).map_err(|_| "IO_ERROR")? != parent { return Err("OUT_OF_SCOPE".into()); }
+        let directory = crate::fs::open_directory(parent)?;
+        let name = CString::new(path.file_name().ok_or("INVALID_PATH")?.as_bytes()).map_err(|_| "INVALID_PATH")?;
+        let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC) };
+        if fd < 0 {
+            return Err(if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound { "NOT_FOUND" } else { "OUT_OF_SCOPE" }.into());
+        }
+        unsafe { File::from_raw_fd(fd) }
+    };
+    #[cfg(not(target_os = "macos"))]
+    let mut file = {
+        let meta = fs::symlink_metadata(path).map_err(|_| "NOT_FOUND")?;
+        if meta.file_type().is_symlink() { return Err("OUT_OF_SCOPE".into()); }
+        File::open(path).map_err(|_| "IO_ERROR")?
+    };
+    if !file.metadata().map_err(|_| "IO_ERROR")?.is_file() { return Err("OUT_OF_SCOPE".into()); }
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 256 * 1024];
+    loop {
+        let count = file.read(&mut buffer).map_err(|_| "IO_ERROR")?;
+        if count == 0 { break; }
+        hasher.update(&buffer[..count]);
+    }
+    Ok(super::hex(&hasher.finalize()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

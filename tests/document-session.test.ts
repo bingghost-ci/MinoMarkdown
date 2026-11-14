@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { beginSave, createSession, editSession, externalConflict, isDirty, saveFailed, saveSucceeded } from '../src/features/document/session'
+import { beginSave, createSession, discardChanges, editSession, externalConflict, isDirty, saveFailed, saveSucceeded, withGeneration } from '../src/features/document/session'
 
 describe('document session saves', () => {
   it('keeps later edits dirty when an earlier save returns', () => {
@@ -31,5 +31,21 @@ describe('document session saves', () => {
     expect(conflict.persistence).toBe('conflict')
     expect(conflict.revision).toBe(dirty.revision)
     expect(isDirty(conflict)).toBe(true)
+  })
+
+  it('does not carry a running save into a new generation, so the next save can begin', () => {
+    const { session: saving, ticket } = beginSave(editSession(createSession(5, 'disk')))
+    const moved = withGeneration(saving, 6)
+    expect(moved).toMatchObject({ generation: 6, persistence: 'idle', revision: 1, savedRevision: 0, diskRevision: 'disk' })
+    // The old save's answer is ignored, and a new save starts instead of throwing SAVE_IN_PROGRESS.
+    expect(saveSucceeded(moved, ticket, 'disk-b')).toEqual(moved)
+    expect(() => beginSave(moved)).not.toThrow()
+    expect(withGeneration(externalConflict(moved), 7).persistence).toBe('conflict')
+  })
+
+  it('leaves nothing dirty after the user discards, so no draft is written for it again', () => {
+    const discarded = discardChanges(editSession(editSession(createSession(8))))
+    expect(isDirty(discarded)).toBe(false)
+    expect(discarded.revision).toBe(2)
   })
 })

@@ -5,10 +5,13 @@ use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::{atomic::{Atomi
 use tauri::{State, WebviewWindow};
 
 static NEXT_INTENT: AtomicU64 = AtomicU64::new(1);
+/// How long a file opened from Finder or dropped waits to be taken by its window before it is forgotten: a window
+/// that never asks (closed, or stuck) must not hold paths for the rest of the session.
+const MAX_INTENT_AGE: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind { Document, Image, Folder }
-struct Intent { path: PathBuf, kind: Kind, owner: String }
+struct Intent { path: PathBuf, kind: Kind, owner: String, at: Instant }
 #[derive(Default)]
 pub struct IntentStore { pending: Mutex<HashMap<String, Intent>>, queue: Mutex<HashMap<String, Vec<String>>>, recent_events: Mutex<HashMap<(String, PathBuf), Instant>> }
 #[derive(Serialize)]
@@ -47,9 +50,14 @@ fn enqueue(store: &IntentStore, path: PathBuf, allow_image: bool, owner: &str) -
     if recent.contains_key(&event_key) { return false }
     recent.insert(event_key, Instant::now());
     let token = format!("intent-{}", NEXT_INTENT.fetch_add(1, Ordering::Relaxed));
-    if let Ok(mut pending) = store.pending.lock() { pending.insert(token.clone(), Intent { path, kind, owner: owner.into() }); }
-    else { return false }
-    if let Ok(mut queue) = store.queue.lock() { queue.entry(owner.into()).or_default().push(token); true } else { false }
+    let Ok(mut pending) = store.pending.lock() else { return false };
+    pending.retain(|_, intent| intent.at.elapsed() < MAX_INTENT_AGE);
+    pending.insert(token.clone(), Intent { path, kind, owner: owner.into(), at: Instant::now() });
+    let Ok(mut queue) = store.queue.lock() else { return false };
+    for tokens in queue.values_mut() { tokens.retain(|token| pending.contains_key(token)); }
+    queue.retain(|_, tokens| !tokens.is_empty());
+    queue.entry(owner.into()).or_default().push(token);
+    true
 }
 pub fn enqueue_opened(store: &IntentStore, urls: &[tauri::Url], owner: &str) -> bool {
     let mut changed = false;
@@ -64,14 +72,16 @@ pub fn enqueue_dropped(store: &IntentStore, paths: &[PathBuf], owner: &str) -> b
 fn take_intent(store: &IntentStore, token: &str, owner: &str) -> Result<Intent, String> {
     let mut pending = store.pending.lock().map_err(|_| "IO_ERROR")?;
     if pending.get(token).is_none_or(|intent| intent.owner != owner) { return Err("OUT_OF_SCOPE".into()); }
-    pending.remove(token).ok_or("OUT_OF_SCOPE".into())
+    let intent = pending.remove(token).ok_or("OUT_OF_SCOPE")?;
+    if intent.at.elapsed() >= MAX_INTENT_AGE { return Err("OUT_OF_SCOPE".into()); }
+    Ok(intent)
 }
 #[tauri::command]
 pub fn take_open_intents(window: WebviewWindow, store: State<'_, IntentStore>) -> Result<Vec<IntentSummary>, String> {
     crate::require_workspace_window(&window)?;
     let tokens = store.queue.lock().map_err(|_| "IO_ERROR")?.remove(window.label()).unwrap_or_default();
     let map = store.pending.lock().map_err(|_| "IO_ERROR")?;
-    Ok(tokens.into_iter().filter_map(|token| map.get(&token).map(|intent| IntentSummary { name: intent.path.file_name().unwrap_or_default().to_string_lossy().into_owned(), kind: match intent.kind { Kind::Document => "document", Kind::Image => "image", Kind::Folder => "folder" }, token })).collect())
+    Ok(tokens.into_iter().filter_map(|token| map.get(&token).filter(|intent| intent.at.elapsed() < MAX_INTENT_AGE).map(|intent| IntentSummary { name: intent.path.file_name().unwrap_or_default().to_string_lossy().into_owned(), kind: match intent.kind { Kind::Document => "document", Kind::Image => "image", Kind::Folder => "folder" }, token })).collect())
 }
 #[tauri::command(async)]
 pub fn open_intent_workspace(window: WebviewWindow, intents: State<'_, IntentStore>, workspaces: State<'_, WorkspaceStore>, token: String) -> Result<WorkspaceRoot, String> {
@@ -143,6 +153,24 @@ mod tests {
         let token = store.queue.lock().unwrap().get("workspace-1").unwrap()[0].clone();
         assert!(take_intent(&store, &token, "main").is_err());
         assert!(take_intent(&store, &token, "workspace-1").is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn an_intent_no_window_takes_expires() {
+        let root = std::env::temp_dir().join(format!("mino-intent-age-{}", NEXT_INTENT.fetch_add(1, Ordering::Relaxed)));
+        fs::create_dir(&root).unwrap();
+        let (old, new) = (root.join("old.md"), root.join("new.md"));
+        fs::write(&old, b"old").unwrap(); fs::write(&new, b"new").unwrap();
+        let store = IntentStore::default();
+        assert!(enqueue(&store, old, false, "workspace-1"));
+        let stale = store.queue.lock().unwrap().get("workspace-1").unwrap()[0].clone();
+        let Some(long_ago) = Instant::now().checked_sub(MAX_INTENT_AGE + Duration::from_secs(1)) else { return };
+        store.pending.lock().unwrap().get_mut(&stale).unwrap().at = long_ago;
+        // The next event clears it, from the pending map and from its window's queue.
+        assert!(enqueue(&store, new, false, "main"));
+        assert!(store.pending.lock().unwrap().get(&stale).is_none());
+        assert!(store.queue.lock().unwrap().get("workspace-1").is_none());
+        assert!(take_intent(&store, &stale, "workspace-1").is_err());
         fs::remove_dir_all(root).unwrap();
     }
 }

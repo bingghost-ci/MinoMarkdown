@@ -17,7 +17,8 @@ function parse(markdown: string): Parsed {
     if (node.type === 'image') images.push(node)
     if (node.type === 'imageReference') imageReferences.push(node)
     if (node.type === 'linkReference' && node.identifier) linkReferences.add(node.identifier.toLowerCase())
-    if (node.type === 'definition' && node.identifier) definitions.set(node.identifier.toLowerCase(), node)
+    // The first definition of a label is the one that renders (CommonMark).
+    if (node.type === 'definition' && node.identifier && !definitions.has(node.identifier.toLowerCase())) definitions.set(node.identifier.toLowerCase(), node)
     for (const child of node.children ?? []) walk(child as ImageNode)
   }
   walk(tree)

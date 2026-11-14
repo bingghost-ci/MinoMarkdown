@@ -3,6 +3,20 @@ use std::fs::OpenOptions;
 use std::{ffi::OsStr, fs::{self, File}, io::{Read, Write}, path::{Path, PathBuf}};
 
 const MAX_ASSET: u64 = 20 * 1024 * 1024;
+#[cfg(target_os = "macos")]
+static NEXT_TEMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+#[cfg(target_os = "macos")]
+use std::sync::atomic::Ordering;
+
+#[cfg(test)]
+thread_local! { pub(crate) static FAIL_WRITE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+#[cfg(target_os = "macos")]
+fn fail_write() -> bool {
+    #[cfg(test)]
+    return FAIL_WRITE.with(|fail| fail.get());
+    #[cfg(not(test))]
+    false
+}
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum PutResult { Created, ExistingSame, ExistingDifferent }
@@ -99,30 +113,39 @@ impl AssetDirectory {
         if let Some(existing) = self.read(name)? {
             return Ok(if existing == bytes { PutResult::ExistingSame } else { PutResult::ExistingDifferent });
         }
+        // The bytes go to a hidden temporary file first and are linked under their name only once complete, so a
+        // failed write (a full disk) never leaves a truncated image under the name later saves would find.
         #[cfg(target_os = "macos")]
-        let file = {
-            use std::os::{fd::{AsRawFd, FromRawFd}};
+        {
+            use std::os::fd::{AsRawFd, FromRawFd};
             let entry = c_name(name)?;
-            let fd = unsafe { libc::openat(self.assets.as_raw_fd(), entry.as_ptr(), libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW, 0o644) };
-            if fd < 0 {
-                if std::io::Error::last_os_error().kind() == std::io::ErrorKind::AlreadyExists {
-                    return Ok(match self.read(name)? {
-                        Some(existing) if existing == bytes => PutResult::ExistingSame,
-                        Some(_) => PutResult::ExistingDifferent,
-                        None => return Err("ASSET_WRITE_FAILED".into()),
-                    });
-                }
-                return Err("ASSET_WRITE_FAILED".into());
+            let temp = c_name(OsStr::new(&format!(".mino-asset-{}-{}.tmp", std::process::id(), NEXT_TEMP.fetch_add(1, Ordering::Relaxed))))?;
+            let fd = unsafe { libc::openat(self.assets.as_raw_fd(), temp.as_ptr(), libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW, 0o644) };
+            if fd < 0 { return Err("ASSET_WRITE_FAILED".into()); }
+            let mut file = unsafe { File::from_raw_fd(fd) };
+            let written = if fail_write() { Err(std::io::Error::other("injected")) } else { file.write_all(bytes).and_then(|_| file.sync_all()) };
+            drop(file);
+            let linked = written.is_ok() && unsafe { libc::linkat(self.assets.as_raw_fd(), temp.as_ptr(), self.assets.as_raw_fd(), entry.as_ptr(), 0) } == 0;
+            let exists = !linked && written.is_ok() && std::io::Error::last_os_error().kind() == std::io::ErrorKind::AlreadyExists;
+            unsafe { libc::unlinkat(self.assets.as_raw_fd(), temp.as_ptr(), 0); }
+            if exists {
+                return Ok(match self.read(name)? {
+                    Some(existing) if existing == bytes => PutResult::ExistingSame,
+                    Some(_) => PutResult::ExistingDifferent,
+                    None => return Err("ASSET_WRITE_FAILED".into()),
+                });
             }
-            unsafe { File::from_raw_fd(fd) }
-        };
+            if !linked { return Err("ASSET_WRITE_FAILED".into()); }
+            self.assets.sync_all().map_err(|_| "COMMIT_UNCERTAIN")?;
+            Ok(PutResult::Created)
+        }
         #[cfg(not(target_os = "macos"))]
-        let file = OpenOptions::new().write(true).create_new(true).open(self.assets_path.join(name)).map_err(|_| "ASSET_WRITE_FAILED")?;
-        let mut file = file;
-        file.write_all(bytes).and_then(|_| file.sync_all()).map_err(|_| "ASSET_WRITE_FAILED")?;
-        #[cfg(target_os = "macos")]
-        self.assets.sync_all().map_err(|_| "COMMIT_UNCERTAIN")?;
-        Ok(PutResult::Created)
+        {
+            let path = self.assets_path.join(name);
+            let mut file = OpenOptions::new().write(true).create_new(true).open(&path).map_err(|_| "ASSET_WRITE_FAILED")?;
+            if file.write_all(bytes).and_then(|_| file.sync_all()).is_err() { let _ = fs::remove_file(&path); return Err("ASSET_WRITE_FAILED".into()); }
+            Ok(PutResult::Created)
+        }
     }
 
     /// Removes a regular file from the folder, never a link or a folder (T109: undoing a copy made for a move).
@@ -202,6 +225,22 @@ mod tests {
         fs::rename(dir.join("assets"), dir.join("real-assets")).unwrap();
         std::os::unix::fs::symlink(dir.join("real-assets"), dir.join("assets")).unwrap();
         assert_eq!(AssetDirectory::open(&dir, true).err().as_deref(), Some("OUT_OF_SCOPE"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_write_leaves_no_file_under_the_name_and_the_next_put_succeeds() {
+        let dir = sample();
+        let assets = AssetDirectory::open(&dir, true).unwrap();
+        let name = OsStr::new("image.png");
+        FAIL_WRITE.with(|fail| fail.set(true));
+        let failed = assets.put(name, b"image");
+        FAIL_WRITE.with(|fail| fail.set(false));
+        assert_eq!(failed.err().as_deref(), Some("ASSET_WRITE_FAILED"));
+        assert_eq!(fs::read_dir(dir.join("assets")).unwrap().count(), 0, "no truncated image and no temporary file");
+        assert_eq!(assets.put(name, b"image").unwrap(), PutResult::Created);
+        assert_eq!(fs::read(dir.join("assets/image.png")).unwrap(), b"image");
+        assert_eq!(fs::read_dir(dir.join("assets")).unwrap().count(), 1);
         fs::remove_dir_all(dir).unwrap();
     }
 

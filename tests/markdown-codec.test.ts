@@ -34,7 +34,8 @@ describe('Markdown codec', () => {
     const source = '**流动性螺旋（liquidity spiral）**指市场变化。\n\n`**代码）**字`\n\n\\**字面）**字'
     const prepared = prepareMarkdown(source)
     expect(prepared.analysis.mode).toBe('visual')
-    expect(prepared.editorMarkdown).toContain('**流动性螺旋（liquidity spiral）**\u2009指')
+    expect(prepared.editorMarkdown).toContain('**流动性螺旋（liquidity spiral）**\u2009\u2060指')
+    expect(composeVisualMarkdown(prepared.analysis, prepared.editorMarkdown)).toBe(source)
     expect(prepared.editorMarkdown).toContain('`**代码）**字`')
     expect(prepared.editorMarkdown).toContain('\\**字面）**字')
     const paragraph = unified().use(remarkParse).parse(prepared.editorMarkdown).children[0]

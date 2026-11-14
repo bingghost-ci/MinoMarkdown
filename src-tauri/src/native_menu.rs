@@ -192,14 +192,25 @@ pub fn enabled_for(id: &str, kind: &str) -> bool {
     }
 }
 
+/// Whether `set_document_kind` decides if this item is enabled. Items it does not build itself, such as the
+/// entries of Open Recent (enabled when their file is reachable) and its "No Recent Items", keep their state.
+pub fn follows_document_kind(id: &str) -> bool {
+    id == "format" || id == "transform" || MENU_ITEMS.iter().any(|(item, _)| *item == id)
+}
+
 /// Must run on the main thread.
 pub fn set_document_kind(app: &AppHandle, kind: &str) {
     fn apply(item: &MenuItemKind<tauri::Wry>, kind: &str) {
         match item {
-            MenuItemKind::MenuItem(item) => { let _ = item.set_enabled(enabled_for(item.id().as_ref(), kind)); }
+            MenuItemKind::MenuItem(item) => {
+                let id = item.id().as_ref().to_owned();
+                if follows_document_kind(&id) { let _ = item.set_enabled(enabled_for(&id, kind)); }
+            }
             MenuItemKind::Submenu(submenu) => {
                 let id = submenu.id().as_ref().to_owned();
-                if id == "format" || id == "transform" { let _ = submenu.set_enabled(enabled_for(&id, kind)); }
+                // Open Recent manages its own entries (`recent.rs`).
+                if id == "open-recent" { return; }
+                if follows_document_kind(&id) { let _ = submenu.set_enabled(enabled_for(&id, kind)); }
                 if let Ok(children) = submenu.items() { for child in &children { apply(child, kind); } }
             }
             _ => {}
@@ -341,6 +352,13 @@ mod tests {
             for id in ["save", "save-as", "export-pdf", "export-html", "print", "toggle-reading"] { assert!(enabled_for(id, kind), "{id} {kind}"); }
             for id in ["export-md", "export-text", "toggle-source", "format", "format-heading1", "format-link", "transform", "transform-lower"] { assert!(!enabled_for(id, kind), "{id} {kind}"); }
         }
+    }
+
+    #[test]
+    fn only_the_items_the_menu_builds_follow_the_kind_of_document() {
+        for (id, _) in MENU_ITEMS { assert!(follows_document_kind(id), "{id}"); }
+        assert!(follows_document_kind("format") && follows_document_kind("transform"));
+        for id in ["no-recent", "recent:markdown:abc", "open-recent", "ctx:copy", "", "about"] { assert!(!follows_document_kind(id), "{id}"); }
     }
 
     #[test]

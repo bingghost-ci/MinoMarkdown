@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { defaultFindOptions } from '../src/features/editor/findText'
-import { assemblePdfText, closePdf, clampScale, fitWidthScale, joinTextItems, looksScanned, MAX_CANVAS_PIXELS, MAX_SCALE, MIN_SCALE, openPdf, outputScale, pageAtOffset, pageHeading, pdfOutline, PdfTextCache, RANGE_CHUNK, resolveDestination, searchPages, zoomedScale, type PdfLibrary, type PdfSource } from '../src/features/pdf/pdfEngine'
+import { assemblePdfText, closePdf, isPdfAssetName, clampScale, fitWidthScale, joinTextItems, looksScanned, MAX_CANVAS_PIXELS, MAX_SCALE, MIN_SCALE, openPdf, outputScale, pageAtOffset, pageHeading, pdfOutline, PdfTextCache, RANGE_CHUNK, resolveDestination, searchPages, zoomedScale, type PdfLibrary, type PdfSource } from '../src/features/pdf/pdfEngine'
 
 // The same build the app loads. In Node it runs its worker code on the calling thread.
 const library = await import('pdfjs-dist/legacy/build/pdf.mjs') as unknown as PdfLibrary
@@ -138,10 +138,25 @@ describe('T87 bookmarks, search and position', () => {
     expect(text).toMatchObject({ pages: 3, textPages: 2, truncated: false, scanned: false })
     const cut = assemblePdfText(['a'.repeat(500), 'b'.repeat(500)], 2, 600)
     expect(cut.truncated).toBe(true)
-    expect(cut.text.length).toBeLessThanOrEqual(602)
+    expect(cut.text.length).toBeLessThanOrEqual(600)
     expect(cut.text).toContain(pageHeading(2))
     // Fewer pages were read than the document has: the reader is told.
     expect(assemblePdfText(['some text here on the page'], 40, 10_000).truncated).toBe(true)
+  })
+
+  it('never runs past the budget when the separator alone would overflow it (review finding 7)', () => {
+    const first = `${pageHeading(1)}\n${'a'.repeat(20)}`
+    for (const maxChars of [first.length, first.length + 1, first.length + 2, first.length + 3]) {
+      const cut = assemblePdfText(['a'.repeat(20), 'b'.repeat(50)], 2, maxChars)
+      expect(cut.text.length, String(maxChars)).toBeLessThanOrEqual(maxChars)
+      expect(cut.truncated).toBe(true)
+      expect(cut.text.endsWith('\n')).toBe(false)
+    }
+  })
+
+  it('reads only plain character map and font names', () => {
+    for (const name of ['UniGB-UCS2-H.bcmap', '78-EUC-H.bcmap', 'FoxitSerif.pfb', 'LiberationSans-Regular.ttf']) expect(isPdfAssetName(name), name).toBe(true)
+    for (const name of ['..', '.', '...', '.bcmap', 'a/b.bcmap', '../x.bcmap', 'x', 'x.', 'x..bcmap', '']) expect(isPdfAssetName(name), name).toBe(false)
   })
 
   it('tells a scan from a document with text', () => {

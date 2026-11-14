@@ -43,10 +43,12 @@ fn is_style(id: &str) -> bool { STYLE_IDS.contains(&id) }
 /// A font choice is `auto`, the ID of a bundled font, or `sys:<family>` naming a font installed on this Mac.
 /// The family name ends up in generated CSS, so the characters that could leave a quoted CSS string are refused.
 fn is_font_choice(value: &str) -> bool {
-    if let Some(name) = value.strip_prefix("sys:") {
-        return !name.is_empty() && name.chars().count() <= 100 && name.trim() == name && !name.chars().any(|c| c.is_control() || matches!(c, '"' | '\'' | '\\' | ',' | ';' | '{' | '}' | '<' | '>'))
-    }
+    if let Some(name) = value.strip_prefix("sys:") { return is_system_family_name(name); }
     !value.is_empty() && value.len() <= 32 && value.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+/// Whether a font family installed on the Mac may be chosen: `list_system_fonts` offers only names this accepts.
+pub(crate) fn is_system_family_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().count() <= 100 && name.trim() == name && !name.chars().any(|c| c.is_control() || matches!(c, '"' | '\'' | '\\' | ',' | ';' | '{' | '}' | '<' | '>'))
 }
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -96,6 +98,9 @@ fn read_at(path: &Path) -> Settings {
     if let Ok(settings) = serde_json::from_value::<Settings>(value.clone()) {
         if valid(&settings) { return settings }
     }
+    if value.get("schemaVersion").and_then(|v| v.as_u64()) == Some(1) {
+        if let Some(fields) = value.as_object() { return field_by_field(fields); }
+    }
     if value.get("schemaVersion").and_then(|v| v.as_u64()) == Some(0) {
         let mut settings = Settings::default();
         if let Some(theme) = value.get("theme").and_then(|v| v.as_str()) { if theme == "system" || is_style(theme) { settings.theme = theme.into(); settings.day_theme = legacy_day_theme(); settings.night_theme = legacy_night_theme(); settings.measure = legacy_measure(); } }
@@ -103,6 +108,24 @@ fn read_at(path: &Path) -> Settings {
         return settings;
     }
     Settings::default()
+}
+/// Reads a version 1 file that is not valid as a whole, such as one with a value a newer version wrote: every
+/// value that is valid is kept, and each one that is not falls back on its own. A field missing from the file
+/// takes the value that keeps the look of older versions, as when the whole file is valid.
+fn field_by_field(file: &serde_json::Map<String, serde_json::Value>) -> Settings {
+    let defaults = Settings::default();
+    // The fields without a serde default are taken from a new install; every other one gets its serde default.
+    let required = serde_json::json!({ "schemaVersion": 1, "theme": defaults.theme, "sidebarWidth": defaults.sidebar_width, "windowWidth": defaults.window_width, "windowHeight": defaults.window_height });
+    let Ok(base) = serde_json::from_value::<Settings>(required) else { return defaults };
+    let Ok(serde_json::Value::Object(mut fields)) = serde_json::to_value(&base) else { return defaults };
+    if !valid(&base) { return defaults; }
+    for (key, value) in file {
+        if key == "schemaVersion" || !fields.contains_key(key) { continue; }
+        let previous = fields.insert(key.clone(), value.clone());
+        let accepted = serde_json::from_value::<Settings>(serde_json::Value::Object(fields.clone())).is_ok_and(|candidate| valid(&candidate));
+        if !accepted { if let Some(previous) = previous { fields.insert(key.clone(), previous); } }
+    }
+    serde_json::from_value::<Settings>(serde_json::Value::Object(fields)).ok().filter(valid).unwrap_or(defaults)
 }
 fn write_at(path: &Path, settings: &Settings) -> Result<(), String> {
     if !valid(settings) { return Err("INVALID_SETTINGS".into()); }
@@ -263,7 +286,9 @@ mod tests {
         assert_eq!((read.sidebar_width, read.outline_width, read.ai_width), (520, 520, 640));
         for bad in [r#","outlineWidth":179"#, r#","outlineWidth":521"#, r#","aiWidth":299"#, r#","aiWidth":641"#] {
             write(bad);
-            assert_eq!(read_at(&file), Settings::default(), "{bad}");
+            // Only the value out of range falls back; the others in the file are kept.
+            let read = read_at(&file);
+            assert_eq!((read.sidebar_width, read.outline_width, read.ai_width, read.theme.as_str()), (300, 240, 400, "dark"), "{bad}");
         }
         fs::remove_dir_all(dir).unwrap();
     }
@@ -297,8 +322,33 @@ mod tests {
             assert!(valid(&read));
         }
         write(r#""theme":"neon""#);
+        let read = read_at(&file);
+        assert_eq!((read.theme.as_str(), read.sidebar_width), (Settings::default().theme.as_str(), 300));
+        fs::remove_dir_all(dir).unwrap();
+    }
+    /// A file with values this version does not know keeps everything else.
+    #[test]
+    fn unknown_values_fall_back_one_field_at_a_time() {
+        let dir = std::env::temp_dir().join(format!("mino-settings-fields-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap(); let file = dir.join("settings.json");
+        fs::write(&file, br#"{"schemaVersion":1,"theme":"paper","sidebarWidth":300,"windowWidth":1300,"windowHeight":900,"language":"en-US","diagramStyle":"future-style","cjkFont":"sys:a;b","editorFontSize":99,"autoSave":true,"futureField":1,"nightTheme":"dusk","measure":"42"}"#).unwrap();
+        let read = read_at(&file);
+        assert!(valid(&read));
+        assert_eq!((read.theme.as_str(), read.sidebar_width, read.window_width, read.window_height, read.language.as_str(), read.night_theme.as_str(), read.measure.as_str(), read.auto_save), ("paper", 300, 1300, 900, "en-US", "dusk", "42", true));
+        assert_eq!((read.diagram_style.as_str(), read.cjk_font.as_str(), read.editor_font_size), ("page", "auto", 15));
+        // A required field that is invalid falls back to a new install's value; the rest stays.
+        fs::write(&file, br#"{"schemaVersion":1,"theme":"neon","sidebarWidth":5,"windowWidth":1300,"windowHeight":900,"language":"en-US"}"#).unwrap();
+        let read = read_at(&file);
+        assert_eq!((read.theme.as_str(), read.sidebar_width, read.window_width, read.language.as_str()), ("system", 230, 1300, "en-US"));
+        // Another schema version is not guessed at.
+        fs::write(&file, br#"{"schemaVersion":2,"theme":"paper","sidebarWidth":300,"windowWidth":1300,"windowHeight":900}"#).unwrap();
         assert_eq!(read_at(&file), Settings::default());
         fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn system_family_names_follow_the_settings_rule() {
+        for good in ["PingFang SC", "方正书宋 GBK", "Avenir Next"] { assert!(is_system_family_name(good), "{good}"); assert!(is_font_choice(&format!("sys:{good}"))); }
+        for bad in ["", " Lead", "a'b", "a\"b", "a,b", "a;b", "a{b", "a<b", "a\\b", "x\ty"] { assert!(!is_system_family_name(bad), "{bad}"); }
     }
     #[cfg(unix)]
     #[test]

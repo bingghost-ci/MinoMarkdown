@@ -11,6 +11,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const engine = vi.hoisted(() => ({
   draws: [] as { page: number; scale: number; finish: () => void; cancelled: boolean }[],
   cleanups: [] as number[],
+  /** Pages whose drawing fails when finished. */
+  failing: new Set<number>(),
+  /** Page texts, and a gate that holds every text request until the test opens it. */
+  texts: new Map<number, string>(),
+  gate: null as Promise<void> | null,
 }))
 vi.mock('../src/features/pdf/pdfEngine', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/features/pdf/pdfEngine')>()
@@ -26,9 +31,10 @@ vi.mock('../src/features/pdf/pdfEngine', async (importOriginal) => {
       let finish = () => undefined as void
       const draw = { page: number, scale: viewport.scale, finish: () => finish(), cancelled: false }
       engine.draws.push(draw)
-      return { promise: new Promise<void>((resolve) => { finish = resolve }), cancel: () => { draw.cancelled = true } }
+      const failing = engine.failing.has(number)
+      return { promise: new Promise<void>((resolve, reject) => { finish = failing ? () => reject(new Error('broken page')) : resolve }), cancel: () => { draw.cancelled = true } }
     },
-    getTextContent: async () => ({ items: [] }),
+    getTextContent: async () => { if (engine.gate) await engine.gate; const text = engine.texts.get(number); return { items: text ? [{ str: text, hasEOL: false }] : [] } },
     getAnnotations: async () => [],
     cleanup: () => { engine.cleanups.push(number) },
   })
@@ -47,6 +53,9 @@ let paneWidth = 648
 beforeEach(() => {
   engine.draws.length = 0
   engine.cleanups.length = 0
+  engine.failing.clear()
+  engine.texts.clear()
+  engine.gate = null
   observers.resize.length = 0
   observers.intersect.length = 0
   paneWidth = 648
@@ -57,19 +66,24 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers() })
 
 const { default: PdfView, FIT_SETTLE_MS } = await import('../src/features/pdf/PdfView')
+type PdfHandle = import('../src/features/pdf/PdfView').PdfHandle
 
 async function mount() {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
-  const bridge = { source: { size: 1, read: async () => new Uint8Array(), readAsset: async () => new Uint8Array() }, loadPosition: async () => null, savePosition: () => undefined, register: () => undefined, onOutline: () => undefined, onPages: () => undefined, openLink: () => undefined, onStatus: () => undefined }
+  let handle: PdfHandle | null = null
+  const bridge = { source: { size: 1, read: async () => new Uint8Array(), readAsset: async () => new Uint8Array() }, loadPosition: async () => null, savePosition: () => undefined, register: (value: PdfHandle | null) => { handle = value }, onOutline: () => undefined, onPages: () => undefined, openLink: () => undefined, onStatus: () => undefined }
   await act(async () => { root.render(createElement(PdfView, { bridge, name: 'sample.pdf', dark: false, t: (text: string) => text })) })
   const settle = (ms = 0) => act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)) })
   await settle(20)
+  // Opening measured page 1 and freed it again; each test starts counting after that.
+  const measured = [...engine.cleanups]
+  engine.cleanups.length = 0
   const pages = () => Array.from(container.querySelectorAll<HTMLElement>('.pdf-page'))
   /** Reports which pages are on screen through the newest observer, as the browser would after a layout. */
   const see = (onScreen: number[]) => act(async () => { observers.intersect.at(-1)!(pages().map((target, index) => ({ target, isIntersecting: onScreen.includes(index + 1) }))) })
-  return { container, pages, see, settle, unmount: () => act(async () => { root.unmount(); container.remove() }) }
+  return { container, pages, see, settle, measured, handle: () => handle!, unmount: () => act(async () => { root.unmount(); container.remove() }) }
 }
 
 const finishAll = () => act(async () => { for (const draw of engine.draws) draw.finish(); await new Promise((resolve) => setTimeout(resolve, 0)) })
@@ -168,6 +182,44 @@ describe('PDF view (T97)', () => {
     expect(registered()).toBe(0)
     expect(view.pages()).toEqual(frames)
     set.mockRestore()
+    await view.unmount()
+  })
+
+  it('frees the page it only measured when opening', async () => {
+    const view = await mount()
+    expect(view.measured).toEqual([1])
+    await view.unmount()
+  })
+
+  it('frees the canvas and decoded data of a page that fails to draw (review finding 5)', async () => {
+    engine.failing.add(1)
+    const view = await mount()
+    await view.see([1])
+    await view.settle(5)
+    const canvas = view.pages()[0].querySelector('canvas')!
+    expect(canvas.width).toBeGreaterThan(0)
+    await finishAll()
+    expect(view.pages()[0].dataset.failed).toBe('true')
+    expect(canvas.width).toBe(0)
+    expect(view.pages()[0].querySelector('canvas')).toBeNull()
+    expect(engine.cleanups).toContain(1)
+    await view.unmount()
+  })
+
+  it('drops a search that finishes after the query was cleared (review finding 6)', async () => {
+    const view = await mount()
+    engine.texts.set(2, 'lighthouse keeper')
+    let open = () => undefined as void
+    engine.gate = new Promise<void>((resolve) => { open = resolve })
+    let first: Promise<{ total: number }> | undefined
+    await act(async () => { first = view.handle().find('lighthouse', { caseSensitive: false, wholeWord: false, regex: false }) })
+    // The query is cleared while the first search still waits for the page texts.
+    let cleared = { total: -1 }
+    await act(async () => { cleared = await view.handle().find('', { caseSensitive: false, wholeWord: false, regex: false }) })
+    expect(cleared.total).toBe(0)
+    await act(async () => { open(); await first })
+    expect((await first!).total).toBe(0)
+    expect(view.handle().findStep(1).total).toBe(0)
     await view.unmount()
   })
 })

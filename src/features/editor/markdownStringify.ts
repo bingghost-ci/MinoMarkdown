@@ -28,15 +28,24 @@ function dollarsAreLiteral(node: InlineNode, parent: Parent): boolean {
   return literal
 }
 
-// Milkdown preserves trailing spaces in text, but its shortcut also bypasses
-// escaping pipes at the end of a table cell's text run.
+// Milkdown keeps trailing spaces in text by writing such a run raw, but that also skipped escaping the rest of
+// the run: `\# x **b**` came back as a heading, `1\. x **b**` as a list, `\<b> **b**` as HTML, and pipes at the
+// end of a table cell's text broke the table. Only the trailing whitespace is written raw now; the text before
+// it is escaped as anywhere else, with the whitespace as what follows it.
 export const safeTextHandler: Handler = (node, parent, state, info) => {
   const value = node.value as string
   const keepDollars = value.includes('$') && dollarsAreLiteral(node, parent)
-  if ((!value.includes('$') || keepDollars) && /^[^*_\\|]*\s+$/.test(value)) return value
-  if (!keepDollars) return state.safe(value, { ...info, encode: [] })
-  const unsafe = state.unsafe
-  state.unsafe = unsafe.filter((pattern) => pattern.character !== '$')
-  try { return state.safe(value, { ...info, encode: [] }) }
-  finally { state.unsafe = unsafe }
+  const escape = (text: string, after: string): string => {
+    const options = { ...info, after, encode: [] }
+    if (!keepDollars) return state.safe(text, options)
+    const unsafe = state.unsafe
+    state.unsafe = unsafe.filter((pattern) => pattern.character !== '$')
+    try { return state.safe(text, options) }
+    finally { state.unsafe = unsafe }
+  }
+  // Runs with emphasis markers, backslashes or pipes, and unpaired `$`, are escaped whole as before.
+  const trailing = (!value.includes('$') || keepDollars) && /^[^*_\\|]*\s+$/.test(value) ? /\s+$/.exec(value) : null
+  if (!trailing) return escape(value, info.after)
+  const text = value.slice(0, trailing.index)
+  return (text ? escape(text, trailing[0][0]) : '') + trailing[0]
 }

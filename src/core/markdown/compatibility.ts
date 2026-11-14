@@ -5,6 +5,7 @@ import remarkParse from 'remark-parse'
 import remarkStringify from 'remark-stringify'
 import { unified } from 'unified'
 import { remarkDemoteCurrency } from './math'
+import { frontMatterLength } from './frontMatter'
 
 // T30: parsing costs seconds per MiB and ProseMirror keeps one DOM node tree for the whole document.
 export const VISUAL_SIZE_LIMIT_BYTES = 2 * 1024 * 1024
@@ -64,6 +65,18 @@ function projectNode(value: unknown): unknown {
   return value
 }
 
+/**
+ * Text-level extensions. They are matched in the source of text nodes only, so the same characters in code
+ * spans, code blocks, link targets or HTML never count.
+ */
+const textExtensions: readonly [RegExp, string][] = [
+  [/\[\[[^\]\n]+\]\]/, 'Wiki link'],
+  [/(?:^|\n)[ \t]*::[A-Za-z][\w-]*(?:[[{]|[ \t]*(?:\n|$))/, 'Possible leaf directive'],
+  [/(?:^|[^\w:\\]):[A-Za-z][\w-]*[[{]/, 'Possible text directive'],
+  [/\^\[/, 'Inline footnote'],
+  [/==[^\s=](?:[^=\n]*[^\s=])?==/, 'Highlight'],
+]
+
 type NodeLike = { type: string; children?: unknown[]; position?: { start?: { offset?: number } }; value?: string; lang?: string | null; meta?: string | null }
 
 function walk(node: NodeLike, visit: (node: NodeLike) => void): void {
@@ -103,6 +116,16 @@ function unsupportedIssues(tree: Root, body: string): CompatibilityIssue[] {
       if (/(?:^|\n)\s*:::[\w-]+/.test(text)) {
         issues.push({ code: 'UNKNOWN_EXTENSION', detail: 'Possible directive syntax', offset: node.position?.start?.offset })
       }
+      // Syntax other editors read that CommonMark keeps as text: the editor would escape it on save.
+      const extension = textExtensions.find(([pattern]) => pattern.test(text))
+      if (extension) issues.push({ code: 'UNKNOWN_EXTENSION', detail: extension[1], offset: start })
+    }
+    // GFM also reads `~x~` as strikethrough, and the editor writes every strikethrough as `~~x~~`.
+    if (node.type === 'delete') {
+      const start = node.position?.start?.offset
+      if (start !== undefined && body[start] === '~' && body[start + 1] !== '~') {
+        issues.push({ code: 'UNKNOWN_EXTENSION', detail: 'Single-tilde strikethrough would be rewritten', offset: start })
+      }
     }
   })
   return issues
@@ -129,7 +152,8 @@ function splitSource(source: string): Pick<DocumentAnalysis, 'body' | 'frontMatt
   const bom = source.startsWith('\uFEFF')
   const withoutBom = bom ? source.slice(1) : source
   const crlfCount = (withoutBom.match(/\r\n/g) ?? []).length
-  const loneLfCount = (withoutBom.match(/(?<!\r)\n/g) ?? []).length
+  // Every `\r\n` holds one `\n`; counting this way needs no lookbehind, which the WebKit of macOS 12 cannot parse.
+  const loneLfCount = (withoutBom.match(/\n/g) ?? []).length - crlfCount
   const newline = crlfCount > 0 ? 'CRLF' : 'LF'
   const trailingNewline = withoutBom.endsWith('\n')
   if (crlfCount > 0 && loneLfCount > 0 || /\r(?!\n)/.test(withoutBom)) {
@@ -138,14 +162,12 @@ function splitSource(source: string): Pick<DocumentAnalysis, 'body' | 'frontMatt
   const normalized = withoutBom.replace(/\r\n/g, '\n')
   let frontMatter = ''
   let body = normalized
-  if (normalized.startsWith('---\n')) {
-    const match = /^---\n[\s\S]*?\n(?:---|\.\.\.)(?:\n|$)/.exec(normalized)
-    if (match) {
-      frontMatter = match[0]
-      body = normalized.slice(frontMatter.length)
-    } else {
-      issues.push({ code: 'UNCLOSED_FRONT_MATTER', detail: 'Opening --- has no closing delimiter' })
-    }
+  const frontMatterEnd = frontMatterLength(normalized)
+  if (frontMatterEnd > 0) {
+    frontMatter = normalized.slice(0, frontMatterEnd)
+    body = normalized.slice(frontMatterEnd)
+  } else if (frontMatterEnd < 0) {
+    issues.push({ code: 'UNCLOSED_FRONT_MATTER', detail: 'Opening --- has no closing delimiter' })
   }
   return { body, frontMatter, bom, newline, trailingNewline, issues }
 }

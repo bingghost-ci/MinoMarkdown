@@ -2,11 +2,12 @@ use tauri::WebviewWindow;
 
 const MAX_NAME_CHARS: usize = 100;
 
-/// Sorts family names case-insensitively and drops duplicates, hidden families (a leading `.`),
-/// empty names, names over 100 characters and names with control characters.
+/// Sorts family names case-insensitively and drops duplicates, hidden families (a leading `.`), and every name
+/// the settings would refuse to store as `sys:<family>` (empty, over 100 characters, control characters, or a
+/// character that could leave a quoted CSS string), so each name offered can be chosen.
 fn clean_families(names: impl IntoIterator<Item = String>) -> Vec<String> {
     let mut families: Vec<String> = names.into_iter()
-        .filter(|name| !name.is_empty() && !name.starts_with('.') && name.chars().count() <= MAX_NAME_CHARS && !name.chars().any(char::is_control))
+        .filter(|name| !name.starts_with('.') && name.chars().count() <= MAX_NAME_CHARS && crate::settings::is_system_family_name(name))
         .collect();
     families.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a.cmp(b)));
     families.dedup();
@@ -44,7 +45,7 @@ mod tests {
     fn families_are_filtered_sorted_and_deduplicated() {
         let long = "x".repeat(101);
         let limit = "字".repeat(100);
-        let names = ["Menlo", "arial", ".SF NS", "Helvetica", "Menlo", "", "Bad\u{7}Name", "Tab\tName", "苹方-简", "Arial", long.as_str(), limit.as_str(), "Zapfino"];
+        let names = ["Menlo", "arial", ".SF NS", "Helvetica", "Menlo", "", "Bad\u{7}Name", "Tab\tName", "Quote's", "Semi;colon", "Comma,Name", " Padded", "苹方-简", "Arial", long.as_str(), limit.as_str(), "Zapfino"];
         let cleaned = clean_families(names.iter().map(|name| name.to_string()));
         assert_eq!(cleaned, vec!["Arial".to_string(), "arial".into(), "Helvetica".into(), "Menlo".into(), "Zapfino".into(), limit.clone(), "苹方-简".into()]);
     }

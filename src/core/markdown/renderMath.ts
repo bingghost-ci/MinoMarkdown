@@ -11,6 +11,9 @@ function isMath(node: HastNode | undefined, kind: 'math-inline' | 'math-display'
 
 function textOf(node: HastNode): string { return node.value ?? (node.children ?? []).map(textOf).join('') }
 
+/** The largest size, in em, a formula may ask for with `\rule` or spacing commands; KaTeX's default has no limit. */
+export const KATEX_MAX_SIZE = 50
+
 /** Draws one formula as HTML. */
 export type MathRenderer = (source: string, displayMode: boolean) => string
 
@@ -22,7 +25,7 @@ export type MathRenderer = (source: string, displayMode: boolean) => string
 export async function loadMathRenderer(markdown: string): Promise<MathRenderer | undefined> {
   if (!markdown.includes('$') && !/math/i.test(markdown)) return undefined
   const katex = (await import('katex')).default
-  return (source, displayMode) => katex.renderToString(source, { displayMode, throwOnError: false, trust: false, strict: 'ignore' })
+  return (source, displayMode) => katex.renderToString(source, { displayMode, throwOnError: false, trust: false, strict: 'ignore', maxSize: KATEX_MAX_SIZE })
 }
 
 /**

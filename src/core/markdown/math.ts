@@ -64,4 +64,18 @@ export function mathValues(markdown: string): string[] {
 
 /** Crepe's source for its `$…$` input rule, which also fires on prices. */
 export const CREPE_INLINE_MATH_RULE = String.raw`(?:\$)([^$]+)(?:\$)$`
-export const STRICT_INLINE_MATH_RULE = /(?<![\\$])\$(?=[^\s$])([^$]*[^\s$])\$$/
+/**
+ * `$…$` just typed, where the opening `$` follows neither `\\` nor another `$`. The inner text holds no `$`, so
+ * the opening sign is the last one before the closing sign and checking the character before it is enough.
+ * This replaces a lookbehind, which the WebKit of macOS 12 cannot parse at all.
+ */
+class StrictInlineMathRule extends RegExp {
+  constructor() { super(String.raw`\$(?=[^\s$])([^$]*[^\s$])\$$`) }
+  override exec(text: string): RegExpExecArray | null {
+    const match = super.exec(text)
+    if (!match) return null
+    const before = text[match.index - 1]
+    return before === '\\' || before === '$' ? null : match
+  }
+}
+export const STRICT_INLINE_MATH_RULE: RegExp = new StrictInlineMathRule()

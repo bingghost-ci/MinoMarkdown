@@ -61,14 +61,49 @@ fn revision(bytes: &[u8]) -> String {
     super::sha256_hex(bytes)
 }
 
+/// The most a file name part may take in a backup name: `.mino-backup-` + part + `-` + 16 hex digits + `.bak`
+/// stays within the 255 bytes APFS allows for one name.
+const BACKUP_STEM_MAX: usize = 255 - ".mino-backup-".len() - 1 - 16 - ".bak".len();
+/// The same for a staging name: `.mino-` + part + `-<pid>-<counter>.tmp`, with room for the widest numbers.
+#[cfg(target_os = "macos")]
+const TEMP_STEM_MAX: usize = 255 - ".mino-".len() - 1 - 10 - 1 - 20 - ".tmp".len();
+
+/// `name` itself when it fits in `max` bytes; otherwise its start, cut at a character, and `~` with 16 hex digits
+/// of its hash, so two long names that begin alike still get different parts.
+fn short_stem(name: &[u8], max: usize) -> Vec<u8> {
+    if name.len() <= max { return name.to_vec(); }
+    let text = String::from_utf8_lossy(name);
+    let mut cut = max.saturating_sub(17).min(text.len());
+    while !text.is_char_boundary(cut) { cut -= 1; }
+    [text[..cut].as_bytes(), b"~", super::sha256_hex(name)[..16].as_bytes()].concat()
+}
+
+/// What every backup of `file_name` starts with. A name short enough keeps the form earlier versions wrote, so
+/// their backups are still found and pruned.
+fn backup_prefix(file_name: &[u8]) -> Vec<u8> {
+    [b".mino-backup-".as_slice(), &short_stem(file_name, BACKUP_STEM_MAX), b"-"].concat()
+}
+
+/// The backup of `file_name` holding the version whose revision starts with `revision_prefix` (16 hex digits).
+fn backup_name(file_name: &[u8], revision_prefix: &[u8]) -> Vec<u8> {
+    [backup_prefix(file_name).as_slice(), revision_prefix, b".bak"].concat()
+}
+
 pub fn commit(path: &Path, bytes: &[u8], expected: Option<&str>) -> Result<String, String> {
     commit_with_fault(path, bytes, expected, Fault::None)
 }
 
 /// Writes one of the app's own records (settings, recent files, the assistant's configuration) over whatever
 /// is there now. `limit` is the most the existing file may hold.
+/// A record that grew past `limit` (an older version, a hand edit) is still a regular file of the app's, and is
+/// replaced: refusing it would leave the record unwritable for good. A link or a folder in its place is refused.
 pub fn replace_record(path: &Path, bytes: &[u8], limit: u64) -> Result<(), String> {
-    let expected = super::bounded_file::read_canonical_parent(path, limit).ok().map(|old| super::sha256_hex(&old));
+    let expected = match super::bounded_file::read_canonical_parent(path, limit) {
+        Ok(old) => Some(super::sha256_hex(&old)),
+        Err(code) if code == "NOT_FOUND" => None,
+        Err(code) if code == "FILE_TOO_LARGE" => Some(super::bounded_file::revision_canonical_parent(path)?),
+        Err(code) => return Err(code),
+    };
     commit_canonical_parent(path, bytes, expected.as_deref()).map(|_| ())
 }
 
@@ -149,12 +184,19 @@ mod macos {
         Ok(file)
     }
 
-    fn read_at(directory: &File, entry: &CString) -> Result<(File, fs::Metadata, Vec<u8>), String> {
+    /// Opens an entry and hashes it in pieces: only its revision is compared, so a large file is never held whole.
+    fn read_at(directory: &File, entry: &CString) -> Result<(File, fs::Metadata, String), String> {
+        use sha2::{Digest, Sha256};
         let mut file = open_at(directory, entry)?;
         let metadata = file.metadata().map_err(|_| "IO_ERROR")?;
-        let mut contents = Vec::new();
-        file.read_to_end(&mut contents).map_err(|_| "IO_ERROR")?;
-        Ok((file, metadata, contents))
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0u8; 256 * 1024];
+        loop {
+            let count = file.read(&mut buffer).map_err(|_| "IO_ERROR")?;
+            if count == 0 { break; }
+            hasher.update(&buffer[..count]);
+        }
+        Ok((file, metadata, crate::fs::hex(&hasher.finalize())))
     }
 
     struct TemporaryAt<'a> { directory: &'a File, entry: CString, active: bool }
@@ -174,31 +216,38 @@ mod macos {
     /// backups of a file whose name merely starts the same way are not touched, and nothing is followed or
     /// opened. `previous`, the version just replaced, always stays. Errors are ignored: the save has succeeded.
     fn prune_backups(directory: &File, file_name: &OsStr, previous: &CString, keep: usize) {
-        let prefix = [b".mino-backup-".as_slice(), file_name.as_bytes(), b"-"].concat();
+        let mut older: Vec<_> = backups_of(directory, file_name).into_iter().filter(|(_, _, name, _)| name != previous).collect();
+        older.sort();
+        let surplus = (older.len() + 1).saturating_sub(keep.max(1));
+        for (_, _, name, _) in older.into_iter().take(surplus) {
+            unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0); }
+        }
+    }
+
+    /// The backups of `file_name` in `directory`: regular files named exactly as `backup_name` names them, with
+    /// their change time and the 16 hex digits of the version each holds. Nothing is followed or opened.
+    pub(super) fn backups_of(directory: &File, file_name: &OsStr) -> Vec<(i64, i64, CString, Vec<u8>)> {
+        let prefix = backup_prefix(file_name.as_bytes());
         let descriptor = unsafe { libc::dup(directory.as_raw_fd()) };
-        if descriptor < 0 { return; }
+        if descriptor < 0 { return Vec::new(); }
         let stream = unsafe { libc::fdopendir(descriptor) };
-        if stream.is_null() { unsafe { libc::close(descriptor); } return; }
+        if stream.is_null() { unsafe { libc::close(descriptor); } return Vec::new(); }
         unsafe { libc::rewinddir(stream); }
-        let mut older: Vec<(i64, i64, CString)> = Vec::new();
+        let mut found = Vec::new();
         loop {
             let entry = unsafe { libc::readdir(stream) };
             if entry.is_null() { break; }
             let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
             let Some(hash) = name.to_bytes().strip_prefix(prefix.as_slice()).and_then(|rest| rest.strip_suffix(b".bak")) else { continue };
-            if hash.len() != 16 || !hash.iter().all(u8::is_ascii_hexdigit) || name == previous.as_c_str() { continue; }
+            if hash.len() != 16 || !hash.iter().all(u8::is_ascii_hexdigit) { continue; }
             let mut stat: libc::stat = unsafe { std::mem::zeroed() };
             if unsafe { libc::fstatat(directory.as_raw_fd(), name.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW) } != 0 { continue; }
             if stat.st_mode & libc::S_IFMT != libc::S_IFREG { continue; }
             // A backup is a link made at the moment its version was replaced, which is when its status changed.
-            older.push((stat.st_ctime, stat.st_ctime_nsec, name.to_owned()));
+            found.push((stat.st_ctime, stat.st_ctime_nsec, name.to_owned(), hash.to_vec()));
         }
         unsafe { libc::closedir(stream); }
-        older.sort();
-        let surplus = (older.len() + 1).saturating_sub(keep.max(1));
-        for (_, _, name) in older.into_iter().take(surplus) {
-            unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0); }
-        }
+        found
     }
 
     pub(super) fn commit(path: &Path, bytes: &[u8], expected: Option<&str>, fault: Fault, canonical_parent: bool) -> Result<String, String> {
@@ -208,15 +257,16 @@ mod macos {
         let directory_meta = directory.metadata().map_err(|_| "IO_ERROR")?;
         let entry = name(path.file_name().ok_or("INVALID_PATH")?)?;
         let original = if let Some(expected) = expected {
-            let (source, metadata, contents) = read_at(&directory, &entry)?;
+            let (source, metadata, current) = read_at(&directory, &entry)?;
             if metadata.permissions().readonly() { return Err("PERMISSION_DENIED".into()); }
-            if revision(&contents) != expected { return Err("CONFLICT".into()); }
+            if current != expected { return Err("CONFLICT".into()); }
             Some((source, metadata))
         } else {
             None
         };
-        let temp_name = format!(".mino-{}-{}-{}.tmp", path.file_name().ok_or("INVALID_PATH")?.to_string_lossy(), std::process::id(), NEXT_TEMP.fetch_add(1, Ordering::Relaxed));
-        let temp = name(OsStr::new(&temp_name))?;
+        let file_name = path.file_name().ok_or("INVALID_PATH")?;
+        let temp_name = [b".mino-".as_slice(), &short_stem(file_name.as_bytes(), TEMP_STEM_MAX), format!("-{}-{}.tmp", std::process::id(), NEXT_TEMP.fetch_add(1, Ordering::Relaxed)).as_bytes()].concat();
+        let temp = name(OsStr::from_bytes(&temp_name))?;
         let fd = unsafe { libc::openat(directory.as_raw_fd(), temp.as_ptr(), libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW, 0o600) };
         if fd < 0 { return Err("IO_ERROR".into()); }
         let mut staging = unsafe { File::from_raw_fd(fd) };
@@ -240,7 +290,7 @@ mod macos {
         }
         if let Some(expected) = expected {
             let (_, current_meta, current) = read_at(&directory, &entry).map_err(|_| "CONFLICT")?;
-            if revision(&current) != expected { return Err("CONFLICT".into()); }
+            if current != expected { return Err("CONFLICT".into()); }
             if let Some((_, original_meta)) = &original {
                 if current_meta.dev() != original_meta.dev() || current_meta.ino() != original_meta.ino() { return Err("CONFLICT".into()); }
             }
@@ -250,12 +300,12 @@ mod macos {
         if fault == Fault::Replace { return Err("IO_ERROR".into()); }
         let mut previous = None;
         if let Some(expected) = expected {
-            let backup = name(OsStr::new(&format!(".mino-backup-{}-{}.bak", path.file_name().ok_or("INVALID_PATH")?.to_string_lossy(), &expected[..16])))?;
+            let backup = name(OsStr::from_bytes(&backup_name(file_name.as_bytes(), expected.get(..16).ok_or("INVALID_PATH")?.as_bytes())))?;
             let linked = unsafe { libc::linkat(directory.as_raw_fd(), entry.as_ptr(), directory.as_raw_fd(), backup.as_ptr(), 0) };
             if linked < 0 {
                 if std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists { return Err("IO_ERROR".into()); }
                 let (_, _, existing_backup) = read_at(&directory, &backup).map_err(|_| "IO_ERROR")?;
-                if revision(&existing_backup) != expected { return Err("CONFLICT".into()); }
+                if existing_backup != expected { return Err("CONFLICT".into()); }
             }
             let moved = unsafe { libc::renameat(directory.as_raw_fd(), cleanup.entry.as_ptr(), directory.as_raw_fd(), entry.as_ptr()) };
             if moved < 0 { return Err("IO_ERROR".into()); }
@@ -276,10 +326,31 @@ mod macos {
         }
         // The write is complete and durable. Tidying up comes last and cannot fail the save.
         if let Some(previous) = &previous {
-            prune_backups(&directory, path.file_name().ok_or("INVALID_PATH")?, previous, KEPT_BACKUPS);
+            prune_backups(&directory, file_name, previous, KEPT_BACKUPS);
         }
         Ok(revision(bytes))
     }
+}
+
+/// Gives the backups of `old_name` in `from` the name `new_name` in `to`, after the file itself was renamed or
+/// moved there, so they stay its backups and are pruned with it. A backup that cannot be moved is removed rather
+/// than left behind for ever. Errors are ignored: the rename or move has already happened.
+#[cfg(target_os = "macos")]
+pub fn move_backups(from: &File, old_name: &std::ffi::OsStr, to: &File, new_name: &std::ffi::OsStr) {
+    use std::os::{fd::AsRawFd, unix::ffi::OsStrExt};
+    for (_, _, backup, hash) in macos::backups_of(from, old_name) {
+        let Ok(target) = std::ffi::CString::new(backup_name(new_name.as_bytes(), &hash)) else { continue };
+        if unsafe { libc::renameatx_np(from.as_raw_fd(), backup.as_ptr(), to.as_raw_fd(), target.as_ptr(), libc::RENAME_EXCL) } != 0 {
+            unsafe { libc::unlinkat(from.as_raw_fd(), backup.as_ptr(), 0); }
+        }
+    }
+}
+
+/// Removes the backups of `file_name` in `directory`, once the file itself went to the Trash.
+#[cfg(target_os = "macos")]
+pub fn remove_backups(directory: &File, file_name: &std::ffi::OsStr) {
+    use std::os::fd::AsRawFd;
+    for (_, _, backup, _) in macos::backups_of(directory, file_name) { unsafe { libc::unlinkat(directory.as_raw_fd(), backup.as_ptr(), 0); } }
 }
 
 #[cfg(test)]
@@ -451,6 +522,69 @@ mod tests {
         // Its own backups were still pruned to the latest.
         assert!(backups(&dir).contains(&format!(".mino-backup-记录.md-{}.bak", &revision(b"v5")[..16])));
         assert_eq!(backups(&dir).len(), 1 + decoys.len() + 2);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_file_with_a_name_near_the_limit_saves_and_keeps_one_backup() {
+        let (dir, _) = sample();
+        // 81 three-byte characters and `.md`: 246 bytes, which APFS allows but the old backup name did not.
+        let long = format!("{}.md", "长".repeat(81));
+        assert!(long.len() > BACKUP_STEM_MAX && long.len() <= 255);
+        let path = dir.join(&long);
+        fs::write(&path, b"v0").unwrap();
+        for pair in [[&b"v0"[..], b"v1"], [b"v1", b"v2"], [b"v2", b"v3"]] {
+            assert_eq!(commit(&path, pair[1], Some(&revision(pair[0]))).unwrap(), revision(pair[1]));
+        }
+        assert_eq!(fs::read(&path).unwrap(), b"v3");
+        let names: Vec<String> = fs::read_dir(&dir).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(names.len(), 2, "the file and one backup, no staging file: {names:?}");
+        let backup = names.iter().find(|name| name.starts_with(".mino-backup-")).unwrap();
+        assert!(backup.len() <= 255 && backup.ends_with(&format!("{}.bak", &revision(b"v2")[..16])));
+        assert_eq!(fs::read(dir.join(backup)).unwrap(), b"v2");
+        // Short names keep the form earlier versions wrote, so their backups are still pruned.
+        assert_eq!(backup_name("记录.md".as_bytes(), b"0123456789abcdef"), ".mino-backup-记录.md-0123456789abcdef.bak".as_bytes());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_record_larger_than_its_limit_is_still_replaced_but_a_link_is_not() {
+        let (dir, _) = sample();
+        let dir = fs::canonicalize(dir).unwrap();
+        let path = dir.join("settings.json");
+        fs::write(&path, vec![b'x'; 300]).unwrap();
+        replace_record(&path, b"{}", 64).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"{}");
+        replace_record(&dir.join("new.json"), b"{}", 64).unwrap();
+        let outside = dir.join("outside.json");
+        fs::write(&outside, vec![b'x'; 300]).unwrap();
+        let link = dir.join("linked.json");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        assert!(replace_record(&link, b"{}", 64).is_err());
+        assert_eq!(fs::read(&outside).unwrap().len(), 300);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn backups_follow_a_renamed_or_moved_file_and_go_with_a_trashed_one() {
+        let (dir, path) = sample();
+        let other = dir.join("other");
+        fs::create_dir(&other).unwrap();
+        fs::write(&path, b"v0").unwrap();
+        commit(&path, b"v1", Some(&revision(b"v0"))).unwrap();
+        fs::write(dir.join(".mino-backup-记录.md-extra-0123456789abcdef.bak"), b"keep").unwrap();
+        let open = |p: &Path| crate::fs::open_directory(p).unwrap();
+        fs::rename(&path, other.join("新.md")).unwrap();
+        move_backups(&open(&dir), std::ffi::OsStr::new("记录.md"), &open(&other), std::ffi::OsStr::new("新.md"));
+        let moved = other.join(format!(".mino-backup-新.md-{}.bak", &revision(b"v0")[..16]));
+        assert_eq!(fs::read(&moved).unwrap(), b"v0");
+        assert!(!dir.join(format!(".mino-backup-记录.md-{}.bak", &revision(b"v0")[..16])).exists());
+        assert!(dir.join(".mino-backup-记录.md-extra-0123456789abcdef.bak").exists(), "another file's backup stays");
+        remove_backups(&open(&other), std::ffi::OsStr::new("新.md"));
+        assert!(!moved.exists());
         fs::remove_dir_all(dir).unwrap();
     }
 

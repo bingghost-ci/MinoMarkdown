@@ -83,6 +83,33 @@ fn same_directory(parent: &Path, directory: &fs::File) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether the entry `before` describes now stands at `target`, a path whose folder is still where its path says:
+/// the rename itself happened, whatever check after it failed.
+#[cfg(target_os = "macos")]
+fn landed(target: &Path, before: &libc::stat) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Some(parent) = target.parent() else { return false };
+    if fs::canonicalize(parent).ok().as_deref() != Some(parent) { return false; }
+    fs::symlink_metadata(target).is_ok_and(|meta| !meta.file_type().is_symlink() && meta.dev() == before.st_dev as u64 && meta.ino() == before.st_ino)
+}
+
+/// Checks made after a rename or move only confirm it. When one fails but the entry is found where it was going,
+/// the change is reported as made, so the grants of open documents and sidebar entries follow it; otherwise the
+/// code stands and nothing is updated.
+#[cfg(target_os = "macos")]
+fn confirmed(checks: Result<(), String>, target: &Path, before: &libc::stat) -> Result<(), String> {
+    #[cfg(test)]
+    let checks = if UNCERTAIN_AFTER_RENAME.with(|flag| flag.get()) { Err("COMMIT_UNCERTAIN".to_string()) } else { checks };
+    match checks {
+        Ok(()) => Ok(()),
+        Err(_) if landed(target, before) => Ok(()),
+        Err(code) => Err(code),
+    }
+}
+
+#[cfg(test)]
+thread_local! { static UNCERTAIN_AFTER_RENAME: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
 #[cfg(target_os = "macos")]
 fn create_entry_at(parent: &Path, name: &str, directory: bool) -> Result<(), String> {
     use std::os::fd::{AsRawFd, FromRawFd};
@@ -133,10 +160,16 @@ pub(crate) fn rename_entry_at(source: &Path, new_name: &str, directory: bool) ->
     } else if rename(&from, &to) < 0 {
         return Err(if std::io::Error::last_os_error().kind() == std::io::ErrorKind::AlreadyExists { "TARGET_EXISTS" } else { "IO_ERROR" }.into());
     }
-    held.sync_all().map_err(|_| "COMMIT_UNCERTAIN")?;
-    same_directory(parent, &held)?;
-    let after = entry_stat(&held, &to)?.ok_or("COMMIT_UNCERTAIN")?;
-    if after.st_dev != before.st_dev || after.st_ino != before.st_ino { return Err("COMMIT_UNCERTAIN".into()); }
+    let checks = (|| {
+        held.sync_all().map_err(|_| "COMMIT_UNCERTAIN")?;
+        same_directory(parent, &held)?;
+        let after = entry_stat(&held, &to)?.ok_or("COMMIT_UNCERTAIN")?;
+        if after.st_dev != before.st_dev || after.st_ino != before.st_ino { return Err("COMMIT_UNCERTAIN".to_string()); }
+        Ok(())
+    })();
+    confirmed(checks, &target, &before)?;
+    // A file's backups take its new name, so they stay its own (a change of case alone leaves them as they are).
+    if !directory && !case_only { crate::fs::atomic_write::move_backups(&held, source.file_name().ok_or("INVALID_PATH")?, &held, std::ffi::OsStr::new(new_name)); }
     Ok(target)
 }
 
@@ -164,13 +197,20 @@ fn move_entry_at(source: &Path, target_parent: &Path, directory: bool) -> Result
             _ => "IO_ERROR",
         }.into());
     }
-    from_dir.sync_all().map_err(|_| "COMMIT_UNCERTAIN")?;
-    to_dir.sync_all().map_err(|_| "COMMIT_UNCERTAIN")?;
-    same_directory(parent, &from_dir)?;
-    same_directory(target_parent, &to_dir)?;
-    let after = entry_stat(&to_dir, &name)?.ok_or("COMMIT_UNCERTAIN")?;
-    if after.st_dev != before.st_dev || after.st_ino != before.st_ino { return Err("COMMIT_UNCERTAIN".into()); }
-    Ok(target_parent.join(source.file_name().ok_or("INVALID_PATH")?))
+    let target = target_parent.join(source.file_name().ok_or("INVALID_PATH")?);
+    let checks = (|| {
+        from_dir.sync_all().map_err(|_| "COMMIT_UNCERTAIN")?;
+        to_dir.sync_all().map_err(|_| "COMMIT_UNCERTAIN")?;
+        same_directory(parent, &from_dir)?;
+        same_directory(target_parent, &to_dir)?;
+        let after = entry_stat(&to_dir, &name)?.ok_or("COMMIT_UNCERTAIN")?;
+        if after.st_dev != before.st_dev || after.st_ino != before.st_ino { return Err("COMMIT_UNCERTAIN".to_string()); }
+        Ok(())
+    })();
+    confirmed(checks, &target, &before)?;
+    // A folder holds its files' backups; a file's own go along with it.
+    if !directory { crate::fs::atomic_write::move_backups(&from_dir, source.file_name().ok_or("INVALID_PATH")?, &to_dir, source.file_name().ok_or("INVALID_PATH")?); }
+    Ok(target)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -360,14 +400,21 @@ fn move_entry(store: &WorkspaceStore, documents: &DocumentStore, entry_token: &s
     if source.parent() == Some(target.as_path()) { return Ok((entry, None)); }
     // A folder cannot go into itself or into a folder inside it.
     if target.starts_with(&source) { return Err("INVALID_TARGET".into()); }
-    let moved = relocating(documents, &source, || {
-        // A Markdown file takes the images it shows along; a folder already holds its own `assets/`.
-        let carried = if grant.directory { None } else { carry_assets(&source, &target)? };
-        let moved = move_entry_at(&source, &target, grant.directory);
-        if let Some(carried) = carried { if moved.is_ok() { carried.release() } else { carried.undo() } }
-        moved
-    })?;
+    // A Markdown file takes the images it shows along; a folder already holds its own `assets/`. They are copied
+    // before the paths are locked, since that reads the document and its images; only the rename and the grants'
+    // update happen under the locks. The old copies go to the Trash after it, if nothing still uses them.
+    let carried = if grant.directory { None } else { carry_assets(&source, &target)? };
+    let moved = match relocating(documents, &source, || move_entry_at(&source, &target, grant.directory)) {
+        Ok(moved) => moved,
+        Err(code) => {
+            // The copies go again only when the file is still where it was; if it left, they may be what it shows.
+            if let Some(carried) = carried { if fs::symlink_metadata(&source).is_ok() { carried.undo(); } }
+            return Err(code);
+        }
+    };
     relocate_entries_into(store, &source, &moved, Some((&target_grant.workspace, &target_grant.root)))?;
+    // Only a move that is confirmed (or found to have happened, see `confirmed`) gets here.
+    if let Some(carried) = carried { carried.release(documents, &moved); }
     Ok((entry, Some((source, moved))))
 }
 
@@ -387,7 +434,10 @@ pub(crate) fn move_to_trash(path: &Path) -> Result<(), String> {
     let current = fs::symlink_metadata(path).map_err(|_| "NOT_FOUND")?;
     if current.file_type().is_symlink() || before.dev() != current.dev() || before.ino() != current.ino() { return Err("OUT_OF_SCOPE".into()); }
     same_directory(parent, &held)?;
-    NSFileManager::defaultManager().trashItemAtURL_resultingItemURL_error(&reference, None).map_err(|_| "TRASH_FAILED".into())
+    NSFileManager::defaultManager().trashItemAtURL_resultingItemURL_error(&reference, None).map_err(|_| "TRASH_FAILED")?;
+    // A trashed file's hidden backups beside it would otherwise stay for ever; a folder takes its own along.
+    if before.is_file() { if let Some(name) = path.file_name() { crate::fs::atomic_write::remove_backups(&held, name); } }
+    Ok(())
 }
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn move_to_trash(_path: &Path) -> Result<(), String> { Err("UNSUPPORTED_PLATFORM".into()) }
@@ -447,11 +497,16 @@ fn search_text(text: &str, query: &str, path: &Path, relative: &str, hits: &mut 
     let mut found = 0;
     for (index, raw) in text.split('\n').enumerate() {
         let line = raw.strip_suffix('\r').unwrap_or(raw);
-        let lower = line.to_lowercase();
+        // Lowercasing can change how many characters there are (`İ` becomes two), so where each character of the
+        // line starts in the lowercased text is kept, and a match is placed back on the line it was found in.
+        let mut lower = String::with_capacity(line.len());
+        let mut starts = Vec::new();
+        for character in line.chars() { starts.push(lower.len()); lower.extend(character.to_lowercase()); }
         let mut from = 0;
         while let Some(at) = lower[from..].find(query) {
             let start = from + at;
-            hits.push(FileHit { path: path.to_owned(), relative: relative.to_owned(), line: index + 1, snippet: snippet_around(line, lower[..start].chars().count()), occurrence });
+            let match_char = starts.partition_point(|&offset| offset <= start).saturating_sub(1);
+            hits.push(FileHit { path: path.to_owned(), relative: relative.to_owned(), line: index + 1, snippet: snippet_around(line, match_char), occurrence });
             occurrence += 1;
             found += 1;
             if found == MAX_HITS_PER_FILE || hits.len() > MAX_SEARCH_HITS { return; }
@@ -705,7 +760,7 @@ mod tests {
     /// follow them, a name already there is not replaced, and a folder cannot go into itself.
     #[cfg(target_os = "macos")]
     /// A Markdown file moved to another folder takes its `assets/` images along: copied into the target's
-    /// `assets/` (made when missing), and in the old folder only an image another file there still uses stays; an
+    /// `assets/` (made when missing), and in the old folder only an image something there still uses stays; an
     /// emptied `assets/` goes too (T109).
     #[test]
     fn a_moved_markdown_file_takes_its_images_along() {
@@ -767,6 +822,99 @@ mod tests {
         move_entry(&store, &documents, &token_of(&dir.join("keep/k.md")), &token_of(&dir.join("fresh"))).unwrap();
         assert!(!dir.join("keep/assets/y.png").exists() && dir.join("keep/assets/notes.txt").is_file());
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Moves `a.md`, which shows `assets/图 x.png`, from a folder holding `others` into a sibling folder, with
+    /// `open` (a file of the old folder) open in a tab, and says whether the old image is still there.
+    #[cfg(target_os = "macos")]
+    fn image_stays_after_move(others: &[(&str, &[u8])], open: Option<&str>) -> bool {
+        let base = fs::canonicalize(temp()).unwrap();
+        let dir = base.join("notes");
+        fs::create_dir_all(dir.join("assets")).unwrap();
+        fs::create_dir(base.join("out")).unwrap();
+        fs::write(dir.join("assets/图 x.png"), b"x").unwrap();
+        fs::write(dir.join("a.md"), "![](<assets/图 x.png>)\n").unwrap();
+        for (name, bytes) in others {
+            let path = dir.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, bytes).unwrap();
+        }
+        let store = WorkspaceStore::default();
+        let documents = DocumentStore::default();
+        if let Some(name) = open { open_granted_path(&documents, &dir.join(name)).unwrap(); }
+        let root = register_workspace(&store, base.clone()).unwrap();
+        list_at(&store, &root.token, 0).unwrap();
+        let token_of = |path: &Path| store.0.lock().unwrap().iter().find(|(_, item)| item.path == path).map(|(token, _)| token.clone()).unwrap();
+        list_at(&store, &token_of(&dir), 0).unwrap();
+        move_entry(&store, &documents, &token_of(&dir.join("a.md")), &token_of(&base.join("out"))).unwrap();
+        assert_eq!(fs::read(base.join("out/assets/图 x.png")).unwrap(), b"x", "the image always arrives");
+        let stays = dir.join("assets/图 x.png").exists();
+        fs::remove_dir_all(base).unwrap();
+        stays
+    }
+
+    /// An image of a moved file stays in the old folder whenever anything there could still show it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_moved_files_image_stays_while_anything_in_the_old_folder_may_use_it() {
+        // Nothing else uses it: it moves (goes to the Trash).
+        assert!(!image_stays_after_move(&[("other.md", b"no images here")], None));
+        // Another Markdown file beside it, through a reference definition.
+        assert!(image_stays_after_move(&[("b.md", "![pic][p]\n\n[p]: ./assets/图 x.png".as_bytes())], None));
+        // A document in a subfolder, through `../assets/`.
+        assert!(image_stays_after_move(&[("sub/c.md", "![](<../assets/图 x.png>)".as_bytes())], None));
+        // Raw HTML only: `<img src>` and `srcset`, in another case and URL-encoded.
+        assert!(image_stays_after_move(&[("d.md", b"<img src=\"assets/%E5%9B%BE%20X.PNG\">")], None));
+        assert!(image_stays_after_move(&[("e.md", "<img srcset=\"assets/图 x.png 2x\">".as_bytes())], None));
+        // Another document of the folder is open in a tab: its unsaved text may use it.
+        assert!(image_stays_after_move(&[("other.md", b"no images here")], Some("other.md")));
+        // A document that cannot be read leaves the answer open.
+        assert!(image_stays_after_move(&[("broken.md", &[0xff, 0xfe, 0x00, 0xd8])], None));
+    }
+
+    /// A check after the rename that fails while the entry did arrive (a failed `fsync`) still counts as the move
+    /// made: open documents follow it and the images copied for it stay. Backups follow a moved or renamed file.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_uncertain_check_after_a_move_that_happened_keeps_grants_and_copies_with_the_file() {
+        let dir = fs::canonicalize(temp()).unwrap();
+        fs::create_dir_all(dir.join("assets")).unwrap();
+        fs::create_dir(dir.join("box")).unwrap();
+        fs::write(dir.join("assets/own.png"), b"own").unwrap();
+        fs::write(dir.join("a.md"), "![](assets/own.png)\n").unwrap();
+        crate::fs::atomic_write::commit(&dir.join("a.md"), b"![](assets/own.png)\nv1\n", Some(&crate::fs::sha256_hex(b"![](assets/own.png)\n"))).unwrap();
+        let store = WorkspaceStore::default();
+        let documents = DocumentStore::default();
+        let root = register_workspace(&store, dir.clone()).unwrap();
+        list_at(&store, &root.token, 0).unwrap();
+        let token_of = |path: &Path| store.0.lock().unwrap().iter().find(|(_, item)| item.path == path).map(|(token, _)| token.clone()).unwrap();
+        open_granted_path(&documents, &dir.join("a.md")).unwrap();
+        UNCERTAIN_AFTER_RENAME.with(|flag| flag.set(true));
+        let moved = move_entry(&store, &documents, &token_of(&dir.join("a.md")), &token_of(&dir.join("box")));
+        UNCERTAIN_AFTER_RENAME.with(|flag| flag.set(false));
+        moved.unwrap();
+        assert_eq!(grants_within(&documents, &dir.join("box/a.md")).unwrap().len(), 1);
+        assert!(grants_within(&documents, &dir.join("a.md")).unwrap().is_empty());
+        assert_eq!(fs::read(dir.join("box/assets/own.png")).unwrap(), b"own");
+        let backup = |folder: &Path, name: &str| folder.join(format!(".mino-backup-{name}-{}.bak", &crate::fs::sha256_hex(b"![](assets/own.png)\n")[..16]));
+        assert!(backup(&dir.join("box"), "a.md").is_file() && !backup(&dir, "a.md").exists());
+        UNCERTAIN_AFTER_RENAME.with(|flag| flag.set(true));
+        let renamed = rename_entry_at(&dir.join("box/a.md"), "b.md", false);
+        UNCERTAIN_AFTER_RENAME.with(|flag| flag.set(false));
+        assert_eq!(renamed.unwrap(), dir.join("box/b.md"));
+        assert!(backup(&dir.join("box"), "b.md").is_file() && !backup(&dir.join("box"), "a.md").exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_snippet_is_cut_around_the_match_even_when_lowercasing_changes_the_length() {
+        let mut hits = Vec::new();
+        // Each `İ` lowercases to two characters, which used to shift the snippet past the match.
+        let line = format!("{}needle", "İ".repeat(60));
+        search_text(&line, "needle", Path::new("/x.md"), "x.md", &mut hits);
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].snippet.ends_with("needle"), "{}", hits[0].snippet);
+        assert!(hits[0].snippet.starts_with('İ'));
     }
 
     #[test]

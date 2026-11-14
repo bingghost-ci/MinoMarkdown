@@ -9,7 +9,18 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, State, WebviewWindow, Wry};
 
 /// Ids of a menu item chosen from a right-click menu carry this prefix, so they never run as main-menu items.
+/// After it comes the label of the window that showed the menu, then `:` and the item id (`ctx:main:copy`):
+/// AppKit shows a right-click menu in a window that is not in front, so the focused window is not the one asking.
 pub const PREFIX: &str = "ctx:";
+
+/// The native id of a right-click menu item shown by `window`.
+fn native_id(window: &str, id: &str) -> String { format!("{PREFIX}{window}:{id}") }
+
+/// The window and the item id of a chosen right-click menu item, from its native id without `PREFIX`.
+pub fn target(rest: &str) -> Option<(&str, &str)> {
+    let (window, id) = rest.split_once(':')?;
+    (crate::is_workspace_window(window) && !id.is_empty()).then_some((window, id))
+}
 const MAX_ITEMS: usize = 120;
 const MAX_DEPTH: usize = 2;
 const MAX_CLIPBOARD_BYTES: usize = 20 * 1024 * 1024;
@@ -62,7 +73,7 @@ pub fn validate(entries: &[Entry]) -> Result<(), String> {
 
 enum Built { Item(MenuItem<Wry>), Predefined(PredefinedMenuItem<Wry>), Submenu(Submenu<Wry>) }
 
-fn build(app: &AppHandle, entries: &[Entry], english: bool) -> tauri::Result<Vec<Built>> {
+fn build(app: &AppHandle, window: &str, entries: &[Entry], english: bool) -> tauri::Result<Vec<Built>> {
     let mut built = Vec::new();
     for entry in entries {
         built.push(match entry {
@@ -76,10 +87,10 @@ fn build(app: &AppHandle, entries: &[Entry], english: bool) -> tauri::Result<Vec
                     _ => PredefinedMenuItem::select_all(app, text)?,
                 })
             }
-            Entry::Item { id, enabled } => Built::Item(MenuItem::with_id(app, format!("{PREFIX}{id}"), crate::native_menu::label(id, english), *enabled, crate::native_menu::accelerator(id))?),
+            Entry::Item { id, enabled } => Built::Item(MenuItem::with_id(app, native_id(window, id), crate::native_menu::label(id, english), *enabled, crate::native_menu::accelerator(id))?),
             Entry::Submenu { id, items } => {
-                let submenu = Submenu::with_id(app, format!("{PREFIX}{id}"), crate::native_menu::label(id, english), true)?;
-                for child in build(app, items, english)? { append_to_submenu(&submenu, &child)?; }
+                let submenu = Submenu::with_id(app, native_id(window, id), crate::native_menu::label(id, english), true)?;
+                for child in build(app, window, items, english)? { append_to_submenu(&submenu, &child)?; }
                 Built::Submenu(submenu)
             }
         });
@@ -101,7 +112,7 @@ pub fn show_context_menu(app: AppHandle, window: WebviewWindow, items: Vec<Entry
     if items.is_empty() { return Ok(()); }
     let english = crate::native_menu::english();
     let menu = Menu::new(&app).map_err(|_| "IO_ERROR")?;
-    for item in build(&app, &items, english).map_err(|_| "IO_ERROR")? { append_to_menu(&menu, &item).map_err(|_| "IO_ERROR")?; }
+    for item in build(&app, window.label(), &items, english).map_err(|_| "IO_ERROR")? { append_to_menu(&menu, &item).map_err(|_| "IO_ERROR")?; }
     window.popup_menu(&menu).map_err(|_| "IO_ERROR".into())
 }
 
@@ -169,15 +180,21 @@ pub fn trash_document(window: WebviewWindow, documents: State<'_, DocumentStore>
 mod clipboard {
     use objc2_app_kit::{NSPasteboard, NSPasteboardTypeString};
     use objc2_foundation::NSString;
+    // Both run on command threads that live as long as the app, where nothing would drain what AppKit
+    // autoreleases, so each call has its own pool.
     pub fn read() -> Option<String> {
-        let board = NSPasteboard::generalPasteboard();
-        let text = board.stringForType(unsafe { NSPasteboardTypeString })?.to_string();
-        if text.len() > super::MAX_CLIPBOARD_BYTES { None } else { Some(text) }
+        objc2::rc::autoreleasepool(|_| {
+            let board = NSPasteboard::generalPasteboard();
+            let text = board.stringForType(unsafe { NSPasteboardTypeString })?.to_string();
+            if text.len() > super::MAX_CLIPBOARD_BYTES { None } else { Some(text) }
+        })
     }
     pub fn write(text: &str) -> Result<(), String> {
-        let board = NSPasteboard::generalPasteboard();
-        board.clearContents();
-        if board.setString_forType(&NSString::from_str(text), unsafe { NSPasteboardTypeString }) { Ok(()) } else { Err("IO_ERROR".into()) }
+        objc2::rc::autoreleasepool(|_| {
+            let board = NSPasteboard::generalPasteboard();
+            board.clearContents();
+            if board.setString_forType(&NSString::from_str(text), unsafe { NSPasteboardTypeString }) { Ok(()) } else { Err("IO_ERROR".into()) }
+        })
     }
 }
 #[cfg(not(target_os = "macos"))]
@@ -206,6 +223,14 @@ mod tests {
         let deep = Entry::Submenu { id: "ai".into(), items: vec![Entry::Submenu { id: "ai".into(), items: vec![Entry::Submenu { id: "ai".into(), items: vec![item("copy")] }] }] };
         assert_eq!(validate(&[deep]), Err("INVALID_MENU".into()));
         assert_eq!(validate(&(0..=MAX_ITEMS).map(|_| Entry::Separator).collect::<Vec<_>>()), Err("INVALID_MENU".into()));
+    }
+
+    #[test]
+    fn a_chosen_item_names_the_window_that_showed_the_menu() {
+        let id = native_id("workspace-7", "close-all");
+        assert_eq!(target(id.strip_prefix(PREFIX).unwrap()), Some(("workspace-7", "close-all")));
+        assert_eq!(target("main:paste-plain"), Some(("main", "paste-plain")));
+        for bad in ["copy", "main:", "other:copy", ":copy"] { assert_eq!(target(bad), None, "{bad}"); }
     }
 
     #[test]

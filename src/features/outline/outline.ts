@@ -1,3 +1,4 @@
+import { looksLikeFrontMatter } from '../../core/markdown/frontMatter'
 import type { Node as ProseNode } from '@milkdown/kit/prose/model'
 
 /** `target` is a ProseMirror position, a source offset, or a preview heading index, depending on the view. */
@@ -24,7 +25,7 @@ export function outlineFromSource(source: string): OutlineItem[] {
   let index = 0
   if (/^---\r?$/.test(lines[0] ?? '')) {
     const close = lines.findIndex((line, at) => at > 0 && /^(?:---|\.\.\.)\r?$/.test(line))
-    if (close > 0) { for (; index <= close; index++) offset += lines[index].length + 1 }
+    if (close > 0 && looksLikeFrontMatter(lines.slice(1, close).map((line) => line.replace(/\r$/, '')))) { for (; index <= close; index++) offset += lines[index].length + 1 }
   }
   let open: { marker: string; length: number } | null = null
   let previous: { text: string; offset: number } | null = null

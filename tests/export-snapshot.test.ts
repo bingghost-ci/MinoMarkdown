@@ -7,6 +7,12 @@ describe('image manifest', () => {
     expect(imageUrlsIn(source)).toEqual(['assets/one.png'])
   })
 
+  it('uses the first definition of a label, the one that renders', () => {
+    const source = '![a][r]\n\n[r]: assets/first.png\n[R]: assets/second.png\n'
+    expect(imageUrlsIn(source)).toEqual(['assets/first.png'])
+    expect(rewriteImageUrls(source, new Map([['assets/first.png', 'assets/new.png']]))).toBe('![a][r]\n\n[r]: assets/new.png\n[R]: assets/second.png\n')
+  })
+
   it('rewrites persisted image destinations without changing code, text, or links', () => {
     const source = '`blob:one` and blob:one\n\n![blob:one](blob:one "blob:one")\n\n[link](blob:one)\n\n```md\n![x](blob:one)\n```\n\n![again](blob:one)'
     const result = rewriteImageUrls(source, new Map([['blob:one', 'assets/image.png'], ['blob:deleted', 'assets/deleted.png']]))

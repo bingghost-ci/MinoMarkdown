@@ -262,13 +262,15 @@ fn open_child(directory: &fs::File, name: &std::ffi::OsStr, flags: libc::c_int) 
     Ok(unsafe { fs::File::from_raw_fd(fd) })
 }
 
-/// Opens a granted file for reading without following a link at its last component.
+/// Opens a granted file for reading without following a link at its last component. `O_NONBLOCK` keeps a FIFO
+/// put in the file's place from blocking the open; it changes nothing for a regular file, and callers check the
+/// handle is one.
 fn open_no_follow(path: &Path) -> Result<fs::File, String> {
     let parent = path.parent().ok_or("INVALID_PATH")?;
     #[cfg(target_os = "macos")]
     {
         let directory = open_parent_directory(parent)?;
-        open_child(&directory, path.file_name().ok_or("INVALID_PATH")?, 0)
+        open_child(&directory, path.file_name().ok_or("INVALID_PATH")?, libc::O_NONBLOCK)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -277,6 +279,21 @@ fn open_no_follow(path: &Path) -> Result<fs::File, String> {
         if meta.file_type().is_symlink() { return Err("OUT_OF_SCOPE".into()); }
         fs::File::open(path).map_err(|_| "IO_ERROR".into())
     }
+}
+
+/// Writes a file at a path the user just chose in a save panel. The panel has already asked whether to replace a
+/// file of that name, so a regular file there is replaced, atomically and keeping its backup, as a save would; a
+/// link or a folder in its place is refused. A file that changes between the check and the write is a `CONFLICT`.
+pub(crate) fn commit_chosen(path: &Path, bytes: &[u8]) -> Result<String, String> {
+    let existing = match open_no_follow(path) {
+        Ok(file) => {
+            if !file.metadata().map_err(|_| "IO_ERROR")?.is_file() { return Err("TARGET_EXISTS".into()); }
+            Some(digest_stream(file, u64::MAX)?.0)
+        }
+        Err(code) if code == "NOT_FOUND" => None,
+        Err(_) => return Err("TARGET_EXISTS".into()),
+    };
+    atomic_write::commit(path, bytes, existing.as_deref())
 }
 
 /// SHA-256 of a file read in pieces, with its length and its first bytes. A file longer than `limit` is refused.
@@ -338,6 +355,8 @@ fn opened(token: String, path: &Path, loaded: Loaded, asset_key: String) -> Open
 }
 
 pub(crate) fn open_granted_path(store: &DocumentStore, path: &Path) -> Result<OpenDocument, String> {
+    // A rename or move waits until the grant is in the store, so it is carried along rather than left behind.
+    let _paths = PATHS.read().map_err(|_| "IO_ERROR")?;
     let loaded = read_document(path)?;
     let token = format!("doc-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
     let asset_key = random_key()?;
@@ -457,22 +476,22 @@ pub fn check_document_revision(window: WebviewWindow, store: State<'_, DocumentS
 
 fn disk_status(grant: &Grant) -> Result<(DiskStatus, Option<FileStamp>), String> {
     if fs::canonicalize(grant.path.parent().ok_or("INVALID_PATH")?).map_err(|_| "OUT_OF_SCOPE")? != grant.path.parent().ok_or("INVALID_PATH")? { return Err("OUT_OF_SCOPE".into()); }
-    let meta = match fs::symlink_metadata(&grant.path) {
-        Ok(meta) => meta,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok((DiskStatus { kind: "deleted", revision: None }, None)),
-        Err(_) => return Err("IO_ERROR".into()),
+    // The file is opened once, without following a link, and everything below is asked of that handle, so what
+    // is hashed is what was checked.
+    let file = match open_no_follow(&grant.path) {
+        Ok(file) => file,
+        Err(code) if code == "NOT_FOUND" => return Ok((DiskStatus { kind: "deleted", revision: None }, None)),
+        // A link or anything else that is not a plain file now stands at the path.
+        Err(code) if code == "OUT_OF_SCOPE" => return Ok((DiskStatus { kind: "changed", revision: None }, stamp_of(&grant.path))),
+        Err(code) => return Err(code),
     };
+    let meta = file.metadata().map_err(|_| "IO_ERROR")?;
     let stamp = Some(FileStamp::of(&meta));
-    if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > grant.kind.max_bytes() { return Ok((DiskStatus { kind: "changed", revision: None }, stamp)); }
+    if !meta.is_file() || meta.len() > grant.kind.max_bytes() { return Ok((DiskStatus { kind: "changed", revision: None }, stamp)); }
     if grant.stamp.is_some() && stamp == grant.stamp { return Ok((DiskStatus { kind: "same", revision: Some(grant.revision.clone()) }, stamp)); }
     if let Some((seen, revision)) = &grant.observed {
         if stamp.as_ref() == Some(seen) { return Ok((DiskStatus { kind: "changed", revision: Some(revision.clone()) }, stamp)); }
     }
-    let file = match fs::File::open(&grant.path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok((DiskStatus { kind: "deleted", revision: None }, None)),
-        Err(_) => return Err("IO_ERROR".into()),
-    };
     let revision = match digest_stream(file, grant.kind.max_bytes()) {
         Ok((revision, _, _)) => revision,
         Err(code) if code == "DOCUMENT_TOO_LARGE" => return Ok((DiskStatus { kind: "changed", revision: None }, stamp)),
@@ -492,47 +511,59 @@ pub fn read_disk_version(window: WebviewWindow, store: State<'_, DocumentStore>,
 #[tauri::command(async)]
 pub fn reload_document(window: WebviewWindow, store: State<'_, DocumentStore>, token: String) -> Result<OpenDocument, String> {
     crate::require_workspace_window(&window)?;
+    // Held from reading the path to writing the grant back, so a rename or move in between cannot be undone by
+    // writing the old path over the new one.
+    let _paths = PATHS.read().map_err(|_| "IO_ERROR")?;
     let grant = store.grant(&token)?;
     let loaded = read_document(&grant.path)?;
-    store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { observed: None, path: grant.path.clone(), revision: loaded.revision.clone(), stamp: loaded.stamp, asset_key: grant.asset_key.clone(), kind: loaded.kind, encoding: loaded.encoding });
+    let mut grants = store.0.lock().map_err(|_| "IO_ERROR")?;
+    let current = grants.get_mut(&token).ok_or("OUT_OF_SCOPE")?;
+    if current.path != grant.path { return Err("STALE_OPERATION".into()); }
+    *current = Grant { observed: None, path: grant.path.clone(), revision: loaded.revision.clone(), stamp: loaded.stamp, asset_key: grant.asset_key.clone(), kind: loaded.kind, encoding: loaded.encoding };
+    drop(grants);
     Ok(opened(token, &grant.path, loaded, grant.asset_key))
 }
 
+/// Writes `bytes` into `directory` as `image-<hash>.<extension>`, or `image-<hash>-<n>.<extension>` when that name
+/// already holds other bytes, and returns the name used.
+fn put_unique(directory: &AssetDirectory, bytes: &[u8], extension: &str) -> Result<String, String> {
+    let hash = digest(bytes);
+    for attempt in 0..100 {
+        let filename = if attempt == 0 { format!("image-{}.{}", &hash[..24], extension) } else { format!("image-{}-{}.{}", &hash[..24], attempt, extension) };
+        if directory.put(std::ffi::OsStr::new(&filename), bytes)? != PutResult::ExistingDifferent { return Ok(filename); }
+    }
+    Err("ASSET_WRITE_FAILED".into())
+}
+
+/// Copies the `assets/` images a document shows into the folder its copy goes to. A copy in the same folder shares
+/// them and needs nothing; a reference that is already broken (no `assets/` folder, no such image) stays as it is,
+/// so it never stops the text itself from being saved elsewhere.
 fn copy_assets_for_copy(source: &Path, target: &Path, markdown: &str) -> Result<(String, HashMap<String, String>), String> {
-    let references = markdown_images::referenced_assets(markdown);
-    if references.is_empty() { return Ok((markdown.into(), HashMap::new())); }
     let source_parent = source.parent().ok_or("INVALID_PATH")?;
     let target_parent = target.parent().ok_or("INVALID_PATH")?;
-    let source_assets = AssetDirectory::open(source_parent, false)?;
-    if source_parent == target_parent {
-        for relative in &references {
-            let path = markdown_images::local_asset_path(relative).ok_or("OUT_OF_SCOPE")?;
-            source_assets.read(path.file_name().ok_or("OUT_OF_SCOPE")?)?.ok_or("ASSET_NOT_FOUND")?;
-        }
-        source_assets.verify_location()?;
-        return Ok((markdown.into(), HashMap::new()));
-    }
-    let target_assets = AssetDirectory::open(target_parent, true)?;
-    let mut replacements = HashMap::new();
+    if source_parent == target_parent { return Ok((markdown.into(), HashMap::new())); }
+    let references = markdown_images::referenced_assets(markdown);
+    if references.is_empty() { return Ok((markdown.into(), HashMap::new())); }
+    let source_assets = match AssetDirectory::open(source_parent, false) {
+        Err(code) if code == "ASSET_NOT_FOUND" => return Ok((markdown.into(), HashMap::new())),
+        other => other?,
+    };
+    let mut images = Vec::new();
     for relative in references {
         let path = markdown_images::local_asset_path(&relative).ok_or("OUT_OF_SCOPE")?;
-        let name = path.file_name().ok_or("OUT_OF_SCOPE")?;
-        let bytes = source_assets.read(name)?.ok_or("ASSET_NOT_FOUND")?;
-        if target_assets.put(name, &bytes)? == PutResult::ExistingDifferent {
-            let extension = Path::new(name).extension().and_then(|v| v.to_str()).unwrap_or("bin");
-            let hash = digest(&bytes);
-            let mut selected = None;
-            for attempt in 0..100 {
-                let filename = if attempt == 0 { format!("image-{}.{}", &hash[..24], extension) } else { format!("image-{}-{}.{}", &hash[..24], attempt, extension) };
-                if target_assets.put(std::ffi::OsStr::new(&filename), &bytes)? != PutResult::ExistingDifferent {
-                    selected = Some(filename); break;
-                }
-            }
-            let filename = selected.ok_or("ASSET_WRITE_FAILED")?;
-            replacements.insert(relative, format!("assets/{filename}"));
-        }
+        let name = path.file_name().ok_or("OUT_OF_SCOPE")?.to_os_string();
+        if let Some(bytes) = source_assets.read(&name)? { images.push((relative, name, bytes)); }
     }
     source_assets.verify_location()?;
+    if images.is_empty() { return Ok((markdown.into(), HashMap::new())); }
+    let target_assets = AssetDirectory::open(target_parent, true)?;
+    let mut replacements = HashMap::new();
+    for (relative, name, bytes) in images {
+        if target_assets.put(&name, &bytes)? == PutResult::ExistingDifferent {
+            let extension = Path::new(&name).extension().and_then(|v| v.to_str()).unwrap_or("bin");
+            replacements.insert(relative, format!("assets/{}", put_unique(&target_assets, &bytes, extension)?));
+        }
+    }
     target_assets.verify_location()?;
     Ok((markdown_images::rewrite_image_urls(markdown, &replacements)?, replacements))
 }
@@ -540,8 +571,10 @@ fn copy_assets_for_copy(source: &Path, target: &Path, markdown: &str) -> Result<
 /// The images a Markdown file took along when it was moved to another folder (T109).
 pub(crate) struct CarriedAssets { source: AssetDirectory, target: AssetDirectory, source_parent: PathBuf, names: Vec<OsString>, created: Vec<OsString> }
 
-/// How many Markdown files beside a moved one are read to see whether they still use its images.
-const SIBLING_LIMIT: usize = 2_000;
+/// How many entries of the old folder's tree are looked at to see whether anything still uses a moved file's images.
+const REFERENCE_SCAN_LIMIT: usize = 5_000;
+/// How many bytes of documents that walk reads at most.
+const REFERENCE_SCAN_BYTES: u64 = 256 * 1024 * 1024;
 
 /// Copies the `assets/` images a Markdown file references into `assets/` of the folder it is moving to, so they
 /// still show after the move. The document is not rewritten: a name the target already holds with other bytes
@@ -582,19 +615,29 @@ pub(crate) fn carry_assets(document: &Path, target_parent: &Path) -> Result<Opti
 }
 
 impl CarriedAssets {
-    /// The move failed: the copies made for it are removed again.
+    /// The move did not happen: the copies made for it are removed again.
     pub(crate) fn undo(&self) { for name in &self.created { let _ = self.target.remove(name); } }
 
-    /// The move succeeded: an image no other Markdown file left in the old folder uses goes to the Trash, so the
-    /// images moved rather than doubled, and can still be put back; so does the `assets/` folder once it is empty.
-    /// When in doubt an image stays.
-    pub(crate) fn release(&self) {
-        let Some(used) = images_used_in(&self.source_parent) else { return };
+    /// The move to `moved_to` happened: each image goes from the old folder to the Trash, so the images moved
+    /// rather than doubled and can still be put back, but only when nothing could still show it. When in doubt an
+    /// image stays:
+    /// - another document open in any window lives in the old folder or below it (its unsaved text may use it);
+    /// - any other document there or below it mentions the image's name, in any form (see `images_in_use`), or
+    ///   that tree could not be read in full;
+    /// - the image in the old folder no longer has the bytes that were copied.
+    ///
+    /// An `assets/` folder left empty (Finder's `.DS_Store` aside) goes to the Trash too; anything else in it keeps
+    /// it. Called with no lock held: it reads files and asks the Trash.
+    pub(crate) fn release(&self, store: &DocumentStore, moved_to: &Path) {
+        if open_within(store, &self.source_parent, moved_to).unwrap_or(true) { return; }
+        let Some(used) = images_in_use(&self.source_parent, moved_to, &self.names) else { return };
+        if self.source.verify_location().is_err() { return; }
         for name in &self.names {
-            if used.contains(name.to_string_lossy().as_ref()) { continue; }
+            if used.contains(name) { continue; }
+            let (Ok(Some(old)), Ok(Some(copied))) = (self.source.read(name), self.target.read(name)) else { continue };
+            if old != copied { continue; }
             if let Ok(path) = self.source.path_of(name) { let _ = crate::workspace::move_to_trash(&path); }
         }
-        // An `assets/` folder left empty (Finder's `.DS_Store` aside) goes to the Trash too; anything else in it keeps it.
         let folder = self.source_parent.join("assets");
         let Ok(entries) = fs::read_dir(&folder) else { return };
         let mut entries = entries.map(|entry| entry.map(|entry| entry.file_name()));
@@ -604,20 +647,52 @@ impl CarriedAssets {
     }
 }
 
-/// The names of the `assets/` images the Markdown files in `folder` reference, or `None` when a file could not be
-/// read or there are too many to read.
-fn images_used_in(folder: &Path) -> Option<HashSet<String>> {
+/// Whether a document other than the one now at `except` is open, in any window, at or below `folder`.
+fn open_within(store: &DocumentStore, folder: &Path, except: &Path) -> Result<bool, String> {
+    Ok(store.0.lock().map_err(|_| "IO_ERROR")?.values().any(|grant| grant.path.starts_with(folder) && grant.path != except))
+}
+
+/// Which of `names` (images in `folder/assets/`) a document at or below `folder`, other than `skip`, may still use,
+/// or `None` when that cannot be known: a limit was reached or a document could not be read.
+///
+/// A document counts as using an image when the image's file name appears anywhere in its text, compared without
+/// regard to case (APFS ignores it) and also after percent-decoding. That covers every way of pointing at the
+/// file: Markdown images and links, reference definitions, raw HTML `<img src>` and `srcset`, `./assets/x.png` and
+/// `../assets/x.png` from a subfolder, and URL-encoded names. It can only err towards keeping an image. Links are
+/// not followed and hidden folders are not entered.
+fn images_in_use(folder: &Path, skip: &Path, names: &[OsString]) -> Option<HashSet<OsString>> {
+    let wanted: Vec<(&OsString, String)> = names.iter().map(|name| (name, name.to_string_lossy().to_lowercase())).collect();
     let mut used = HashSet::new();
-    for (index, entry) in fs::read_dir(folder).ok()?.enumerate() {
-        if index >= SIBLING_LIMIT { return None; }
-        let path = entry.ok()?.path();
-        let meta = fs::symlink_metadata(&path).ok()?;
-        if !meta.is_file() || DocumentKind::of(&path) != Some(DocumentKind::Markdown) { continue; }
-        for relative in markdown_images::referenced_assets(&read_document(&path).ok()?.text) {
-            if let Some(name) = markdown_images::local_asset_path(&relative).and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned())) { used.insert(name); }
+    let mut pending = vec![folder.to_path_buf()];
+    let (mut seen, mut read) = (0usize, 0u64);
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(&directory).ok()? {
+            seen += 1;
+            if seen > REFERENCE_SCAN_LIMIT { return None; }
+            let path = entry.ok()?.path();
+            let meta = fs::symlink_metadata(&path).ok()?;
+            if meta.file_type().is_symlink() { continue; }
+            if meta.is_dir() {
+                if !path.file_name().is_some_and(|name| name.to_string_lossy().starts_with('.')) { pending.push(path); }
+                continue;
+            }
+            if !meta.is_file() || path == skip || !may_show_images(&path) { continue; }
+            read += meta.len();
+            if read > REFERENCE_SCAN_BYTES { return None; }
+            let text = read_document(&path).ok()?.text.to_lowercase();
+            let decoded = percent_encoding::percent_decode_str(&text).decode_utf8_lossy().into_owned();
+            for (name, lower) in &wanted {
+                if text.contains(lower.as_str()) || decoded.contains(lower.as_str()) { used.insert((*name).clone()); }
+            }
         }
     }
     Some(used)
+}
+
+/// Documents that can show an image from `assets/`: Markdown, and HTML pages kept beside it.
+fn may_show_images(path: &Path) -> bool {
+    DocumentKind::of(path) == Some(DocumentKind::Markdown)
+        || path.extension().and_then(|v| v.to_str()).is_some_and(|v| v.eq_ignore_ascii_case("html") || v.eq_ignore_ascii_case("htm"))
 }
 
 /// A copy keeps the document's encoding unless it changes kind (a text file saved as Markdown is UTF-8).
@@ -638,13 +713,14 @@ pub async fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: St
     let kind = target_kind(&path, grant.kind)?;
     let parent = fs::canonicalize(path.parent().ok_or("INVALID_PATH")?).map_err(|_| "INVALID_PATH")?;
     let path = parent.join(path.file_name().ok_or("INVALID_PATH")?);
-    if path == grant.path || path.exists() { return Err("TARGET_EXISTS".into()); }
+    // Saving a copy over the document itself would be a save, not a copy.
+    if same_file(&path, &grant.path) { return Err("TARGET_EXISTS".into()); }
     let encoding = copy_encoding(&grant, kind, force_utf8);
     // Checked before any attachment is copied, so a refused save leaves nothing behind.
     text_encoding::encode(&markdown, encoding)?;
     let (copied_markdown, _) = if grant.kind == DocumentKind::Markdown { copy_assets_for_copy(&grant.path, &path, &markdown)? } else { (markdown, HashMap::new()) };
     let (persisted, _) = save_assets(kind, &parent, &copied_markdown, assets)?;
-    atomic_write::commit(&path, &text_encoding::encode(&persisted, encoding)?, None)?;
+    commit_chosen(&path, &text_encoding::encode(&persisted, encoding)?)?;
     Ok(Some(filename(&path)))
 }
 
@@ -661,13 +737,14 @@ pub async fn save_as_document(app: AppHandle, window: WebviewWindow, store: Stat
     let kind = target_kind(&selected, grant.kind)?;
     let parent = fs::canonicalize(selected.parent().ok_or("INVALID_PATH")?).map_err(|_| "INVALID_PATH")?;
     let path = parent.join(selected.file_name().ok_or("INVALID_PATH")?);
-    if path == grant.path || path.exists() { return Err("TARGET_EXISTS".into()); }
+    // Saving a copy over the document itself would be a save, not a copy.
+    if same_file(&path, &grant.path) { return Err("TARGET_EXISTS".into()); }
     let encoding = copy_encoding(&grant, kind, force_utf8);
     text_encoding::encode(&markdown, encoding)?;
     let _write_guard = SAVE_LOCK.lock().map_err(|_| "IO_ERROR")?;
     let (copied_markdown, asset_relocations) = if grant.kind == DocumentKind::Markdown { copy_assets_for_copy(&grant.path, &path, &markdown)? } else { (markdown, HashMap::new()) };
     let (persisted, asset_paths) = save_assets(kind, &parent, &copied_markdown, assets)?;
-    let revision = atomic_write::commit(&path, &text_encoding::encode(&persisted, encoding)?, None)?;
+    let revision = commit_chosen(&path, &text_encoding::encode(&persisted, encoding)?)?;
     let new_token = format!("doc-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
     let asset_key = random_key()?;
     store.0.lock().map_err(|_| "IO_ERROR")?.insert(new_token.clone(), Grant { observed: None, stamp: stamp_of(&path), path: path.clone(), revision: revision.clone(), asset_key: asset_key.clone(), kind, encoding });
@@ -708,21 +785,18 @@ fn save_assets(kind: DocumentKind, parent: &Path, markdown: &str, assets: Vec<As
         if !asset.url.starts_with("blob:") { return Err("INVALID_ASSET".into()); }
         if asset.bytes.is_empty() || asset.bytes.len() > MAX_IMAGE { return Err("IMAGE_TOO_LARGE".into()); }
         let ext = validate_image(&asset.bytes, &asset.mime)?;
-        let hash = digest(&asset.bytes);
-        let name = format!("image-{}.{}", &hash[..24], ext);
-        let relative = format!("assets/{name}");
-        paths.insert(asset.url.clone(), relative.clone());
-        prepared.push((asset, name));
+        paths.insert(asset.url.clone(), format!("assets/image-{}.{}", &digest(&asset.bytes)[..24], ext));
+        prepared.push((asset, ext));
     }
-    let output = markdown_images::rewrite_image_urls(markdown, &paths)?;
+    // Checked before anything is written: a text the references cannot be rewritten in leaves no image behind.
+    markdown_images::rewrite_image_urls(markdown, &paths)?;
     let directory = AssetDirectory::open(parent, true)?;
-    for (asset, name) in prepared {
-        if directory.put(std::ffi::OsStr::new(&name), &asset.bytes)? == PutResult::ExistingDifferent {
-            return Err("ASSET_WRITE_FAILED".into());
-        }
+    // A name that already holds other bytes (a file the user put there) gets a numbered neighbour instead.
+    for (asset, ext) in prepared {
+        paths.insert(asset.url.clone(), format!("assets/{}", put_unique(&directory, &asset.bytes, ext)?));
     }
     directory.verify_location()?;
-    Ok((output, paths))
+    Ok((markdown_images::rewrite_image_urls(markdown, &paths)?, paths))
 }
 
 #[tauri::command]
@@ -774,13 +848,16 @@ pub async fn save_document(
             if expected_revision.as_deref() != Some(grant.revision.as_str()) { return Err("STALE_OPERATION".into()); }
             if disk_revision(&path, kind)? != grant.revision { return Err("CONFLICT".into()); }
         }
-        None if path.exists() => return Err("TARGET_EXISTS".into()),
-        _ => {}
+        None => {}
     }
     let (persisted, asset_paths) = save_assets(kind, &parent, &markdown, assets)?;
     let rewritten = persisted != markdown;
     let bytes = if rewritten { text_encoding::encode(&persisted, encoding)? } else { encoded };
-    let revision = atomic_write::commit(&path, &bytes, grant.as_ref().map(|item| item.revision.as_str()))?;
+    let revision = match &grant {
+        Some(grant) => atomic_write::commit(&path, &bytes, Some(grant.revision.as_str()))?,
+        // A first save goes where the panel said; it has asked about replacing a file there.
+        None => commit_chosen(&path, &bytes)?,
+    };
     let token = token.unwrap_or_else(|| format!("doc-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed)));
     let asset_key = match &grant { Some(grant) => grant.asset_key.clone(), None => random_key()? };
     store.0.lock().map_err(|_| "IO_ERROR")?.insert(token.clone(), Grant { observed: None, stamp: stamp_of(&path), path: path.clone(), revision: revision.clone(), asset_key: asset_key.clone(), kind, encoding });
@@ -870,8 +947,8 @@ pub async fn export_html(app: AppHandle, window: WebviewWindow, html: String) ->
         return Err("UNSUPPORTED_FILE_TYPE".into());
     }
     let parent = fs::canonicalize(path.parent().ok_or("INVALID_PATH")?).map_err(|_| "INVALID_PATH")?;
+    // The save panel has asked about replacing a file there; `write_chosen_file` never writes through a link.
     let path = parent.join(path.file_name().ok_or("INVALID_PATH")?);
-    if path.exists() { return Err("TARGET_EXISTS".into()); }
     crate::fs::write_chosen_file(&path, html.into_bytes(), crate::fs::CHOSEN_FILE_TIMEOUT)?;
     Ok(Some(filename(&path)))
 }
@@ -884,7 +961,7 @@ fn note_name(name: &str) -> bool {
 
 /// Saves a note (an AI answer) through a save dialog that starts in the folder of the document it is about,
 /// with a suggested name (T80). The user confirms or changes the place, so the path is still one a system
-/// dialog granted; an existing file is never replaced.
+/// dialog granted; a file there is replaced only after the panel asked about it.
 #[tauri::command]
 pub async fn save_note_beside(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, token: Option<String>, name: String, markdown: String) -> Result<Option<String>, String> {
     crate::require_workspace_window(&window)?;
@@ -897,8 +974,7 @@ pub async fn save_note_beside(app: AppHandle, window: WebviewWindow, store: Stat
     if !markdown_path(&path) { return Err("UNSUPPORTED_FILE_TYPE".into()); }
     let parent = fs::canonicalize(path.parent().ok_or("INVALID_PATH")?).map_err(|_| "INVALID_PATH")?;
     let path = parent.join(path.file_name().ok_or("INVALID_PATH")?);
-    if path.exists() { return Err("TARGET_EXISTS".into()); }
-    atomic_write::commit(&path, markdown.as_bytes(), None)?;
+    commit_chosen(&path, markdown.as_bytes())?;
     Ok(Some(filename(&path)))
 }
 
@@ -1319,6 +1395,82 @@ mod tests {
         assert_eq!(draft_target(&store, &opened.token).unwrap(), path.to_string_lossy());
         store.release(&opened.token).unwrap();
         assert_eq!(draft_target(&store, &opened.token), Err("OUT_OF_SCOPE".into()));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_image_name_holding_other_bytes_gets_a_numbered_neighbour() {
+        let dir = sample_dir();
+        let png = include_bytes!("../../tests/fixtures/assets/synthetic-2x2.png").to_vec();
+        let taken = format!("image-{}.png", &digest(&png)[..24]);
+        fs::create_dir(dir.join("assets")).unwrap();
+        fs::write(dir.join("assets").join(&taken), b"truncated or the user's own").unwrap();
+        let (markdown, paths) = save_assets(DocumentKind::Markdown, &dir, "![shot](blob:one)", vec![AssetUpload { url: "blob:one".into(), mime: "image/png".into(), bytes: png.clone() }]).unwrap();
+        let relative = paths.get("blob:one").unwrap();
+        assert_eq!(relative, &format!("assets/image-{}-1.png", &digest(&png)[..24]));
+        assert_eq!(markdown, format!("![shot]({relative})"));
+        assert_eq!(fs::read(dir.join(relative)).unwrap(), png);
+        assert_eq!(fs::read(dir.join("assets").join(&taken)).unwrap(), b"truncated or the user's own");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_copy_saves_the_text_even_when_its_images_are_missing() {
+        let dir = sample_dir();
+        let (source_dir, target_dir) = (dir.join("source"), dir.join("target"));
+        fs::create_dir(&source_dir).unwrap(); fs::create_dir(&target_dir).unwrap();
+        let source = source_dir.join("note.md");
+        let markdown = "![gone](assets/gone.png) ![here](assets/here.png)";
+        // No `assets/` folder at all: elsewhere and in the same folder.
+        assert_eq!(copy_assets_for_copy(&source, &target_dir.join("copy.md"), markdown).unwrap().0, markdown);
+        assert_eq!(copy_assets_for_copy(&source, &source_dir.join("copy.md"), markdown).unwrap().0, markdown);
+        assert!(!target_dir.join("assets").exists());
+        // One image missing, one there: the one there is copied, the broken reference stays as it was.
+        fs::create_dir(source_dir.join("assets")).unwrap();
+        fs::write(source_dir.join("assets/here.png"), b"here").unwrap();
+        let (copied, moved) = copy_assets_for_copy(&source, &target_dir.join("copy.md"), markdown).unwrap();
+        assert_eq!((copied.as_str(), moved.len()), (markdown, 0));
+        assert_eq!(fs::read(target_dir.join("assets/here.png")).unwrap(), b"here");
+        assert!(!target_dir.join("assets/gone.png").exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_link_or_fifo_in_place_of_a_document_is_changed_and_never_blocks() {
+        let dir = sample_dir();
+        let path = dir.join("entry.md");
+        fs::write(&path, b"first").unwrap();
+        let grant = Grant { observed: None, path: path.clone(), revision: digest(b"first"), stamp: None, asset_key: String::new(), kind: DocumentKind::Markdown, encoding: TextEncoding::UTF8 };
+        let outside = dir.join("outside.md");
+        fs::write(&outside, b"first").unwrap();
+        fs::remove_file(&path).unwrap();
+        std::os::unix::fs::symlink(&outside, &path).unwrap();
+        assert_eq!(disk_status(&grant).unwrap().0.kind, "changed", "a link is not read through, even to identical bytes");
+        fs::remove_file(&path).unwrap();
+        let name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        // Opening a FIFO for reading would wait for a writer; this returns at once.
+        let (status, _) = disk_status(&grant).unwrap();
+        assert_eq!((status.kind, status.revision), ("changed", None));
+        assert!(read_document(&path).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_the_save_panel_confirmed_is_replaced_but_never_through_a_link() {
+        let dir = sample_dir();
+        let path = dir.join("chosen.md");
+        assert_eq!(commit_chosen(&path, b"first").unwrap(), digest(b"first"));
+        assert_eq!(commit_chosen(&path, b"second").unwrap(), digest(b"second"));
+        assert_eq!(fs::read(&path).unwrap(), b"second");
+        let outside = dir.join("outside.md");
+        fs::write(&outside, b"keep").unwrap();
+        let link = dir.join("link.md");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        assert_eq!(commit_chosen(&link, b"x"), Err("TARGET_EXISTS".into()));
+        fs::create_dir(dir.join("folder.md")).unwrap();
+        assert_eq!(commit_chosen(&dir.join("folder.md"), b"x"), Err("TARGET_EXISTS".into()));
+        assert_eq!(fs::read(&outside).unwrap(), b"keep");
         fs::remove_dir_all(dir).unwrap();
     }
 }

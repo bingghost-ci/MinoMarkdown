@@ -13,10 +13,11 @@ import { Prec, type Extension } from '@codemirror/state'
 import { keymap as codeKeymap } from '@codemirror/view'
 import { deleteRow, deleteColumn } from '@milkdown/kit/prose/tables'
 import { insertTableCommand, addRowAfterCommand, addColAfterCommand, setAlignCommand } from '@milkdown/kit/preset/gfm'
-import { toggleLinkCommand, updateLinkCommand, updateImageCommand } from '@milkdown/kit/preset/commonmark'
+import { linkSchema, toggleLinkCommand, updateLinkCommand, updateImageCommand } from '@milkdown/kit/preset/commonmark'
 import { rewriteImageUrls } from '../export/snapshot'
 import { rewriteImageUrlsAsync } from '../../core/markdown/analysisClient'
 import { safeTextHandler } from './markdownStringify'
+import { literalLinkHandler, withLiteralLinks } from './literalLinks'
 import { renderMermaidPreview } from '../diagrams/mermaid'
 import { remarkDemoteCurrencyPlugin } from './mathEditor'
 import { numericColumnsPlugin } from './numericColumns'
@@ -29,6 +30,7 @@ import { textTransformTransaction, type TextTransform } from './textTransform'
 import { linkPasteTransaction, parseTabularText, pastedLinkHref, tablePasteTransaction } from './smartPaste'
 import { outlineFromDoc, type OutlineItem } from '../outline/outline'
 import { readingCodeTheme } from './codeTheme'
+import { KATEX_MAX_SIZE } from '../../core/markdown/renderMath'
 
 export type PendingAsset = { url: string; bytes: Uint8Array<ArrayBuffer>; mime: string }
 type PendingImage = { file: File; validation: Promise<void>; error: string | null }
@@ -94,7 +96,7 @@ export class EditorAdapter {
             { key: 'Mod-Shift-d', run: () => this.runBlockCommand(duplicateBlock) },
           ]))],
         },
-        [CrepeFeature.Latex]: { katexOptions: { trust: false, strict: 'ignore' } },
+        [CrepeFeature.Latex]: { katexOptions: { trust: false, strict: 'ignore', maxSize: KATEX_MAX_SIZE } },
         [CrepeFeature.BlockEdit]: {
           buildMenu: (builder) => {
             const table = builder.getGroup('advanced').group.items.find((item) => item.key === 'table')
@@ -117,9 +119,10 @@ export class EditorAdapter {
     })
     this.crepe.editor.use(remarkDemoteCurrencyPlugin).config((ctx) => {
       ctx.update(prosePluginsCtx, (plugins) => plugins.concat(findPlugin, numericColumnsPlugin, proseKeymap({ 'Alt-ArrowUp': moveBlock(-1), 'Alt-ArrowDown': moveBlock(1), 'Mod-Shift-d': duplicateBlock })))
+      ctx.update(linkSchema.key, withLiteralLinks)
       ctx.update(remarkStringifyOptionsCtx, (options) => ({
         ...options,
-        handlers: { ...options.handlers, text: safeTextHandler },
+        handlers: { ...options.handlers, text: safeTextHandler, link: literalLinkHandler },
       }))
     })
     this.crepe.on((listener) => {
@@ -177,7 +180,8 @@ export class EditorAdapter {
   private onCompositionStart = () => { this.composing = true; this.emitToolbarState() }
   private onCompositionEnd = () => { this.composing = false; this.emitToolbarState() }
   private onBackslashShortcut = (event: KeyboardEvent) => {
-    if (event.key !== '\\' || event.metaKey || event.ctrlKey || event.altKey || this.composing || !this.created || this.readOnly) return
+    // `compositionstart` comes after the keydown that starts a composition, so the event's own flags count too.
+    if (event.key !== '\\' || event.metaKey || event.ctrlKey || event.altKey || this.composing || event.isComposing || event.keyCode === 229 || !this.created || this.readOnly) return
     this.crepe.editor.action((ctx) => {
       const view = ctx.get(editorViewCtx)
       const { selection } = view.state
@@ -380,8 +384,9 @@ export class EditorAdapter {
     this.emitToolbarState()
   }
 
+  /** Also reached from a code block's own keymap, which Crepe leaves active in reading mode. */
   private runBlockCommand(command: Command): boolean {
-    if (!this.created || this.composing) return false
+    if (!this.created || this.composing || this.readOnly) return false
     let handled = false
     this.crepe.editor.action((ctx) => {
       const view = ctx.get(editorViewCtx)

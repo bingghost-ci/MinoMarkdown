@@ -16,7 +16,7 @@ import type { EditorAdapter as EditorInstance, PendingAsset, ToolbarState } from
 import { EditorPool } from '../features/editor/editorPool'
 import { safeLinkHref } from '../features/editor/linkSafety'
 import { isAssetUrl, relativeFromAssetUrl } from '../features/editor/assetUrl'
-import { beginSave, clearExternalConflict, createSession, discardChanges, editSession, externalConflict, isDirty, saveCanceled, saveFailed, saveSucceeded, type DocumentSession } from '../features/document/session'
+import { beginSave, clearExternalConflict, createSession, discardChanges, editSession, externalConflict, isDirty, saveCanceled, saveFailed, saveSucceeded, withGeneration, type DocumentSession } from '../features/document/session'
 import { mayLeaveDocument, type UnsavedAction } from '../features/document/lifecycle'
 import { createDraftScheduler, type DraftScheduler } from '../features/document/draftScheduler'
 import { autosaveDecision } from '../features/document/autosave'
@@ -24,7 +24,7 @@ import { lineDiff, type DiffLine } from '../features/document/lineDiff'
 import { defaultFindOptions, findInText, replacementFor, type FindMatch, type FindOptions } from '../features/editor/findText'
 import { outlineFromSource, type OutlineItem } from '../features/outline/outline'
 import { localAssetPath, snapshotResources } from '../features/export/snapshot'
-import { translate, translateStatus, type Language } from './i18n'
+import { translate, translateStatus, translateWith, type Language } from './i18n'
 import { activeStyle, defaultReadingSettings, documentTypography, layoutScript, lineHeights, opensInReadingMode, pickedStyle, toggledDayNight, type ReadingSettings } from './readingSettings'
 import { typographyVariables } from '../features/reading/css'
 import { dominantScript } from '../features/reading/script'
@@ -164,6 +164,7 @@ export function errorText(error: unknown): string {
     UNENCODABLE: '内容里有原编码无法表示的字符，文件没有写入。',
     READ_ONLY: 'PDF 只能阅读，不能保存或导出。',
     CHANGED: '磁盘上的文件已经变化，正在重新载入。',
+    STALE_OPERATION: '文件在操作期间被移动或改名，请稍后重试。',
     DOCUMENT_TOO_LARGE: '文件超过大小上限（PDF 200 MiB，其他 20 MiB），未截断或修改原文件。请在 Finder 中选择其他应用打开。',
     IMAGE_TOO_LARGE: '图片超过当前 20 MB 限制。',
     ASSET_WRITE_FAILED: '图片附件写入失败，正文没有保存。',
@@ -471,19 +472,28 @@ export function useDocumentWorkspace() {
     return documentRef.current
   }
 
+  /**
+   * The editor of `note`, or null. Right after a tab switch `documentRef` already names the new document while
+   * `adapter` still holds the previous one's editor until the effects run, so the two must be matched by id.
+   */
+  function liveEditorFor(note: DocumentState): EditorInstance | null {
+    return note.mode === 'visual' && adapterDocumentId.current === note.id ? adapter.current : null
+  }
+
   function captureCurrentTab(): TabItem {
     flushSourceText()
     const current = tabsRef.current.find((tab) => tab.key === activeTabKeyRef.current)!
     const activeDocument = documentRef.current
+    const live = liveEditorFor(activeDocument)
     let markdown = activeDocument.markdown
-    if (activeDocument.mode === 'visual' && adapter.current?.isReady()) {
+    if (live?.isReady()) {
       // The editor keeps its Markdown until the document changes, so an untouched tab costs nothing here.
-      try { markdown = adapter.current.getMarkdown() } catch { /* Keep the last complete snapshot. */ }
+      try { markdown = live.getMarkdown() } catch { /* Keep the last complete snapshot. */ }
     }
-    const captured = { ...current, document: { ...activeDocument, markdown, pendingFiles: adapter.current?.pendingFiles() ?? activeDocument.pendingFiles }, session: sessionRef.current }
+    const captured = { ...current, document: { ...activeDocument, markdown, pendingFiles: live?.pendingFiles() ?? activeDocument.pendingFiles }, session: sessionRef.current }
     updateTabs(tabsRef.current.map((tab) => tab.key === captured.key ? captured : tab))
     const drafted = draftedText.current.get(activeDocument.draftId)
-    if (desktop && isDirty(captured.session) && !(drafted && drafted.text === draftText(captured.document) && drafted.name === activeDocument.name && drafted.diskRevision === captured.session.diskRevision)) void persistTabDraft(captured, adapter.current)
+    if (desktop && isDirty(captured.session) && !(drafted && drafted.text === draftText(captured.document) && drafted.name === activeDocument.name && drafted.diskRevision === captured.session.diskRevision)) void persistTabDraft(captured, live)
     return captured
   }
 
@@ -611,6 +621,9 @@ export function useDocumentWorkspace() {
   }
 
   function noteBusy() { setStatus('当前操作尚未完成，请稍后再试') }
+  /** Busy is checked through the ref, which changes at once; the state only redraws what depends on it. */
+  function takeBusy() { busyRef.current = true; setBusy(true) }
+  function releaseBusy() { busyRef.current = false; setBusy(false) }
 
   function switchTab(key: string) {
     if (key === activeTabKeyRef.current) return
@@ -692,6 +705,7 @@ export function useDocumentWorkspace() {
     autosaveStopped.current.delete(closed.id)
     draftUploads.current.delete(closed.draftId)
     draftedText.current.delete(closed.draftId)
+    ai.forget(closed.id)
   }
 
   async function closeTabs(keys: string[]): Promise<boolean> {
@@ -743,19 +757,18 @@ export function useDocumentWorkspace() {
   async function detachTab(key: string) {
     if (!desktop) return
     if (busyRef.current || closingTabsRef.current) { noteBusy(); return }
-    if (key !== activeTabKeyRef.current) {
-      switchTab(key)
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
-    }
+    // Waits until the tab's own editor is in front, so what is captured below is this document's.
+    if (!await focusTabForSave(key)) return
     const tab = captureCurrentTab()
     const note = tab.document
+    const live = liveEditorFor(note)
     const markdown = note.mode === 'visual' ? note.markdown : note.sourceText
-    setBusy(true)
+    takeBusy()
     try {
       const assets: DetachedAsset[] = []
       if (note.mode === 'visual') {
         const referenced = new Set(await imageUrlsInAsync(markdown))
-        const pending = adapter.current?.isReady() ? await adapter.current.pendingAssets(false) : await Promise.all(Array.from(note.pendingFiles, async ([url, file]) => ({ url, mime: file.type, bytes: new Uint8Array(await file.arrayBuffer()) })))
+        const pending = live?.isReady() ? await live.pendingAssets(false) : await Promise.all(Array.from(note.pendingFiles, async ([url, file]) => ({ url, mime: file.type, bytes: new Uint8Array(await file.arrayBuffer()) })))
         const uploads = pending.filter((asset) => referenced.has(asset.url))
         for (const [url, asset] of note.recoveredAssets) if (referenced.has(url) && !uploads.some((item) => item.url === url)) uploads.push({ url, ...asset })
         assets.push(...await stageAssets(uploads))
@@ -768,7 +781,7 @@ export function useDocumentWorkspace() {
       forgetDocument(note)
       setStatus(`已将 ${note.name} 移到新窗口`)
     } catch (error) { setStatus(errorText(error)) }
-    finally { setBusy(false) }
+    finally { releaseBusy() }
   }
 
   useEffect(() => {
@@ -834,7 +847,7 @@ export function useDocumentWorkspace() {
           const current = documentRef.current
           const issues = [...current.prepared.analysis.issues, { code: 'ROUNDTRIP_RISK' as const, detail: 'Visual editor changed protected fragments' }]
           const id = nextDocumentId++
-          updateSession({ ...sessionRef.current, generation: id })
+          updateSession(withGeneration(sessionRef.current, id))
           setDocument({ ...current, id, mode: 'source-protected', prepared: { ...current.prepared, analysis: { ...current.prepared.analysis, mode: 'source-protected', issues } } })
           return
         }
@@ -933,14 +946,14 @@ export function useDocumentWorkspace() {
     window.document.documentElement.lang = settings.language
   }, [settings.language])
 
+  // Every untitled tab takes the name of the new language, not only the one in front.
   useEffect(() => {
-    const current = documentRef.current
-    if (current.token || !['未命名', 'Untitled'].includes(current.name)) return
     const name = settings.language === 'en-US' ? 'Untitled' : '未命名'
-    if (current.name === name) return
-    documentRef.current = { ...current, name }
-    setDocument(documentRef.current)
-    updateTabs(tabsRef.current.map((tab) => tab.key === activeTabKeyRef.current ? { ...tab, document: documentRef.current } : tab))
+    const renamed = (note: DocumentState) => !note.token && note.name !== name && ['未命名', 'Untitled'].includes(note.name)
+    const current = documentRef.current
+    if (renamed(current)) { documentRef.current = { ...current, name }; setDocument(documentRef.current) }
+    if (!tabsRef.current.some((tab) => tab.key === activeTabKeyRef.current ? renamed(current) : renamed(tab.document))) return
+    updateTabs(tabsRef.current.map((tab) => tab.key === activeTabKeyRef.current ? { ...tab, document: documentRef.current } : renamed(tab.document) ? { ...tab, document: { ...tab.document, name } } : tab))
   }, [settings.language])
 
   useEffect(() => {
@@ -1049,11 +1062,12 @@ export function useDocumentWorkspace() {
 
   function currentTabSnapshot(): TabItem {
     const current = flushSourceText()
+    const live = liveEditorFor(current)
     let markdown = current.markdown
-    if (current.mode === 'visual' && adapter.current?.isReady()) markdown = adapter.current.getMarkdown()
+    if (live?.isReady()) markdown = live.getMarkdown()
     return {
       key: activeTabKeyRef.current,
-      document: { ...current, markdown, pendingFiles: adapter.current?.pendingFiles() ?? current.pendingFiles },
+      document: { ...current, markdown, pendingFiles: live?.pendingFiles() ?? current.pendingFiles },
       session: sessionRef.current,
     }
   }
@@ -1064,8 +1078,8 @@ export function useDocumentWorkspace() {
   draftTimerRef.current = () => {
     if (!isDirty(sessionRef.current)) return
     if (composingRef.current) { draftScheduler.current?.schedule(); return }
-    if (documentRef.current.mode === 'visual' && !adapter.current?.isReady()) { draftScheduler.current?.schedule(); return }
-    void persistTabDraft(currentTabSnapshot(), adapter.current)
+    if (documentRef.current.mode === 'visual' && !liveEditorFor(documentRef.current)?.isReady()) { draftScheduler.current?.schedule(); return }
+    void persistTabDraft(currentTabSnapshot(), liveEditorFor(documentRef.current))
   }
 
   useEffect(() => {
@@ -1116,8 +1130,8 @@ export function useDocumentWorkspace() {
   }
 
   async function recoverDraft(draftId: string): Promise<void> {
-    if (busy) { noteBusy(); return }
-    setBusy(true)
+    if (busyRef.current) { noteBusy(); return }
+    takeBusy()
     try {
       const recovered = await invoke<DraftContent>('read_draft', { draftId, includeAssets: true })
       // A draft of a text or source file comes back as one; its name says what it was.
@@ -1152,7 +1166,7 @@ export function useDocumentWorkspace() {
       setDraftPreview(null)
       setStatus(recovered.targetStatus === 'changed' ? '已恢复草稿；原文件已有新版本，保存时请选择新文件名' : '已恢复草稿；请检查内容后保存')
     } catch (error) { setStatus(errorText(error)) }
-    finally { setBusy(false) }
+    finally { releaseBusy() }
   }
 
   async function previewDraft(draftId: string): Promise<void> {
@@ -1197,7 +1211,7 @@ export function useDocumentWorkspace() {
             }
             return
           }
-          await reloadFromDisk(active)
+          await reloadFromDisk(() => active)
         }
       } catch (error) {
         if (active) {
@@ -1215,37 +1229,43 @@ export function useDocumentWorkspace() {
   }, [desktop, document.id, document.token])
 
   /** Replaces the active document with the disk version, keeping any unsaved text recoverable as a draft. */
-  async function reloadFromDisk(stillWanted = true): Promise<void> {
+  /** `stillWanted` is asked after each wait: the poll that started this may have been stopped meanwhile. */
+  async function reloadFromDisk(stillWanted: () => boolean = () => true): Promise<void> {
     const documentId = documentRef.current.id
     const token = documentRef.current.token
     const wasDirty = isDirty(sessionRef.current)
-    const lockedEditor = adapter.current?.rootElement ?? null
+    const lockedEditor = liveEditorFor(documentRef.current)?.rootElement ?? null
     const lockedSource = sourceEditor.current
-    busyRef.current = true
-    setBusy(true)
+    takeBusy()
     lockedEditor?.setAttribute('inert', '')
     if (lockedSource) lockedSource.readOnly = true
     try {
-      if (wasDirty) await persistTabDraft(currentTabSnapshot(), adapter.current, true)
-      if (!stillWanted || documentRef.current.id !== documentId) return
+      if (wasDirty) await persistTabDraft(currentTabSnapshot(), liveEditorFor(documentRef.current), true)
+      if (!stillWanted() || documentRef.current.id !== documentId) return
       const opened = await invoke<OpenResult>('reload_document', { token })
       const next = await hydrateImages(opened, Boolean(documentRef.current.reading))
-      if (documentRef.current.id !== documentId) return
+      if (!stillWanted() || documentRef.current.id !== documentId) return
       const previous = documentRef.current
       next.retiredTokens = previous.retiredTokens
       next.entryToken = previous.entryToken
+      // The reader stays in the mode and at the place they were; a PDF is always read.
+      next.reading = next.kind === 'pdf' ? true : previous.reading
+      const scroller = documentScroller()
+      if (scroller && scroller.scrollHeight > scroller.clientHeight) carriedScroll.current = { id: next.id, fraction: scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight) }
       updateSession(createSession(next.id, next.revision))
       documentRef.current = next
       setDocument(next)
       updateTabs(tabsRef.current.map((tab) => tab.key === activeTabKeyRef.current ? { ...tab, document: next, session: sessionRef.current } : tab))
       revokeDocumentUrls(previous)
+      // The old editor goes now; the effect for the new document makes the next one.
+      if (adapterDocumentId.current === previous.id) { adapter.current = null; adapterDocumentId.current = null }
+      forgetDocument(previous)
       setDiskConflict(null)
       setStatus(wasDirty ? '已加载磁盘最新版本；未保存修改已留在恢复草稿中' : '已加载磁盘最新版本')
     } finally {
       lockedEditor?.removeAttribute('inert')
       if (lockedSource) lockedSource.readOnly = documentRef.current.kind !== 'markdown' && Boolean(documentRef.current.reading)
-      busyRef.current = false
-      setBusy(false)
+      releaseBusy()
     }
   }
 
@@ -1277,9 +1297,7 @@ export function useDocumentWorkspace() {
     catch (error) {
       if (String(error) !== 'UNENCODABLE') throw error
       const encoding = documentRef.current.encoding ?? ''
-      const agreed = window.confirm(settingsRef.current.language === 'en-US'
-        ? `Some characters cannot be written in this file's encoding${encoding ? ` (${encoding})` : ''}.\nSave the file as UTF-8 instead?`
-        : `内容里有原编码${encoding ? `（${encoding}）` : ''}无法表示的字符。\n要把这个文件改存为 UTF-8 吗？`)
+      const agreed = window.confirm(translateWith(encoding ? '内容里有原编码（{encoding}）无法表示的字符。\n要把这个文件改存为 UTF-8 吗？' : '内容里有原编码无法表示的字符。\n要把这个文件改存为 UTF-8 吗？', settingsRef.current.language, { encoding }))
       if (!agreed) throw new Error('UNENCODABLE')
       return invoke<T>(command, { ...args, assets: await assets(), forceUtf8: true })
     }
@@ -1288,14 +1306,14 @@ export function useDocumentWorkspace() {
   async function saveConflictCopyAs(): Promise<void> {
     if (busyRef.current) { noteBusy(); return }
     if (!isTextKind(documentRef.current.kind)) { setStatus(errorText('READ_ONLY')); return }
-    setBusy(true)
+    takeBusy()
     try {
       const markdown = currentDocumentText()
       const assets = adapter.current?.isReady() ? await adapter.current.pendingAssets() : []
       const name = await invokeSave<string | null>('save_conflict_copy', { token: documentRef.current.token, markdown }, () => stageAssets(assets))
       setStatus(name ? `已另存副本 ${name}；可继续选择使用磁盘版本` : '已取消另存，当前内容仍在编辑器中')
     } catch (error) { setNotice({ kind: 'error', message: errorText(error) }) }
-    finally { setBusy(false) }
+    finally { releaseBusy() }
   }
 
   function refreshDrafts() {
@@ -1303,15 +1321,19 @@ export function useDocumentWorkspace() {
   }
 
   async function canProceed(finalizeDiscard = false): Promise<boolean> {
-    if (busy) { setStatus('当前操作尚未完成，请稍后再试'); return false }
+    if (busyRef.current) { setStatus('当前操作尚未完成，请稍后再试'); return false }
     if (!isDirty(sessionRef.current)) { pendingDiscardDraftId.current = null; return true }
     pendingDiscardDraftId.current = null
-    if (!desktop) return window.confirm(translateStatus('当前修改尚未保存。确定放弃修改吗？', settings.language))
+    if (!desktop) return window.confirm(translateStatus('当前修改尚未保存。确定放弃修改吗？', settingsRef.current.language))
     try {
       const action = await invoke<UnsavedAction>('choose_unsaved_action')
       const allowed = await mayLeaveDocument(action, saveDocument)
       if (allowed && action === 'discard') {
-        pendingDiscardDraftId.current = document.draftId
+        // Nothing is dirty any more, so neither a pending draft timer nor leaving this tab writes the draft again.
+        draftScheduler.current?.cancel()
+        autosaveScheduler.current?.cancel()
+        updateSession(discardChanges(sessionRef.current))
+        pendingDiscardDraftId.current = documentRef.current.draftId
         if (finalizeDiscard) await finishLeave()
       }
       return allowed
@@ -1338,8 +1360,10 @@ export function useDocumentWorkspace() {
   const handleIntentRef = useRef<(intent: OpenIntent) => Promise<void>>(async () => undefined)
   handleIntentRef.current = async (intent) => {
     let candidateToken: string | null = null
+    while (busyRef.current) await new Promise((resolve) => window.setTimeout(resolve, 100))
+    // Holds the lock like any other open, so a sidebar click cannot open the same file in a second tab meanwhile.
+    takeBusy()
     try {
-      while (busyRef.current) await new Promise((resolve) => window.setTimeout(resolve, 100))
       if (intent.kind === 'document') {
         const opened = await invoke<OpenResult>('open_intent_document', { token: intent.token })
         candidateToken = opened.token
@@ -1349,14 +1373,17 @@ export function useDocumentWorkspace() {
         const chosen = await invoke<WorkspaceRoot>('open_intent_workspace', { token: intent.token })
         await activateWorkspace(chosen)
       } else {
-        if (document.mode !== 'visual') { await invoke('discard_open_intent', { token: intent.token }); setStatus(document.kind === 'markdown' ? '源码保护模式不能直接插入图片' : '这类文档不能插入图片'); return }
+        const current = documentRef.current
+        if (current.mode !== 'visual') { await invoke('discard_open_intent', { token: intent.token }); setStatus(current.kind === 'markdown' ? '源码保护模式不能直接插入图片' : '这类文档不能插入图片'); return }
         const image = await invoke<NativeImageIntent>('read_intent_image', { token: intent.token })
         let attempts = 0
-        while (!adapter.current?.isReady() && attempts++ < 50) await new Promise((resolve) => window.setTimeout(resolve, 100))
-        if (!adapter.current?.isReady()) throw new Error('EDITOR_NOT_READY')
-        adapter.current.insertFile(new File([await readStaged(image.staged)], image.name, { type: image.mime }))
+        while (!liveEditorFor(documentRef.current)?.isReady() && attempts++ < 50) await new Promise((resolve) => window.setTimeout(resolve, 100))
+        const editor = liveEditorFor(documentRef.current)
+        if (!editor?.isReady()) throw new Error('EDITOR_NOT_READY')
+        editor.insertFile(new File([await readStaged(image.staged)], image.name, { type: image.mime }))
       }
     } catch (error) { await releaseCandidate(candidateToken); setStatus(errorText(error)) }
+    finally { releaseBusy() }
   }
 
   useEffect(() => {
@@ -1395,8 +1422,7 @@ export function useDocumentWorkspace() {
   async function restoreLastSession(): Promise<void> {
     // A Finder open already in progress must finish first, so its file counts as open below.
     while (busyRef.current) await new Promise((resolve) => window.setTimeout(resolve, 100))
-    busyRef.current = true
-    setBusy(true)
+    takeBusy()
     try {
       const restored = await invoke<RestoredSession>('restore_session', { openTokens: tabsRef.current.map((tab) => tab.document.token).filter(Boolean) })
       const items: TabItem[] = []
@@ -1417,7 +1443,7 @@ export function useDocumentWorkspace() {
       }
       if (missing > 0) setStatus(`已恢复 ${items.length} 个文档；${missing} 个文件已不在原位置`)
     } catch (error) { setStatus(errorText(error)) }
-    finally { busyRef.current = false; setBusy(false) }
+    finally { releaseBusy() }
   }
 
   useEffect(() => {
@@ -1447,18 +1473,22 @@ export function useDocumentWorkspace() {
   }, [desktop, sessionReady, settings.restoreSession, tabs, activeTabKey, document.token])
 
   async function newDocument() {
-    if (busy) { noteBusy(); return }
+    if (busyRef.current) { noteBusy(); return }
     openTab(makeDocument('', settings.language === 'en-US' ? 'Untitled' : '未命名'))
   }
 
   async function openDocument() {
-    if (busy) { noteBusy(); return }
+    if (busyRef.current) { noteBusy(); return }
     let candidateToken: string | null = null
+    let took = false
     try {
       const opened = await invoke<OpenResult | null>('open_document')
       if (opened) {
         candidateToken = opened.token
-        setBusy(true)
+        // Something else may have started while the panel was open.
+        while (busyRef.current) await new Promise((resolve) => window.setTimeout(resolve, 100))
+        takeBusy()
+        took = true
         setStatus(`正在打开 ${opened.name}…`)
         await showOpened(opened)
         candidateToken = null
@@ -1467,7 +1497,7 @@ export function useDocumentWorkspace() {
       await releaseCandidate(candidateToken)
       setStatus(errorText(error))
     } finally {
-      setBusy(false)
+      if (took) releaseBusy()
     }
   }
 
@@ -1482,7 +1512,7 @@ export function useDocumentWorkspace() {
   }
 
   async function chooseWorkspace() {
-    if (busy) { noteBusy(); return }
+    if (busyRef.current) { noteBusy(); return }
     try {
       const chosen = await invoke<WorkspaceRoot | null>('choose_workspace')
       if (!chosen) return
@@ -1503,8 +1533,8 @@ export function useDocumentWorkspace() {
   }
 
   async function openWorkspaceEntry(token: string) {
-    if (busy) { noteBusy(); return }
-    setBusy(true)
+    if (busyRef.current) { noteBusy(); return }
+    takeBusy()
     setStatus('正在打开文档…')
     let candidateToken: string | null = null
     try {
@@ -1513,7 +1543,7 @@ export function useDocumentWorkspace() {
       await showOpened(opened, token)
       candidateToken = null
     } catch (error) { await releaseCandidate(candidateToken); setStatus(errorText(error)) }
-    finally { setBusy(false) }
+    finally { releaseBusy() }
   }
 
   /** Newer queries overtake older ones: Rust stops the old walk and the sequence drops any late answer. */
@@ -1646,16 +1676,14 @@ export function useDocumentWorkspace() {
   async function trashEntry(entry?: WorkspaceEntry & { parentToken: string }) {
     const target = entry ?? selectedEntry
     if (!target) return
-    const english = settings.language === 'en-US'
-    const question = target.directory
-      ? (english ? `Move the folder “${target.name}” and everything in it to the Trash?` : `将文件夹“${target.name}”及其中的所有内容移到废纸篓？`)
-      : (english ? `Move “${target.name}” to the Trash?` : `将“${target.name}”移到废纸篓？`)
+    const question = translateWith(target.directory ? '将文件夹“{name}”及其中的所有内容移到废纸篓？' : '将“{name}”移到废纸篓？', settingsRef.current.language, { name: target.name })
     if (!window.confirm(question)) return
     try {
-      // Rust names the sidebar entries and open documents inside a folder by token; the frontend never sees paths.
-      const inside = target.directory ? await invoke<{ entryTokens: string[]; documentTokens: string[] }>('workspace_entry_contents', { entryToken: target.token }) : { entryTokens: [target.token], documentTokens: [] }
+      // Rust names the sidebar entries and open documents at or inside the entry by token; the frontend never sees
+      // paths. A file asks too: a tab may show it without having been opened from the sidebar.
+      const inside = desktop ? await invoke<{ entryTokens: string[]; documentTokens: string[] }>('workspace_entry_contents', { entryToken: target.token }) : { entryTokens: [target.token], documentTokens: [] }
       const entries = new Set(inside.entryTokens), documents = new Set(inside.documentTokens)
-      const affected = tabsRef.current.filter((tab) => (tab.document.entryToken && entries.has(tab.document.entryToken)) || documents.has(tab.document.token)).map((tab) => tab.key)
+      const affected = tabsRef.current.filter((tab) => { const note = tabDocument(tab.key) ?? tab.document; return (note.entryToken && entries.has(note.entryToken)) || (note.token && documents.has(note.token)) }).map((tab) => tab.key)
       // A tab with unsaved changes asks first; canceling keeps the folder where it is.
       if (affected.length && !await closeTabs(affected)) return
       await invoke('trash_workspace_entry', { entryToken: target.token })
@@ -1670,21 +1698,25 @@ export function useDocumentWorkspace() {
   async function saveDocument(asNew = false, background = false): Promise<boolean> {
     const instance = adapter.current
     if (background && (busyRef.current || toolbar.composing)) return false
-    if (busy) {
+    if (busyRef.current) {
       if (sessionRef.current.persistence === 'saving') { queuedSave.current = true; setStatus('正在保存，完成后会再保存一次') }
       else noteBusy()
       return false
     }
     if (!isTextKind(document.kind)) { if (!background) setStatus(errorText('READ_ONLY')); return false }
-    if (document.mode === 'visual' && !instance) return false
+    // An editor still loading may yet fall back to source mode (`fragmentsSurvived`), which would orphan this save.
+    if (document.mode === 'visual' && (!instance || !instance.isReady() || adapterDocumentId.current !== document.id)) { if (!background) setStatus('编辑器尚未就绪，请稍后再保存'); return false }
     if (toolbar.composing) { setStatus('请先完成当前中文输入，再保存'); return false }
     if (document.token && !asNew && !isDirty(sessionRef.current)) {
       setStatus('内容未修改，磁盘文件无需重写')
       return true
     }
     const sourceText = flushSourceText().sourceText
-    setBusy(true)
-    const { session: saving, ticket } = beginSave(sessionRef.current)
+    let began: ReturnType<typeof beginSave>
+    try { began = beginSave(sessionRef.current) }
+    catch { noteBusy(); return false }
+    const { session: saving, ticket } = began
+    takeBusy()
     updateSession(saving)
     try {
       const visual = document.mode === 'visual'
@@ -1746,17 +1778,17 @@ export function useDocumentWorkspace() {
       setNotice({ kind: 'error', message: `保存失败：${errorText(error)}` })
       return false
     } finally {
-      setBusy(false)
+      releaseBusy()
     }
   }
   saveDocumentRef.current = (background = false) => saveDocument(false, background)
 
   /** Export HTML, Export PDF, or Print through the system panel (T106): all three render the same page. */
   async function exportPage(mode: 'html' | 'print' | 'pdf') {
-    if (busy) { noteBusy(); return }
+    if (busyRef.current) { noteBusy(); return }
     if (document.kind === 'pdf') { setStatus(errorText('READ_ONLY')); return }
     if ((document.mode === 'visual' && !adapter.current) || toolbar.composing) return
-    setBusy(true)
+    takeBusy()
     let snapshotId: string | null = null
     try {
       // A text or source file has no images and is not Markdown: its own renderer makes the body (T88).
@@ -1794,7 +1826,7 @@ export function useDocumentWorkspace() {
       setStatus(errorText(error))
     } finally {
       if (snapshotId) await invoke('release_snapshot', { snapshotId }).catch(() => undefined)
-      setBusy(false)
+      releaseBusy()
     }
   }
 
@@ -1815,10 +1847,10 @@ export function useDocumentWorkspace() {
   }
 
   async function exportSnapshotMD(textOnly: boolean) {
-    if (busy) { noteBusy(); return }
+    if (busyRef.current) { noteBusy(); return }
     if (document.kind !== 'markdown') { setStatus(document.kind === 'pdf' ? errorText('READ_ONLY') : '这类文档不是 Markdown；可以用“另存为”存成 Markdown。'); return }
     if (!desktop || (!textOnly && document.mode === 'source-protected')) return
-    setBusy(true)
+    takeBusy()
     let snapshotId: string | null = null
     try {
       snapshotId = await captureSnapshot(textOnly)
@@ -1827,7 +1859,7 @@ export function useDocumentWorkspace() {
     } catch (error) { setStatus(errorText(error)) }
     finally {
       if (snapshotId) await invoke('release_snapshot', { snapshotId }).catch(() => undefined)
-      setBusy(false)
+      releaseBusy()
     }
   }
 
@@ -1916,6 +1948,7 @@ export function useDocumentWorkspace() {
     const [, kind, id] = action.split(':')
     if (busyRef.current) { noteBusy(); return }
     let candidateToken: string | null = null
+    let took = false
     try {
       if (kind === 'folder') {
         const chosen = await invoke<WorkspaceRoot | null>('choose_recent_workspace', { id })
@@ -1925,12 +1958,14 @@ export function useDocumentWorkspace() {
       const opened = await invoke<OpenResult | null>('choose_recent_file', { id })
       if (!opened) return
       candidateToken = opened.token
-      setBusy(true)
+      while (busyRef.current) await new Promise((resolve) => window.setTimeout(resolve, 100))
+      takeBusy()
+      took = true
       setStatus(`正在打开 ${opened.name}…`)
       await showOpened(opened)
       candidateToken = null
     } catch (error) { await releaseCandidate(candidateToken); setStatus(errorText(error)) }
-    finally { setBusy(false) }
+    finally { if (took) releaseBusy() }
   }
 
   function openFind() {
@@ -2206,20 +2241,19 @@ export function useDocumentWorkspace() {
   async function trashDocument(key: string) {
     const note = tabDocument(key)
     if (!note?.token) return
-    if (busyRef.current) { noteBusy(); return }
+    if (busyRef.current || closingTabsRef.current) { noteBusy(); return }
     const active = key === activeTabKeyRef.current
     const session = active ? sessionRef.current : tabsRef.current.find((tab) => tab.key === key)?.session
     const dirty = session ? isDirty(session) : false
-    const question = settings.language === 'en-US'
-      ? `Move “${note.name}” to the Trash?${dirty ? ' Its unsaved changes will be discarded.' : ''}`
-      : `将“${note.name}”移到废纸篓？${dirty ? '未保存的修改会一并丢弃。' : ''}`
+    const question = translateWith(dirty ? '将“{name}”移到废纸篓？未保存的修改会一并丢弃。' : '将“{name}”移到废纸篓？', settingsRef.current.language, { name: note.name })
     if (!window.confirm(question)) return
     try { await invoke('trash_document', { token: note.token }) }
     catch (error) { setStatus(errorText(error)); return }
     if (active) updateSession(discardChanges(sessionRef.current))
     else updateTabs(tabsRef.current.map((tab) => tab.key === key ? { ...tab, session: discardChanges(tab.session) } : tab))
     if (note.entryToken) setTree((old) => Object.fromEntries(Object.entries(old).map(([dir, state]) => [dir, { ...state, entries: state.entries.filter((entry) => entry.token !== note.entryToken) }])))
-    await closeTabs([key])
+    // The file is gone either way; the draft is kept until the tab has really closed.
+    if (!await closeTabs([key])) { setStatus(`已移到废纸篓：${note.name}；标签页未能关闭`); return }
     await discardDraft(note.draftId).catch(() => undefined)
     setStatus(`已移到废纸篓：${note.name}`)
   }
@@ -2282,7 +2316,7 @@ export function useDocumentWorkspace() {
         case 'move-window': if (tabKey) await detachTab(tabKey); return
         case 'open-entry': if (entry && !entry.directory) await openWorkspaceEntry(entry.token); return
         case 'new-file': case 'new-folder':
-          if (directory) { setSelectedDirectory(directory); setRenaming(false); setNewEntryName(id === 'new-file' ? '新文档.md' : '新目录'); setNewEntryType(id === 'new-file' ? 'file' : 'directory') }
+          if (directory) { setSelectedDirectory(directory); setRenaming(false); setNewEntryName(t(id === 'new-file' ? '新文档.md' : '新目录')); setNewEntryType(id === 'new-file' ? 'file' : 'directory') }
           return
         case 'refresh': if (directory) await loadChildren(directory); return
         case 'close-folder': if (target.area === 'root') await closeWorkspace(target.token); return
@@ -2359,7 +2393,7 @@ export function useDocumentWorkspace() {
   }, [desktop])
 
   async function selectSample(sampleId: string) {
-    if (busy || !await canProceed()) {
+    if (busyRef.current || !await canProceed()) {
       setStatus('已取消切换，当前文档未改变')
       return
     }
@@ -2379,7 +2413,7 @@ export function useDocumentWorkspace() {
 
   function switchToSource() {
     const instance = adapter.current
-    if (busy) { noteBusy(); return }
+    if (busyRef.current) { noteBusy(); return }
     if (!instance || document.mode !== 'visual') return
     if (instance.hasPendingAssets()) {
       setStatus('请先保存待处理图片，再切换到源码模式')
@@ -2390,7 +2424,7 @@ export function useDocumentWorkspace() {
       : document.originalMarkdown
     const id = nextDocumentId++
     forceSourceView.current = true
-    updateSession({ ...sessionRef.current, generation: id })
+    updateSession(withGeneration(sessionRef.current, id))
     setDocument({ ...document, id, mode: 'source-protected', sourceText })
   }
 
@@ -2434,13 +2468,29 @@ export function useDocumentWorkspace() {
     if (destination && previewRoot.current?.contains(destination)) destination.scrollIntoView({ block: 'start' })
   }
 
+  /**
+   * A link in an AI answer never navigates the webview: it takes the same safe path as a link in the preview,
+   * and a jump to `#…` has no target there, so it does nothing.
+   */
+  function onAnswerClick(event: MouseEvent<HTMLElement>) {
+    const target = event.target
+    if (!(target instanceof Element)) return
+    const anchor = target.closest<HTMLAnchorElement>('a[href]')
+    if (!anchor) return
+    event.preventDefault()
+    if (event.type !== 'click') return
+    const href = anchor.getAttribute('href') ?? ''
+    if (href.startsWith('#')) return
+    if (event.metaKey || !/^(https?|mailto):/i.test(href)) linkOpenRef.current(href)
+  }
+
   async function switchToVisual() {
-    if (busy) { noteBusy(); return }
+    if (busyRef.current) { noteBusy(); return }
     if (document.mode !== 'source-protected' || document.kind !== 'markdown') return
     if (document.deferredVisual) setStatus('正在准备编辑器，大文档需要一些时间…')
     const document_ = flushSourceText()
     if (document_ !== document) { window.setTimeout(() => void switchToVisualRef.current(), 0); return }
-    setBusy(true)
+    takeBusy()
     try {
       const visual = await hydrateImages({ token: document.token, assetKey: document.assetKey, name: document.name, markdown: document.sourceText, revision: document.revision, kind: 'markdown', encoding: document.encoding })
       if (visual.mode !== 'visual') {
@@ -2464,10 +2514,10 @@ export function useDocumentWorkspace() {
       }
       const scroller = document.deferredVisual ? documentScroller() : null
       if (scroller && scroller.scrollHeight > scroller.clientHeight) carriedScroll.current = { id: visual.id, fraction: scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight) }
-      updateSession({ ...sessionRef.current, generation: visual.id })
+      updateSession(withGeneration(sessionRef.current, visual.id))
       setDocument({ ...visual, draftId: document.draftId, retiredTokens: document.retiredTokens, originalMarkdown: document.originalMarkdown, sampleId: document.sampleId })
     } finally {
-      setBusy(false)
+      releaseBusy()
     }
   }
 
@@ -2581,7 +2631,7 @@ export function useDocumentWorkspace() {
     onStatus: setStatus,
   })
   const sourceDark = style.dark
-  return useStableFunctions({ openBodyMenu, openTabMenu, openEntryMenu, openRootMenu, documentRename, setDocumentRename, confirmDocumentRename, updateSettings, activeEntryToken: document.entryToken, findCapped, queueFind, plain, isPdf, tableView, setTableView, pdfBridge, pdfPages: pdfPages?.id === document.id ? pdfPages.pages : null, selectedDirectory, previewPartial, ai, panel, setPanel, systemFonts, loadSystemFonts, pickStyle, toggleDayNight, latinLayout, style, sourceDark, reading, setReading, lightbox, setLightbox, openImageFromClick, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, moveEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettingsOpen, setSettingsTab, setSourceView, setStatus, settings, settingsOpen, settingsTab, sidebarOpen, sourceEditor, sourceView: sourceShown, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspaces }, STABLE_EXCEPT)
+  return useStableFunctions({ openBodyMenu, openTabMenu, openEntryMenu, openRootMenu, documentRename, setDocumentRename, confirmDocumentRename, updateSettings, activeEntryToken: document.entryToken, findCapped, queueFind, plain, isPdf, tableView, setTableView, pdfBridge, pdfPages: pdfPages?.id === document.id ? pdfPages.pages : null, selectedDirectory, previewPartial, ai, panel, setPanel, systemFonts, loadSystemFonts, pickStyle, toggleDayNight, latinLayout, style, sourceDark, reading, setReading, lightbox, setLightbox, openImageFromClick, findOptions, findRegexBlocked, setFindOptions, scheduleDerivedRefresh, wordCounts, openSearchHit, runWorkspaceSearch, searchQuery, searchState, setSearchQuery, goToOutlineItem, outlineItems, notice, setNotice, activeConflict, showDiskDiff, useDiskVersion, saveConflictCopyAs, refreshDrafts, diskDiff, setDiskDiff, findOpen, findQuery, setFindQuery, replaceText, setReplaceText, findCount, runFind, findStep, replaceOne, replaceEvery, closeFind, tablePicker, setTablePicker, activeTabKey, adapter, applyLink, busy, checkRoundTrip, chooseWorkspace, closeTabs, closeWorkspace, createEntry, desktop, detachTab, discardDraft, document, draftPreview, drafts, draftsOpen, editorHost, exportPage, exportSnapshotMD, flushSourceText, imageAltOpen, imageAltText, imageInput, imageInputAction, linkHref, linkOpen, loadChildren, newDocument, newEntryName, newEntryType, onPreviewClick, onAnswerClick, openDocument, openTablePickerFromToolbar, openWorkspaceEntry, persistenceLabel, previewDraft, previewHtml, previewPending, previewRoot, recoverDraft, renameEntry, moveEntry, renameName, renaming, reorderTabs, saveDocument, selectSample, selectedEntry, session, sessionRef, setDraftsOpen, setImageAltOpen, setImageAltText, setLinkHref, setLinkOpen, setNewEntryName, setNewEntryType, setRenameName, setRenaming, setSelectedDirectory, setSelectedEntry, setSettingsOpen, setSettingsTab, setSourceView, setStatus, settings, settingsOpen, settingsTab, sidebarOpen, sourceEditor, sourceView: sourceShown, status, switchTab, switchToSource, switchToVisual, t, tabDragRef, tabs, toggleDirectory, toolbar, trashEntry, tree, updateSession, workspaces }, STABLE_EXCEPT)
 }
 
 export type DocumentWorkspace = ReturnType<typeof useDocumentWorkspace>

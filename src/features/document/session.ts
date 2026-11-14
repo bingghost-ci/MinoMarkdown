@@ -57,6 +57,14 @@ export function discardChanges(session: DocumentSession): DocumentSession {
   return { ...session, savedRevision: session.revision, persistence: 'idle', errorCode: null }
 }
 
+/**
+ * The same edits under a new generation, as when the document is re-shown in another mode. A save that was
+ * running belongs to the old generation and its result will be ignored, so the new one must not stay `saving`.
+ */
+export function withGeneration(session: DocumentSession, generation: number): DocumentSession {
+  return { ...session, generation, persistence: session.persistence === 'saving' ? 'idle' : session.persistence }
+}
+
 export function externalConflict(session: DocumentSession): DocumentSession {
   return { ...session, persistence: 'conflict', errorCode: 'CONFLICT' }
 }

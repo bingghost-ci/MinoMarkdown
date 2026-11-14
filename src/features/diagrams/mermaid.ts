@@ -23,7 +23,20 @@ function loadMermaid() {
   return library
 }
 
-const remoteCss = /@import[^;]*;?|url\(\s*(?!['"]?(?:#|data:))[^)]*\)/gi
+/**
+ * CSS that can only point inside the SVG. Escapes are dropped first, so `\75rl(` or `@\69mport` cannot
+ * spell a function the filters below would miss; then every `url()` that is not a `#fragment`, every
+ * image function that takes a bare string, and every `@import` is replaced.
+ */
+export function localOnlyCss(css: string): string {
+  return css
+    .replace(/\\/g, '')
+    .replace(/@import\b[^;]*;?/gi, '')
+    .replace(/url\(\s*("[^"]*"|'[^']*'|[^"')]*)\s*\)/gi, (match, inner: string) => /^["']?#/.test(inner.trim()) ? match : 'none')
+    // An unbalanced `url(` left over could still open a request.
+    .replace(/url\(\s*(?!["']?#)/gi, 'none(')
+    .replace(/\b(?:-webkit-)?(?:image-set|cross-fade|image|element|src)\s*\(/gi, 'none(')
+}
 
 /** Keeps drawing primitives and removes scripts, external references and anything that could load a remote file. */
 export function sanitizeDiagramSvg(svg: string): string {
@@ -40,9 +53,12 @@ export function sanitizeDiagramSvg(svg: string): string {
       const value = element.getAttribute(name)
       if (value !== null && !value.trim().startsWith('#')) element.removeAttribute(name)
     }
-    const style = element.getAttribute('style')
-    if (style !== null) element.setAttribute('style', style.replace(remoteCss, 'none'))
-    if (element.tagName.toLowerCase() === 'style' && element.textContent) element.textContent = element.textContent.replace(remoteCss, 'none')
+    // Presentation attributes (`fill`, `filter`, `mask`, `clip-path`, `marker-end`…) take CSS values too.
+    for (const attribute of Array.from(element.attributes)) {
+      if (attribute.name === 'style') element.setAttribute('style', localOnlyCss(attribute.value))
+      else if (attribute.value.includes('(') && localOnlyCss(attribute.value) !== attribute.value) element.removeAttribute(attribute.name)
+    }
+    if (element.tagName.toLowerCase() === 'style' && element.textContent) element.textContent = localOnlyCss(element.textContent)
   }
   return root.innerHTML
 }

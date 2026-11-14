@@ -59,6 +59,19 @@ fn snapshots(folder: &Path) -> Vec<PathBuf> {
     result.sort_by(|a,b| b.file_name().cmp(&a.file_name()));
     result
 }
+/// The first number of a new snapshot's name (`snapshot-<first:020>-<counter:010>`, newest highest): the time in
+/// milliseconds, or one past the highest number already in the draft's folder when that is later, so a clock set
+/// back never makes the newest snapshot sort, and get pruned, as the oldest. Names written before keep their order.
+fn next_sequence<'a>(names: impl Iterator<Item = &'a str>, now: u128) -> u128 {
+    const WIDEST: u128 = 99_999_999_999_999_999_999; // 20 digits; a longer number would no longer sort by its text
+    names.filter_map(|name| name.strip_prefix("snapshot-").or_else(|| name.strip_prefix(".staging-")))
+        .filter_map(|rest| rest.split('-').next()?.parse::<u128>().ok())
+        .filter(|first| *first < WIDEST)
+        .fold(now, |next, first| next.max(first + 1))
+}
+fn now_millis() -> Result<u128, String> {
+    Ok(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_| "IO_ERROR")?.as_millis())
+}
 fn target_status(path: Option<&str>, base: Option<&str>) -> &'static str {
     let Some(path) = path else { return "untitled" };
     let Some(base) = base else { return "unknown" };
@@ -118,7 +131,8 @@ fn write_retaining(root: &Path, draft_id: &str, name: &str, target_path: Option<
             assets.push(DraftAsset { url: asset.url.clone(), mime: asset.mime.clone(), bytes: asset.bytes.clone() });
         }
     }
-    let snapshot_id = format!("{:020}-{:010}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_| "IO_ERROR")?.as_millis(), NEXT_SNAPSHOT.fetch_add(1, Ordering::Relaxed));
+    let existing: Vec<String> = fs::read_dir(&folder).map_err(|_| "IO_ERROR")?.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+    let snapshot_id = format!("{:020}-{:010}", next_sequence(existing.iter().map(String::as_str), now_millis()?), NEXT_SNAPSHOT.fetch_add(1, Ordering::Relaxed));
     let staging = folder.join(format!(".staging-{snapshot_id}"));
     fs::create_dir(&staging).map_err(|_| "IO_ERROR")?;
     let result = (|| {
@@ -199,7 +213,9 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
     };
     let manifest = Manifest { schema_version: 1, draft_id: draft_id.into(), name: name.into(), target_path, base_disk_revision, body_revision: hash(markdown.as_bytes()), assets: records };
     let manifest_bytes = serde_json::to_vec(&manifest).map_err(|_| "IO_ERROR")?;
-    let snapshot_id = format!("{:020}-{:010}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_| "IO_ERROR")?.as_millis(), NEXT_SNAPSHOT.fetch_add(1, Ordering::Relaxed));
+    let existing = macos_tree::entries(&folder)?;
+    let sequence = next_sequence(existing.iter().filter_map(|name| name.to_str()), now_millis()?);
+    let snapshot_id = format!("{:020}-{:010}", sequence, NEXT_SNAPSHOT.fetch_add(1, Ordering::Relaxed));
     let staging_name = entry(OsStr::new(&format!(".staging-{snapshot_id}")))?;
     let published_name = entry(OsStr::new(&format!("snapshot-{snapshot_id}")))?;
     if unsafe { libc::mkdirat(folder.as_raw_fd(), staging_name.as_ptr(), 0o700) } < 0 { return Err("IO_ERROR".into()); }
@@ -537,6 +553,30 @@ mod tests {
         assert!(!root.join(id).join(".staging-interrupted").exists());
         assert_eq!(latest(&root.join(id)).unwrap().1,"body 5");
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn a_clock_set_back_never_makes_the_newest_snapshot_the_one_pruned() {
+        let root = temp(); let id = "draft-12345678";
+        write_at(&root,id,"note",None,None,"first",vec![]).unwrap();
+        // Snapshots written while the clock was far ahead, as when it is later set back.
+        let ahead = snapshots(&root.join(id))[0].clone();
+        for (index, name) in ["snapshot-09000000000000000001-0000000001", "snapshot-09000000000000000002-0000000001", "snapshot-09000000000000000003-0000000001"].iter().enumerate() {
+            if index == 0 { fs::rename(&ahead, root.join(id).join(name)).unwrap(); } else { copy_dir(&root.join(id).join("snapshot-09000000000000000001-0000000001"), &root.join(id).join(name)); }
+        }
+        write_at(&root,id,"note",None,None,"after the clock went back",vec![]).unwrap();
+        assert_eq!(snapshots(&root.join(id)).len(), KEEP_SNAPSHOTS);
+        assert_eq!(latest(&root.join(id)).unwrap().1, "after the clock went back");
+        #[cfg(target_os = "macos")]
+        assert_eq!(macos_read::latest(&root, id, false).unwrap().1, "after the clock went back");
+        assert_eq!(next_sequence(["snapshot-00000000000000000005-0000000001", ".staging-00000000000000000009-0000000002", "other"].into_iter(), 3), 10);
+        assert_eq!(next_sequence(["snapshot-00000000000000000005-0000000001"].into_iter(), 50), 50);
+        fs::remove_dir_all(root).unwrap();
+    }
+    fn copy_dir(from: &Path, to: &Path) {
+        fs::create_dir(to).unwrap();
+        for entry in fs::read_dir(from).unwrap().flatten() {
+            if entry.file_type().unwrap().is_dir() { copy_dir(&entry.path(), &to.join(entry.file_name())); } else { fs::copy(entry.path(), to.join(entry.file_name())).unwrap(); }
+        }
     }
     #[test]
     fn retained_images_are_reused_without_upload_and_survive_pruning() {

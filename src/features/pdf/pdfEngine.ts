@@ -44,6 +44,11 @@ export function loadPdfLibrary(): Promise<PdfRuntime> {
   return browserRuntime
 }
 
+/** A plain file name with an extension, as PDF.js asks for a character map or font: no folders, and nothing made only of dots such as `..`. */
+export function isPdfAssetName(filename: string): boolean {
+  return /^\w[\w-]*(?:\.[\w-]+)+$/.test(filename)
+}
+
 const closers = new WeakMap<object, () => Promise<void>>()
 
 /** Ends a document opened by `openPdf` and stops the worker that served it. */
@@ -87,7 +92,7 @@ export async function openPdf(library: PdfLibrary, source: PdfSource, options: O
   class BinaryData {
     async fetch({ kind, filename }: { kind: string; filename: string }): Promise<Uint8Array> {
       const folder = kind === 'cMapUrl' ? 'cmaps/' : kind === 'standardFontDataUrl' ? 'standard_fonts/' : null
-      if (folder === null || !/^[\w.-]+$/.test(filename)) throw new Error(`Unable to load ${kind} data: ${filename}`)
+      if (folder === null || !isPdfAssetName(filename)) throw new Error(`Unable to load ${kind} data: ${filename}`)
       return source.readAsset(`${PDF_ASSET_ROOT}${folder}${filename}`)
     }
   }
@@ -169,7 +174,14 @@ export function assemblePdfText(pages: readonly string[], total: number, maxChar
     if (!body) continue
     textPages++
     const part = `${pageHeading(index + 1)}\n${body}`
-    if (length + part.length > maxChars) { truncated = true; parts.push(part.slice(0, Math.max(0, maxChars - length))); break }
+    if (length + part.length > maxChars) {
+      truncated = true
+      // `length` already counts the separator before this part; with no room left for any of it, the
+      // separator is left out too, so the text never runs past `maxChars`.
+      const room = maxChars - length
+      if (room > 0) parts.push(part.slice(0, room))
+      break
+    }
     parts.push(part)
     length += part.length + 2
   }

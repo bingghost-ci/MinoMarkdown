@@ -1,4 +1,4 @@
-use crate::{documents::{DocumentStore, asset_mime, read_granted_asset, validate_image}, staging::{StagedAsset, StagingStore}, fs::{atomic_write, asset_directory::{AssetDirectory, PutResult}}, markdown_images};
+use crate::{documents::{DocumentStore, asset_mime, read_granted_asset, validate_image}, staging::{StagedAsset, StagingStore}, fs::asset_directory::{AssetDirectory, PutResult}, markdown_images};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::Path, sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex}, time::{Duration, Instant}};
 use tauri::{AppHandle, State, WebviewWindow};
@@ -61,7 +61,9 @@ fn snapshot(store: &SnapshotStore, id: &str) -> Result<Arc<Snapshot>, String> {
 }
 fn export_at(snapshot: &Snapshot, target: &Path, text_only: bool) -> Result<ExportResult, String> {
     if target.extension().and_then(|e| e.to_str()).is_none_or(|e| !e.eq_ignore_ascii_case("md") && !e.eq_ignore_ascii_case("markdown")) { return Err("UNSUPPORTED_FILE_TYPE".into()); }
-    if target.exists() || fs::symlink_metadata(target).is_ok() { return Err("TARGET_EXISTS".into()); }
+    // The save panel has asked about replacing a file there. Anything but a regular file in its place is refused
+    // before an image is written; the write itself replaces only a regular file, never through a link.
+    if fs::symlink_metadata(target).is_ok_and(|meta| !meta.is_file()) { return Err("TARGET_EXISTS".into()); }
     let mut markdown = snapshot.markdown.clone();
     let mut assets_out = Vec::new();
     if text_only {
@@ -90,7 +92,7 @@ fn export_at(snapshot: &Snapshot, target: &Path, text_only: bool) -> Result<Expo
         if let Some(directory) = &directory { directory.verify_location()?; }
         markdown = markdown_images::rewrite_image_urls(&markdown, &replacements)?;
     }
-    let sha256 = atomic_write::commit(target, markdown.as_bytes(), None)?;
+    let sha256 = crate::documents::commit_chosen(target, markdown.as_bytes())?;
     Ok(ExportResult { name: target.file_name().ok_or("INVALID_PATH")?.to_string_lossy().into_owned(), sha256, assets: assets_out, generation: snapshot.generation, revision: snapshot.revision })
 }
 
@@ -185,6 +187,22 @@ mod tests {
         assert!(output.contains("[ref]: https://example.org/path"));
         assert!(output.contains("[pic]: assets/image-"));
         assert_eq!(fs::read(dir.join(&result.assets[0].path)).unwrap(), bytes);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_export_replaces_a_file_the_panel_confirmed_but_never_a_link() {
+        let dir = temp(); let target = dir.join("note.md");
+        let snap = Snapshot { markdown: "new text".into(), title: "n".into(), assets: vec![], extensions: vec![], generation: 1, revision: 1, created: Instant::now() };
+        fs::write(&target, b"old text").unwrap();
+        export_at(&snap, &target, false).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"new text");
+        let outside = dir.join("outside.txt");
+        fs::write(&outside, b"keep").unwrap();
+        let link = dir.join("link.md");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        assert_eq!(export_at(&snap, &link, false).err().as_deref(), Some("TARGET_EXISTS"));
+        assert_eq!(fs::read(&outside).unwrap(), b"keep");
         fs::remove_dir_all(dir).unwrap();
     }
 }

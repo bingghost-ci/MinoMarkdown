@@ -48,7 +48,8 @@ function embedImages(resolveImage: ImageResolver) {
     const linkReferences = new Set<string>()
     function collect(node: Node) {
       const id = node.identifier?.toLowerCase()
-      if (node.type === 'definition' && id) definitions.set(id, node)
+      // The first definition of a label is the one that renders (CommonMark), so it is the one embedded.
+      if (node.type === 'definition' && id && !definitions.has(id)) definitions.set(id, node)
       if (node.type === 'imageReference' && id) imageReferences.add(id)
       if (node.type === 'linkReference' && id) linkReferences.add(id)
       for (const child of node.children ?? []) collect(child as Node)
@@ -87,6 +88,23 @@ export function exportBody(markdown: string): string {
   return text.replace(/^---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)(?:\r?\n|$)/, '')
 }
 
+/**
+ * After sanitizing: an image whose address is not a data URI was not embedded, and a relative or
+ * protocol-relative address would survive the sanitizer's protocol check. It is left out, so the page
+ * never refers to anything outside itself.
+ */
+function onlyEmbeddedImages() {
+  type Hast = { type: string; tagName?: string; properties?: Record<string, unknown>; children?: Hast[] }
+  return (tree: Hast) => {
+    const walk = (node: Hast) => {
+      if (!node.children) return
+      node.children = node.children.filter((child) => !(child.type === 'element' && child.tagName === 'img' && !String(child.properties?.src ?? '').startsWith('data:')))
+      for (const child of node.children) walk(child)
+    }
+    walk(tree)
+  }
+}
+
 function countRawHtml(report: { omittedHtml: number }) {
   return () => (tree: Root) => {
     function walk(node: { type: string; value?: string; children?: unknown[] }) {
@@ -118,6 +136,7 @@ export async function renderExport(markdown: string, title: string, resolveImage
     .use(embedImages(resolveImage))
     .use(remarkRehype)
     .use(rehypeSanitize, withMathClasses({ ...defaultSchema, protocols: { ...defaultSchema.protocols, src: ['data'] } }))
+    .use(onlyEmbeddedImages)
     .use(rehypeRenderMath, await loadMathRenderer(markdown), report)
     .use(rehypeEmbedDiagrams, { diagrams, report })
     .use(rehypeHighlightCode, { parsers: await loadCodeParsers(markdown) })
