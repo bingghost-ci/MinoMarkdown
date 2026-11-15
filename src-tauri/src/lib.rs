@@ -37,7 +37,8 @@ fn focused_workspace(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
 /// Vite's in a development build) and empty frames. A link that escaped the frontend's own handling, a remote
 /// page, and any other page of the app's origin (a relative link such as `notes.md` resolves there) are refused.
 fn navigation_allowed(url: &tauri::Url, development: bool) -> bool {
-    let entry = matches!(url.path(), "/" | "/index.html");
+    // The bundled page is loaded as `tauri://localhost`, whose path is empty: only http(s) URLs get "/" for free.
+    let entry = matches!(url.path(), "" | "/" | "/index.html");
     match url.scheme() {
         "tauri" => url.host_str() == Some("localhost") && entry,
         "http" if development => url.host_str() == Some("127.0.0.1") && url.port() == Some(1420) && entry,
@@ -312,7 +313,8 @@ mod tests {
     #[test]
     fn webviews_only_load_the_entry_page_of_the_app() {
         let url = |raw: &str| tauri::Url::parse(raw).unwrap();
-        for ok in ["tauri://localhost/", "tauri://localhost/index.html", "tauri://localhost/index.html?ui-preview=editor#x", "about:blank", "about:srcdoc"] {
+        // `tauri://localhost` without a slash is what the release build loads; the URL parser leaves its path empty.
+        for ok in ["tauri://localhost", "tauri://localhost/", "tauri://localhost/index.html", "tauri://localhost/index.html?ui-preview=editor#x", "about:blank", "about:srcdoc"] {
             assert!(navigation_allowed(&url(ok), false), "{ok}");
         }
         assert!(navigation_allowed(&url("http://127.0.0.1:1420/"), true));
