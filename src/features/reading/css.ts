@@ -2,7 +2,7 @@ import { mix, parseHex } from './color'
 import { CODE_FONT_STACK } from './fonts'
 import { readingStyle, readingStyles, type CodeTheme, type ReadingStyle } from './styles'
 import { textureBackground } from './textures'
-import { syntaxRoles, tokenClass } from '../../core/markdown/syntaxRoleNames'
+import { syntaxRoles, tokenClass, type SyntaxRole } from '../../core/markdown/syntaxRoleNames'
 
 /**
  * CSS for every place a document is shown. The app injects `appStylesheet()` once and switches styles by
@@ -43,10 +43,16 @@ export const PAGE_RADIUS = 14
 /** "Unlimited" keeps the 1040 px page from T42. */
 export const UNLIMITED_PAGE_WIDTH = 1040
 
-const syntaxPalettes: Record<CodeTheme, Record<string, string>> = {
-  light: { keyword: '#7a2d8c', atom: '#1d4f91', number: '#116644', definition: '#0b4fae', variable: '#1f5f6b', type: '#0a6b52', string: '#a2302a', comment: '#7a6a55', meta: '#8a5a00', invalid: '#c0392b', heading: '#1d4f91' },
-  warm: { keyword: '#7d3c18', atom: '#6b4a8a', number: '#5d6b14', definition: '#8a4b16', variable: '#4f6236', type: '#2f6b5a', string: '#9b3b1f', comment: '#8a7a62', meta: '#8a5a00', invalid: '#b03a2e', heading: '#7d3c18' },
-  night: { keyword: '#d7a8e8', atom: '#9cc4f0', number: '#b5d08e', definition: '#8fc2ff', variable: '#9fd4cf', type: '#8fd6b6', string: '#e8b08a', comment: '#8f8a80', meta: '#e3c27a', invalid: '#ff8f80', heading: '#9cc4f0' },
+/**
+ * Code colors by role (`syntaxRoleNames.ts`). Each set spreads the roles over the hue circle so neighbors in code
+ * differ: purple keywords, red strings, green numbers, blue definitions, ochre calls, slate variables, teal
+ * properties. `deep` is for kraft paper, whose code background is too dark for the `warm` set.
+ */
+const syntaxPalettes: Record<CodeTheme, Record<SyntaxRole, string>> = {
+  light: { keyword: '#8a2f9e', operator: '#5a6270', atom: '#4a44c4', number: '#4d6b0a', string: '#a2302a', definition: '#0b4fae', function: '#855000', variable: '#2f5a7d', property: '#0d6a6f', type: '#0a6b52', comment: '#6a6f78', meta: '#8a5a00', invalid: '#c0392b', heading: '#0b4fae' },
+  warm: { keyword: '#7a2a7a', operator: '#6a5a48', atom: '#3f4a9e', number: '#506000', string: '#a0321a', definition: '#1f4f8a', function: '#7d4a00', variable: '#2c5a70', property: '#16645a', type: '#3d6626', comment: '#7a6a52', meta: '#8a5a00', invalid: '#b03a2e', heading: '#1f4f8a' },
+  deep: { keyword: '#5a1560', operator: '#4a3a28', atom: '#262f78', number: '#334000', string: '#741a08', definition: '#0f3566', function: '#5a3000', variable: '#173f52', property: '#0a463e', type: '#244a12', comment: '#5a4a34', meta: '#5c3a00', invalid: '#8a1a10', heading: '#0f3566' },
+  night: { keyword: '#d7a8e8', operator: '#a9b0bb', atom: '#b4b2f8', number: '#b5d08e', string: '#e8a48a', definition: '#7fbaff', function: '#e3c986', variable: '#a9cbe6', property: '#8fd4cf', type: '#8fd6b6', comment: '#9a9fa8', meta: '#e3c27a', invalid: '#ff8f80', heading: '#7fbaff' },
 }
 
 function declarations(values: Record<string, string>): string {

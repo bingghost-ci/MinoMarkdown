@@ -13,7 +13,7 @@ export type { TextureId }
 export type StyleGroup = 'plain' | 'paper' | 'eye' | 'night'
 /** The Chinese font a style recommends; see `fonts.ts` for the faces behind each. */
 export type StyleFont = 'song' | 'kai' | 'hei'
-export type CodeTheme = 'light' | 'warm' | 'night'
+export type CodeTheme = 'light' | 'warm' | 'deep' | 'night'
 
 export type UiColors = { sidebar: string; chrome: string; raised: string; line: string; hover: string; selected: string; accent: string; accentInk: string; danger: string }
 
@@ -80,7 +80,7 @@ const sources: ReadingStyleSource[] = [
   { id: 'paper', name: '书页', group: 'paper', dark: false, paper: '#f6efe0', text: '#2e261d', secondary: '#6a5b4a', link: '#8a4a24', texture: 'paper', font: 'song', codeTheme: 'warm', quoteMark: true },
   { id: 'xuan', name: '宣纸', group: 'paper', dark: false, paper: '#f5f3ea', text: '#211f1b', secondary: '#5f5850', link: '#a8382a', texture: 'xuan', font: 'kai', codeTheme: 'warm', quoteMark: true, ornament: true },
   { id: 'parchment', name: '羊皮卷', group: 'paper', dark: false, paper: '#ead6a8', text: '#3b2a17', secondary: '#5e4829', link: '#6f3410', texture: 'parchment', font: 'song', codeTheme: 'warm', quoteMark: true, ornament: true, aging: true },
-  { id: 'kraft', name: '牛皮纸', group: 'paper', dark: false, paper: '#c9a878', text: '#2a1c0f', secondary: '#49361f', link: '#5c210b', texture: 'kraft', font: 'kai', codeTheme: 'warm' },
+  { id: 'kraft', name: '牛皮纸', group: 'paper', dark: false, paper: '#c9a878', text: '#2a1c0f', secondary: '#49361f', link: '#5c210b', texture: 'kraft', font: 'kai', codeTheme: 'deep' },
   { id: 'mint', name: '豆沙绿', group: 'eye', dark: false, paper: '#cce8cf', text: '#23342a', secondary: '#44584a', link: '#1d6140', texture: null, font: 'hei', codeTheme: 'light' },
   { id: 'charcoal', name: '淡黑', group: 'night', dark: true, paper: '#18191b', text: '#c8cbd0', secondary: '#9397a0', link: '#8ab4e8', texture: null, font: 'hei', codeTheme: 'night', overrides: { desk: '#111113', edge: '#27282b', ui: { sidebar: '#141416', chrome: '#17171a', raised: '#232326', line: '#28282b', hover: '#1f1f22' } } },
   { id: 'dark', name: '深灰', group: 'night', dark: true, paper: '#242427', text: '#d0d3d8', secondary: '#9a9fa8', link: '#8fc1f2', texture: null, font: 'hei', codeTheme: 'night' },

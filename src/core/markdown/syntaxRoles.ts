@@ -18,13 +18,20 @@ export function syntaxRole(color: string): SyntaxRole {
 }
 
 /**
- * Tokens CodeMirror's default style leaves uncolored, which left shell commands and JSON almost plain:
- * option flags and attributes, property names (JSON keys), and built-in commands.
+ * Tokens CodeMirror's default style leaves uncolored, which left most of a program in the text color: plain
+ * variable names, calls, property names (JSON keys too), option flags and attributes, operators, and built-ins.
+ * A more specific tag wins over a general one, so a called name is a `function` and not a `variable`.
  */
 export const extraSyntax: readonly { tag: Tag; role: SyntaxRole }[] = [
-  { tag: tags.attributeName, role: 'variable' },
-  { tag: tags.propertyName, role: 'definition' },
+  { tag: tags.variableName, role: 'variable' },
+  { tag: tags.propertyName, role: 'property' },
+  { tag: tags.attributeName, role: 'property' },
+  { tag: tags.function(tags.variableName), role: 'function' },
+  { tag: tags.function(tags.propertyName), role: 'function' },
+  { tag: tags.function(tags.definition(tags.variableName)), role: 'function' },
   { tag: tags.standard(tags.variableName), role: 'atom' },
+  { tag: tags.self, role: 'atom' },
+  { tag: tags.operator, role: 'operator' },
 ]
 
 /** Gives tokens the class of their role, for static highlighting outside CodeMirror. */
