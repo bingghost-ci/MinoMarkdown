@@ -7,6 +7,8 @@ import { translateStatus, type Language } from '../i18n'
 import { readingStyles, type ReadingStyle } from '../../features/reading/styles'
 import { diagramCurveLabels, diagramCurves, diagramLineLabels, diagramLines, diagramLookLabels, diagramLooks, diagramVariables, resolvedCurve, resolvedLine, type DiagramCurve, type DiagramLine, type DiagramLook } from '../../features/diagrams/looks'
 import { modelChoices, providerHasKey, providerIds, providerLabels, type AiProvider } from '../../features/ai/client'
+import { codeColorIds, codeColorLabels, codePalette, type CodeColors } from '../../features/reading/codeColors'
+import type { SyntaxRole } from '../../core/markdown/syntaxRoleNames'
 import { StyleSwatches } from './AppearancePanel'
 import { FontPicker } from './FontPicker'
 
@@ -46,6 +48,25 @@ function DiagramLookPicker({ style, settings, onChange, t }: { style: ReadingSty
     {diagramLooks.map((look) => <button key={look} type="button" aria-pressed={settings.diagramStyle === look} title={t(diagramLookLabels[look].note)} onClick={() => onChange(look)}>
       <DiagramSketch style={style} look={look} line={settings.diagramLine} curve={settings.diagramCurve} /><span>{t(diagramLookLabels[look].name)}</span>
     </button>)}
+  </div>
+}
+
+/** Two lines that show most token roles; `null` is punctuation in the text color. */
+const codeSample: readonly (readonly (readonly [SyntaxRole | null, string])[])[] = [
+  [['keyword', 'const '], ['definition', 'total'], ['operator', ' = '], ['function', 'sum'], [null, '('], ['variable', 'items'], [null, ') '], ['comment', '// 合计']],
+  [['keyword', 'if '], [null, '('], ['variable', 'user'], [null, '.'], ['property', 'name'], ['operator', ' === '], ['string', '"mino"'], [null, ') '], ['keyword', 'return '], ['number', '42']],
+]
+
+/** Each scheme drawn on the current paper's code background, with the colors the page would get. */
+function CodeColorsPicker({ style, value, onChange, t }: { style: ReadingStyle; value: CodeColors; onChange: (value: CodeColors) => void; t: (text: string) => string }) {
+  return <div className="code-colors" role="group" aria-label={t('代码配色')}>
+    {codeColorIds.map((id) => {
+      const palette = codePalette(id, style)
+      return <button key={id} type="button" aria-pressed={value === id} title={t(codeColorLabels[id].note)} onClick={() => onChange(id)}>
+        <pre aria-hidden="true">{codeSample.map((line, row) => <span key={row}>{line.map(([role, text], index) => <span key={index} style={role ? { color: palette[role] } : undefined}>{text}</span>)}{'\n'}</span>)}</pre>
+        <span>{t(codeColorLabels[id].name)}</span>
+      </button>
+    })}
   </div>
 }
 
@@ -126,6 +147,9 @@ export function SettingsDialog({ workspace: w }: { workspace: DocumentWorkspace 
           <div className="settings-section-heading"><strong>{t('阅读风格')}</strong><small>{t('窗口和标题栏带一点纸张的色调，颜色主要在纸面和标题上')}</small></div>
           <StyleSwatches workspace={w} />
           {active.texture && <Row title={t('纸张纹理')} note={t('纸面纤维、压纹和做旧的明显程度')}><input type="range" aria-label={t('纸张纹理')} min={0} max={100} step={10} value={settings.textureStrength} onChange={(event) => update({ textureStrength: Number(event.target.value) })} /></Row>}
+          <div className="settings-section-heading"><strong>{t('代码配色')}</strong><small>{t('代码块和源码文件里各种记号的颜色；底色始终是纸张的，颜色会按纸张调到看得清，导出也用这里的选择')}</small></div>
+          <CodeColorsPicker style={active} value={settings.codeColors} onChange={(codeColors) => update({ codeColors })} t={t} />
+          <p className="settings-note">{t(codeColorLabels[settings.codeColors]?.note ?? codeColorLabels.auto.note)}</p>
           <div className="settings-section-heading"><strong>{t('图表风格')}</strong><small>{t('Mermaid 流程图、时序图等的画法：字体、笔触、边角和连线；颜色始终取自当前纸张，导出也用这里的选择')}</small></div>
           <DiagramLookPicker style={active} settings={settings} onChange={(diagramStyle) => update({ diagramStyle })} t={t} />
           <p className="settings-note">{t(diagramLookLabels[settings.diagramStyle].note)}</p>

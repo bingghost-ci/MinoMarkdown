@@ -1,8 +1,9 @@
 import { mix, parseHex } from './color'
 import { CODE_FONT_STACK } from './fonts'
-import { readingStyle, readingStyles, type CodeTheme, type ReadingStyle } from './styles'
+import { readingStyle, readingStyles, type ReadingStyle } from './styles'
+import { syntaxVariables } from './codeColors'
 import { textureBackground } from './textures'
-import { syntaxRoles, tokenClass, type SyntaxRole } from '../../core/markdown/syntaxRoleNames'
+import { syntaxRoles, tokenClass } from '../../core/markdown/syntaxRoleNames'
 
 /**
  * CSS for every place a document is shown. The app injects `appStylesheet()` once and switches styles by
@@ -18,6 +19,8 @@ export type Typography = {
   fontFamily: string
   /** The stack for code; the default when left out. */
   codeFontFamily?: string
+  /** The code color scheme (`codeColors.ts`); the reading style's own when left out. */
+  codeColors?: string
   fontSize: number
   lineHeight: number
   paragraphSpacing: ParagraphSpacing
@@ -43,25 +46,12 @@ export const PAGE_RADIUS = 14
 /** "Unlimited" keeps the 1040 px page from T42. */
 export const UNLIMITED_PAGE_WIDTH = 1040
 
-/**
- * Code colors by role (`syntaxRoleNames.ts`). Each set spreads the roles over the hue circle so neighbors in code
- * differ: purple keywords, red strings, green numbers, blue definitions, ochre calls, slate variables, teal
- * properties. `deep` is for kraft paper, whose code background is too dark for the `warm` set.
- */
-const syntaxPalettes: Record<CodeTheme, Record<SyntaxRole, string>> = {
-  light: { keyword: '#8a2f9e', operator: '#5a6270', atom: '#4a44c4', number: '#4d6b0a', string: '#a2302a', definition: '#0b4fae', function: '#855000', variable: '#2f5a7d', property: '#0d6a6f', type: '#0a6b52', comment: '#6a6f78', meta: '#8a5a00', invalid: '#c0392b', heading: '#0b4fae' },
-  warm: { keyword: '#7a2a7a', operator: '#6a5a48', atom: '#3f4a9e', number: '#506000', string: '#a0321a', definition: '#1f4f8a', function: '#7d4a00', variable: '#2c5a70', property: '#16645a', type: '#3d6626', comment: '#7a6a52', meta: '#8a5a00', invalid: '#b03a2e', heading: '#1f4f8a' },
-  deep: { keyword: '#5a1560', operator: '#4a3a28', atom: '#262f78', number: '#334000', string: '#741a08', definition: '#0f3566', function: '#5a3000', variable: '#173f52', property: '#0a463e', type: '#244a12', comment: '#5a4a34', meta: '#5c3a00', invalid: '#8a1a10', heading: '#0f3566' },
-  night: { keyword: '#d7a8e8', operator: '#a9b0bb', atom: '#b4b2f8', number: '#b5d08e', string: '#e8a48a', definition: '#7fbaff', function: '#e3c986', variable: '#a9cbe6', property: '#8fd4cf', type: '#8fd6b6', comment: '#9a9fa8', meta: '#e3c27a', invalid: '#ff8f80', heading: '#7fbaff' },
-}
-
 function declarations(values: Record<string, string>): string {
   return Object.entries(values).map(([name, value]) => `${name}:${value};`).join('')
 }
 
 export function styleVariables(style: ReadingStyle, textureSource?: (file: string) => string | undefined): Record<string, string> {
   const texture = textureBackground(style.texture, textureSource)
-  const syntax = syntaxPalettes[style.codeTheme]
   return {
     'color-scheme': style.dark ? 'dark' : 'light',
     '--surface': style.paper,
@@ -100,7 +90,7 @@ export function styleVariables(style: ReadingStyle, textureSource?: (file: strin
     '--accent': style.ui.accent,
     '--accent-ink': style.ui.accentInk,
     '--danger': style.ui.danger,
-    ...Object.fromEntries(Object.entries(syntax).map(([name, color]) => [`--syntax-${name}`, color])),
+    ...syntaxVariables('auto', style),
   }
 }
 
@@ -192,6 +182,7 @@ export function typographyVariables(typography: Typography, style: ReadingStyle)
   return {
     '--doc-font': typography.fontFamily,
     '--code-font': typography.codeFontFamily ?? CODE_FONT_STACK,
+    ...syntaxVariables(typography.codeColors, style),
     '--doc-hyphens': typography.hyphens ? 'auto' : 'manual',
     '--doc-justify': typography.hyphens ? 'auto' : 'inter-character',
     '--paper-veil': veil,

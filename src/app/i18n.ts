@@ -2,6 +2,16 @@ export type Language = 'zh-CN' | 'en-US'
 
 const english: Record<string, string> = {
   "代码": "Code",
+  "代码配色": "Code Colors",
+  "代码块和源码文件里各种记号的颜色；底色始终是纸张的，颜色会按纸张调到看得清，导出也用这里的选择": "The colors of tokens in code blocks and source files. The background stays the paper's, colors are adjusted to stay readable on it, and exports use this choice too.",
+  "素墨": "Ink Only",
+  "按纸张配好的一套：紫色关键字、红色字符串、蓝色定义": "A set made for the paper: purple keywords, red strings, blue definitions",
+  "只用纸张的墨色和强调色，代码不抢正文的注意力": "Only the paper's ink and accent, so code does not compete with the text",
+  "红色关键字、深蓝字符串、紫色函数": "Red keywords, dark blue strings, purple functions",
+  "Atom 的配色：绿色字符串、蓝色函数、红色变量": "Atom's colors: green strings, blue functions, red variables",
+  "柔和的低对比配色：绿色关键字、青色字符串": "Soft, low-contrast colors: green keywords, cyan strings",
+  "复古暖色：红色关键字、绿色字符串、蓝色变量": "Retro warm colors: red keywords, green strings, blue variables",
+  "偏冷的蓝紫色调": "Cool blue and purple tones",
   "代码字体": "Code Fonts",
   "用于代码": "For Code",
   "默认": "Default",

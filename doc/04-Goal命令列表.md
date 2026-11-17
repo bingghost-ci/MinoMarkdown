@@ -618,6 +618,18 @@ G01–G29 分别对应 T01–T29，每项命令可独立复制到支持 Goals �
 /goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T109 文件栏整理与拖入」完成文件栏整理与拖入。先读 CLAUDE.md、doc/01-产品方案.md §3.18、doc/02-技术设计.md §29、doc/05-验收与发布.md §8N 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
 ```
 
+## G110 代码配色
+
+2026-11-17 按用户“显示的代码没有好的配色”“设置页面支持配色方案的选择”的要求建立，对应 T110，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G110 | T110 | T56、T75、T85 | 变量、调用、属性、运算符上色；设置中可选七套代码配色 |
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T110 代码配色」完成代码配色。先读 CLAUDE.md、doc/01-产品方案.md §3.19、doc/02-技术设计.md §30、doc/05-验收与发布.md §8O 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
 ## 连续开发总 Goal（逐项读取列表）
 
 此命令只负责开发阶段。每轮读取 G01–G29 的当前任务，依据代码依赖推进；已实现的任务先复核，不重复开发。最终原生验收层级与 Gate 留待集中测试，不能虚报 PASS。单项命令和本总 Goal 共用进度表，不创建嵌套 Goal。
