@@ -1,27 +1,19 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { keepLegible, LEGIBLE_PX } from '../src/features/diagrams/mermaid'
 import { MAX_PINCH_ZOOM, MIN_PINCH_ZOOM, pinchedZoom } from '../src/app/pinchZoom'
 import { readFileSync } from 'node:fs'
 
 describe('reading diagrams without squinting (T119)', () => {
-  it('gives a diagram a least width at which its labels can be read', () => {
-    const svg = '<svg id="d" width="100%" style="max-width: 1500px;" viewBox="0 0 1500 200"><g/></svg>'
-    // 16 px labels may shrink to 13.5 px, and no further.
-    expect(keepLegible(svg)).toBe('<svg id="d" width="100%" style="max-width: 1500px;min-width:1266px" viewBox="0 0 1500 200"><g/></svg>')
-    // Labels set larger may shrink further before they are too small.
-    expect(keepLegible(svg, 20)).toContain(`min-width:${Math.round(1500 * LEGIBLE_PX / 20)}px`)
-    expect(keepLegible(svg, 10)).toContain('min-width:1500px')
-    // Done once, and only to a drawing that states its width.
-    expect(keepLegible(keepLegible(svg))).toBe(keepLegible(svg))
-    expect(keepLegible('<svg viewBox="0 0 10 10"></svg>')).toBe('<svg viewBox="0 0 10 10"></svg>')
-    expect(keepLegible('<p style="max-width: 9px">x</p>')).toBe('<p style="max-width: 9px">x</p>')
-  })
-
-  it('lets a printed page shrink the diagram to fit, since paper cannot scroll', () => {
-    const css = readFileSync('src/features/reading/css.ts', 'utf8')
-    expect(css).toContain('@media print{.mermaid-diagram{overflow:visible}.mermaid-diagram svg{min-width:0!important}}')
-    expect(readFileSync('src/styles.css', 'utf8')).toContain('.mermaid-preview { display: flex; justify-content: safe center; overflow-x: auto;')
+  it('fits a diagram to its column and to the page, with nothing to scroll sideways', () => {
+    const page = readFileSync('src/features/reading/css.ts', 'utf8')
+    expect(page).toContain('.mermaid-diagram svg{max-width:100%;height:auto}')
+    expect(page).not.toMatch(/\.mermaid-diagram\{[^}]*overflow/)
+    const app = readFileSync('src/styles.css', 'utf8')
+    expect(app).toContain('.mermaid-preview svg { min-width: 0; max-width: 100%; height: auto; }')
+    expect(app).not.toMatch(/\.mermaid-preview \{[^}]*overflow/)
+    expect(app).not.toContain('.mermaid-preview::-webkit-scrollbar')
+    // The drawing itself carries no least width either.
+    expect(readFileSync('src/features/diagrams/mermaid.ts', 'utf8')).not.toContain('min-width')
   })
 
   it('keeps a pinch within bounds and finds actual size again', () => {

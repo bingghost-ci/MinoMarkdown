@@ -120,20 +120,6 @@ async function finished(svg: string, styleId: string, options: DiagramOptions, p
   }
 }
 
-/** Labels are never drawn smaller than this many pixels: below it they cannot be read without zooming. */
-export const LEGIBLE_PX = 13.5
-
-/**
- * Mermaid lets a diagram shrink to the width it is given, which turns the text of a wide one to specks. This
- * gives the drawing a least width, the one at which its labels are `LEGIBLE_PX` tall, so that where it does
- * not fit it scrolls sideways instead (T119). `fontSize` is the size the labels were set in.
- */
-export function keepLegible(svg: string, fontSize = 16): string {
-  const share = Math.min(1, LEGIBLE_PX / Math.max(LEGIBLE_PX, fontSize))
-  return svg.replace(/(<svg\b[^>]*?\bstyle=")([^"]*?max-width:\s*([\d.]+)px[^"]*)"/, (whole, before: string, style: string, width: string) =>
-    /min-width/.test(style) ? whole : `${before}${style.replace(/;?\s*$/, '')};min-width:${Math.round(parseFloat(width) * share)}px"`)
-}
-
 /** Mermaid keeps global state, so renders run strictly one at a time. */
 function renderSvg(source: string, theme: Theme): Promise<string> {
   const result = renderChain.then(async () => {
@@ -145,7 +131,6 @@ function renderSvg(source: string, theme: Theme): Promise<string> {
     const { curve, pass, ...config } = diagramConfig(styleId, options, source)
     await fontReady(config.fontFamily, source)
     const variables = diagramVariables(styleId, options.look, options)
-    const size = parseFloat(String(variables.fontSize)) || 16
     mermaid.initialize({
       ...config,
       startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, theme: 'base', themeVariables: variables, htmlLabels: false, flowchart: { htmlLabels: false, curve }, state: { curve } as never,
@@ -157,9 +142,9 @@ function renderSvg(source: string, theme: Theme): Promise<string> {
     const remarks = icons.remarkIds(source)
     const { svg } = await mermaid.render(`mino-mermaid-${nextDiagramId++}`, placed.source)
     const safe = sanitizeDiagramSvg(svg)
-    if (pass === 'none' && !placed.names.length && !remarks.size) return keepLegible(safe, size)
+    if (pass === 'none' && !placed.names.length && !remarks.size) return safe
     // A diagram that cannot be finished is still a diagram.
-    try { return keepLegible(await finished(safe, styleId, options, pass, placed.names, remarks), size) } catch { return keepLegible(safe, size) }
+    try { return await finished(safe, styleId, options, pass, placed.names, remarks) } catch { return safe }
   })
   renderChain = result.catch(() => undefined)
   return result

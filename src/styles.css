@@ -50,13 +50,9 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .menu-separator { height: 1px; margin: 4px 6px; background: var(--line); }
 .workspace-layout { display: flex; flex: 1; min-height: 0; }
 .document-sidebar { display: flex; flex-direction: column; flex: none; position: relative; min-width: 170px; max-width: 520px; height: 100%; padding: 0; border-right: 1px solid var(--line); background: var(--sidebar); overflow: hidden; }
-/* A diagram is never shrunk below the size its text can be read at (its own min-width): past that it scrolls sideways. */
-.mermaid-preview { display: flex; justify-content: safe center; overflow-x: auto; padding: 8px 0; }
-.mermaid-preview svg { flex: none; max-width: 100%; height: auto; }
-/* A bar that stays in view, so a diagram cut off at the edge is seen to go on. */
-.mermaid-preview::-webkit-scrollbar { height: 7px; }
-.mermaid-preview::-webkit-scrollbar-thumb { border-radius: 4px; background: color-mix(in srgb, var(--text) 26%, transparent); }
-.mermaid-preview::-webkit-scrollbar-track { background: transparent; }
+/* A diagram always fits the width it has and never scrolls sideways: a wide one is read by opening it in the viewer. */
+.mermaid-preview { display: flex; justify-content: center; padding: 8px 0; }
+.mermaid-preview svg { min-width: 0; max-width: 100%; height: auto; }
 .editor-panel[data-reading="true"] .mermaid-preview:not(.mermaid-error), .editor-panel[data-reading="true"] .mermaid-diagram { cursor: zoom-in; }
 /* In reading mode a diagram may use the page's side margins as well as the column. */
 .editor-panel[data-reading="true"] .editor-root .milkdown .ProseMirror .milkdown-code-block:has(.mermaid-preview:not(.mermaid-error)) { margin-inline: -44px; }
@@ -350,7 +346,7 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .zoom-viewer-content > * { position: absolute; transform: translate(-50%, -50%); box-shadow: 0 12px 48px #0008; }
 .zoom-viewer-content img { display: block; max-width: none; border-radius: 3px; }
 .zoom-viewer-diagram { border-radius: 10px; padding: 24px; }
-.zoom-viewer-diagram svg { display: block; width: max-content; min-width: 0 !important; max-width: none !important; height: auto; }
+.zoom-viewer-diagram svg { display: block; width: max-content; max-width: none !important; height: auto; }
 .zoom-viewer-bar { position: absolute; bottom: 22px; left: 50%; display: flex; align-items: center; gap: 2px; transform: translateX(-50%); border-radius: 10px; padding: 4px; background: #1c1c1eeb; box-shadow: 0 6px 24px #0006; cursor: default; }
 .zoom-viewer-bar button { min-width: 30px; height: 30px; border: 0; border-radius: 7px; padding: 0 10px; background: transparent; color: #f2f2f2; font-size: 13px; }
 .zoom-viewer-bar button:hover { background: #ffffff22; }

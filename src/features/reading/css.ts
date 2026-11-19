@@ -265,8 +265,8 @@ export function exportStylesheet(options: ExportStyleOptions): string {
     plainDocumentCss(DOC_ROOT),
     decorationRules(style, (root) => root, [DOC_ROOT]),
     `${DOC_ROOT} img{max-height:240mm;object-fit:contain}`,
-    // On screen a wide diagram scrolls sideways at a size that can be read; on paper it has to fit the page.
-    `.mermaid-diagram{margin:1.2em 0;text-align:center;break-inside:avoid;overflow-x:auto}.mermaid-diagram svg{max-width:100%;height:auto}@media print{.mermaid-diagram{overflow:visible}.mermaid-diagram svg{min-width:0!important}}`,
+    // A diagram fits the width of the page, on screen and on paper alike: nothing of it may lie outside.
+    `.mermaid-diagram{margin:1.2em 0;text-align:center;break-inside:avoid}.mermaid-diagram svg{max-width:100%;height:auto}`,
     `@page{size:${options.pageSize === 'letter' ? 'letter' : 'A4'};margin:${pageMargins[options.pageMargin]}}`,
     options.pdfFile
       ? `@media print{html,body{background:transparent}html{-webkit-print-color-adjust:exact;print-color-adjust:exact}}`

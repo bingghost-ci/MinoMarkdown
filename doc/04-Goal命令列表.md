@@ -718,10 +718,10 @@ G01–G29 分别对应 T01–T29，每项命令可独立复制到支持 Goals �
 
 | Goal | 对应任务 | 依赖 | 目标 |
 | --- | --- | --- | --- |
-| G119 | T119 | T118 | 图表不缩到看不清（放不下时横向滚动），点开可单独缩放查看，阅读页可用触控板捏合缩放 |
+| G119 | T119 | T118 | 图表整张显示在页面内（不横向滚动，2026-11-19 修订），点开可单独缩放查看，阅读页可用触控板捏合缩放 |
 
 ```text
-/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T119 图表看得清，阅读可缩放」实现图表的最小尺寸、查看器和阅读页的捏合缩放。先读 CLAUDE.md、doc/01-产品方案.md §3.28、doc/02-技术设计.md §39、doc/05-验收与发布.md §8T 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T119 图表看得清，阅读可缩放」实现图表的宽度规则（整张缩到页面内、不横向滚动）、查看器和阅读页的捏合缩放。先读 CLAUDE.md、doc/01-产品方案.md §3.28、doc/02-技术设计.md §39、doc/05-验收与发布.md §8T 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
 ```
 
 ## 连续开发总 Goal（逐项读取列表）
