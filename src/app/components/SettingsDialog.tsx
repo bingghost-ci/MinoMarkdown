@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { FocusTrap } from './FocusTrap'
 import type { DocumentWorkspace, Settings } from '../useDocumentWorkspace'
@@ -7,8 +7,9 @@ import { translateStatus, type Language } from '../i18n'
 import { readingStyles, type ReadingStyle } from '../../features/reading/styles'
 import { diagramCurveLabels, diagramCurves, diagramLineLabels, diagramLines, diagramLookLabels, diagramLooks, diagramVariables, resolvedCurve, resolvedLine, type DiagramCurve, type DiagramLine, type DiagramLook } from '../../features/diagrams/looks'
 import { modelChoices, providerHasKey, providerIds, providerLabels, type AiProvider } from '../../features/ai/client'
-import { codeColorIds, codeColorLabels, codePalette, type CodeColors } from '../../features/reading/codeColors'
+import { codeColorIds, codeColorLabels, codePalette, isHexColor, noCustomCodeColors, syntaxRoleLabels, withCustomColor, type CodeColors, type CustomCodeColors } from '../../features/reading/codeColors'
 import type { SyntaxRole } from '../../core/markdown/syntaxRoleNames'
+import { parseHex, toHex } from '../../features/reading/color'
 import { StyleSwatches } from './AppearancePanel'
 import { FontPicker } from './FontPicker'
 
@@ -58,15 +59,116 @@ const codeSample: readonly (readonly (readonly [SyntaxRole | null, string])[])[]
 ]
 
 /** Each scheme drawn on the current paper's code background, with the colors the page would get. */
-function CodeColorsPicker({ style, value, onChange, t }: { style: ReadingStyle; value: CodeColors; onChange: (value: CodeColors) => void; t: (text: string) => string }) {
+function CodeColorsPicker({ style, value, custom, onChange, t }: { style: ReadingStyle; value: CodeColors; custom: CustomCodeColors; onChange: (value: CodeColors) => void; t: (text: string) => string }) {
   return <div className="code-colors" role="group" aria-label={t('代码配色')}>
     {codeColorIds.map((id) => {
-      const palette = codePalette(id, style)
+      const palette = codePalette(id, style, custom)
       return <button key={id} type="button" aria-pressed={value === id} title={t(codeColorLabels[id].note)} onClick={() => onChange(id)}>
         <pre aria-hidden="true">{codeSample.map((line, row) => <span key={row}>{line.map(([role, text], index) => <span key={index} style={role ? { color: palette[role] } : undefined}>{text}</span>)}{'\n'}</span>)}</pre>
         <span>{t(codeColorLabels[id].name)}</span>
       </button>
     })}
+  </div>
+}
+
+/** A longer sample for the editor of custom colors: every role appears at least once. */
+const customSample: readonly (readonly (readonly [SyntaxRole | null, string])[])[] = [
+  [['comment', '// 合计超过上限时返回空']],
+  [['meta', '@cached']],
+  [['keyword', 'function '], ['function', 'total'], [null, '('], ['variable', 'items'], [null, ': '], ['type', 'Item'], [null, '[]): '], ['type', 'number'], [null, ' {']],
+  [[null, '  '], ['keyword', 'const '], ['definition', 'sum'], ['operator', ' = '], ['variable', 'items'], [null, '.'], ['function', 'reduce'], [null, '(('], ['variable', 'a'], [null, ', '], ['variable', 'b'], [null, ') '], ['operator', '=> '], ['variable', 'a'], ['operator', ' + '], ['variable', 'b'], [null, '.'], ['property', 'price'], [null, ', '], ['number', '0'], [null, ')']],
+  [[null, '  '], ['atom', 'console'], [null, '.'], ['function', 'log'], [null, '('], ['string', '"sum"'], [null, ', '], ['variable', 'sum'], [null, ')']],
+  [[null, '  '], ['keyword', 'return '], ['variable', 'sum'], ['operator', ' > '], ['number', '100'], ['operator', ' ? '], ['atom', 'null'], ['operator', ' : '], ['variable', 'sum'], ['invalid', ' ??']],
+  [[null, '}']],
+  [['heading', '# 标题']],
+]
+
+const channels = [['红', 'R'], ['绿', 'G'], ['蓝', 'B']] as const
+
+/**
+ * The user's own colors (T111). The colors edited are those of the kind of style in use, day or night, since one
+ * color cannot suit both. A role is picked in the sample or in the list, and mixed with the red, green and blue
+ * sliders of the palette. While a slider moves the color is held here and reaches the settings a moment later:
+ * a settings change renders the whole workspace, which is too much for every step of a drag.
+ */
+function CustomCodeColorsEditor({ style, custom, onChange, t }: { style: ReadingStyle; custom: CustomCodeColors; onChange: (value: CustomCodeColors) => void; t: (text: string) => string }) {
+  const [source, setSource] = useState<CodeColors>('auto')
+  const [role, setRole] = useState<SyntaxRole>('keyword')
+  const [draft, setDraft] = useState<{ role: SyntaxRole; dark: boolean; color: string } | null>(null)
+  const timer = useRef<number | undefined>(undefined)
+  const latest = useRef({ custom, onChange })
+  latest.current = { custom, onChange }
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+
+  const saved = codePalette('custom', style, custom)
+  const live = draft && draft.dark === style.dark ? draft : null
+  const palette = live ? { ...saved, [live.role]: live.color } : saved
+  const half = (style.dark ? custom.night : custom.day) ?? {}
+  const changed = Object.keys(half).length > 0 || live !== null
+  const color = palette[role]
+  const rgb = parseHex(color)
+  const label = syntaxRoleLabels.find(([id]) => id === role)?.[1] ?? ''
+
+  const commit = (target: SyntaxRole, dark: boolean, value: string | null) => {
+    window.clearTimeout(timer.current)
+    latest.current.onChange(withCustomColor(latest.current.custom, dark, target, value))
+    setDraft(null)
+  }
+  /** Shows the color at once and saves it when the slider rests. */
+  const mix = (value: string) => {
+    const dark = style.dark
+    setDraft({ role, dark, color: value })
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => commit(role, dark, value), 160)
+  }
+  const pick = (next: SyntaxRole) => {
+    if (live) commit(live.role, live.dark, live.color)
+    setRole(next)
+  }
+  const replaceHalf = (colors: Partial<Record<SyntaxRole, string>>) => {
+    window.clearTimeout(timer.current)
+    setDraft(null)
+    onChange(style.dark ? { day: { ...custom.day }, night: colors } : { day: colors, night: { ...custom.night } })
+  }
+  // Colors worth one click: those of the ready-made schemes on this paper.
+  const quick = [...new Set((['auto', 'one', 'github', 'gruvbox', 'tokyo'] as const).flatMap((id) => Object.values(codePalette(id, style))))].slice(0, 24)
+
+  return <div className="code-custom">
+    <p className="settings-note">{t(style.dark ? '正在设置夜间风格下的颜色；白天的风格另有一套，换到白天的风格后设置。' : '正在设置白天风格下的颜色；夜间的风格另有一套，换到夜间的风格后设置。')} {t('点样例里的代码或下面的名称选一种记号，再用调色板调它的颜色。')}</p>
+    <pre className="code-custom-sample" aria-label={t('配色预览')}>{customSample.map((line, row) => <span key={row}>{line.map(([tokenRole, text], index) => tokenRole
+      ? <span key={index} className={tokenRole === role ? 'is-picked' : undefined} style={{ color: palette[tokenRole] }} onClick={() => pick(tokenRole)}>{text}</span>
+      : <span key={index}>{text}</span>)}{'\n'}</span>)}</pre>
+    <div className="code-custom-roles" role="group" aria-label={t('记号种类')}>
+      {syntaxRoleLabels.map(([id, name]) => <button key={id} type="button" aria-pressed={id === role} onClick={() => pick(id)}>
+        <i style={{ background: palette[id] }} /><span>{t(name)}</span>{Object.hasOwn(half, id) && <b aria-label={t('已修改')} title={t('已修改')} />}
+      </button>)}
+    </div>
+    <div className="code-palette" role="group" aria-label={`${t('调色板')}: ${t(label)}`}>
+      <div className="code-palette-head">
+        <i style={{ background: color }} />
+        <strong>{t(label)}</strong>
+        <input key={color} type="text" aria-label={t('色值')} defaultValue={color} maxLength={7} spellCheck={false}
+          onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
+          onBlur={(event) => { const value = event.target.value.trim(); if (isHexColor(value)) { if (value.toLowerCase() !== color) commit(role, style.dark, value) } else event.target.value = color }} />
+        <button type="button" disabled={!Object.hasOwn(half, role) && !live} onClick={() => commit(role, style.dark, null)}>{t('恢复默认')}</button>
+      </div>
+      {channels.map(([name, letter], index) => {
+        const at = (value: number) => toHex(rgb.map((channel, i) => (i === index ? value : channel)) as [number, number, number])
+        return <label key={letter} className="code-palette-channel">
+          <span title={t(name)}>{letter}</span>
+          <input type="range" min={0} max={255} step={1} aria-label={t(name)} value={rgb[index]} style={{ background: `linear-gradient(to right, ${at(0)}, ${at(255)})` }} onChange={(event) => mix(at(Number(event.target.value)))} />
+          <output>{rgb[index]}</output>
+        </label>
+      })}
+      <div className="code-palette-quick" role="group" aria-label={t('常用颜色')}>
+        {quick.map((value) => <button key={value} type="button" title={value} aria-label={value} aria-pressed={value === color} style={{ background: value }} onClick={() => commit(role, style.dark, value)} />)}
+      </div>
+    </div>
+    <div className="code-custom-actions">
+      <label>{t('从一套配色开始')}<select value={source} onChange={(event) => setSource(event.target.value as CodeColors)}>{codeColorIds.filter((id) => id !== 'custom').map((id) => <option key={id} value={id}>{t(codeColorLabels[id].name)}</option>)}</select></label>
+      <button type="button" onClick={() => replaceHalf(source === 'auto' ? {} : codePalette(source, style))}>{t('套用')}</button>
+      <button type="button" disabled={!changed} onClick={() => replaceHalf({})}>{t('全部恢复默认')}</button>
+    </div>
   </div>
 }
 
@@ -125,14 +227,53 @@ function AiSettings({ workspace: w }: { workspace: DocumentWorkspace }) {
   </>
 }
 
+/** How much of the dialog must stay inside the window, so its title can always be reached again. */
+const DRAG_KEEP = 96
+
+/**
+ * Lets the dialog be dragged by its title (T112), so the document behind it can be watched while a setting changes.
+ * The offset is written straight to the element: a drag must not render the dialog on every step. Once moved, the
+ * dimming behind the dialog is lifted; a double click on the title puts it back in the middle.
+ */
+function useDialogDrag(open: boolean) {
+  const dialog = useRef<HTMLElement | null>(null)
+  const offset = useRef({ x: 0, y: 0 })
+  const [moved, setMoved] = useState(false)
+  useEffect(() => { if (!open) { offset.current = { x: 0, y: 0 }; setMoved(false) } }, [open])
+  const place = (x: number, y: number) => {
+    const element = dialog.current
+    if (!element) return
+    // The resting place is the middle of the window, so the limits follow from the two sizes.
+    const reachX = (window.innerWidth + element.offsetWidth) / 2 - DRAG_KEEP
+    const top = (window.innerHeight - element.offsetHeight) / 2
+    offset.current = { x: Math.max(-reachX, Math.min(reachX, x)), y: Math.max(-top, Math.min(window.innerHeight - top - DRAG_KEEP, y)) }
+    element.style.transform = offset.current.x || offset.current.y ? `translate(${offset.current.x}px, ${offset.current.y}px)` : ''
+  }
+  const onPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return
+    const handle = event.currentTarget
+    const start = { x: event.clientX - offset.current.x, y: event.clientY - offset.current.y }
+    handle.setPointerCapture(event.pointerId)
+    const move = (next: PointerEvent) => { place(next.clientX - start.x, next.clientY - start.y); setMoved(true) }
+    const end = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', end); handle.removeEventListener('pointercancel', end) }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', end)
+    handle.addEventListener('pointercancel', end)
+    event.preventDefault()
+  }
+  const reset = () => { place(0, 0); setMoved(false) }
+  return { dialog, moved, onPointerDown, reset }
+}
+
 export function SettingsDialog({ workspace: w }: { workspace: DocumentWorkspace }) {
   const { updateSettings, setSettingsOpen, setSettingsTab, settings, settingsOpen, settingsTab, style: active, t } = w
+  const drag = useDialogDrag(settingsOpen)
   if (!settingsOpen) return null
   const update: Update = updateSettings
   const following = settings.theme === 'system'
-  return <FocusTrap><div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}>
-    <section className="settings-dialog" role="dialog" aria-modal="true" aria-label={t('设置')}>
-      <header className="settings-title"><div><h2>{t('设置')}</h2><p>{t('自定义阅读、写作和工作区')}</p></div><button type="button" aria-label={t('关闭设置')} onClick={() => setSettingsOpen(false)}><X aria-hidden="true" /></button></header>
+  return <FocusTrap><div className={drag.moved ? 'settings-backdrop is-moved' : 'settings-backdrop'} onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}>
+    <section ref={drag.dialog} className="settings-dialog" role="dialog" aria-modal="true" aria-label={t('设置')}>
+      <header className="settings-title" title={t('拖动标题可以移开对话框，双击回到中间')} onPointerDown={drag.onPointerDown} onDoubleClick={(event) => { if (!(event.target as HTMLElement).closest('button')) drag.reset() }}><div><h2>{t('设置')}</h2><p>{t('自定义阅读、写作和工作区')}</p></div><button type="button" aria-label={t('关闭设置')} onClick={() => setSettingsOpen(false)}><X aria-hidden="true" /></button></header>
       <nav className="settings-tabs" aria-label={t('设置分类')}>
         {([['appearance', '外观'], ['typography', '排版'], ['reading', '阅读与导出'], ['workspace', '工作区'], ['ai', 'AI']] as const).map(([key, label]) => <button key={key} type="button" aria-current={settingsTab === key ? 'page' : undefined} onClick={() => setSettingsTab(key)}>{t(label)}</button>)}
       </nav>
@@ -148,8 +289,9 @@ export function SettingsDialog({ workspace: w }: { workspace: DocumentWorkspace 
           <StyleSwatches workspace={w} />
           {active.texture && <Row title={t('纸张纹理')} note={t('纸面纤维、压纹和做旧的明显程度')}><input type="range" aria-label={t('纸张纹理')} min={0} max={100} step={10} value={settings.textureStrength} onChange={(event) => update({ textureStrength: Number(event.target.value) })} /></Row>}
           <div className="settings-section-heading"><strong>{t('代码配色')}</strong><small>{t('代码块和源码文件里各种记号的颜色；底色始终是纸张的，颜色会按纸张调到看得清，导出也用这里的选择')}</small></div>
-          <CodeColorsPicker style={active} value={settings.codeColors} onChange={(codeColors) => update({ codeColors })} t={t} />
+          <CodeColorsPicker style={active} value={settings.codeColors} custom={settings.codeCustomColors ?? noCustomCodeColors} onChange={(codeColors) => update({ codeColors })} t={t} />
           <p className="settings-note">{t(codeColorLabels[settings.codeColors]?.note ?? codeColorLabels.auto.note)}</p>
+          {settings.codeColors === 'custom' && <CustomCodeColorsEditor style={active} custom={settings.codeCustomColors ?? noCustomCodeColors} onChange={(codeCustomColors) => update({ codeCustomColors })} t={t} />}
           <div className="settings-section-heading"><strong>{t('图表风格')}</strong><small>{t('Mermaid 流程图、时序图等的画法：字体、笔触、边角和连线；颜色始终取自当前纸张，导出也用这里的选择')}</small></div>
           <DiagramLookPicker style={active} settings={settings} onChange={(diagramStyle) => update({ diagramStyle })} t={t} />
           <p className="settings-note">{t(diagramLookLabels[settings.diagramStyle].note)}</p>

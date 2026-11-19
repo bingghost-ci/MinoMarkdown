@@ -189,6 +189,13 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .settings-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px; background: #0007; }
 .settings-dialog { display: flex; flex-direction: column; width: min(720px, 100%); max-height: min(760px, 100%); border: 1px solid var(--line); border-radius: 14px; background: var(--chrome); color: var(--ui-text); box-shadow: 0 20px 70px #0004; overflow: hidden; }
 .settings-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 24px 28px 16px; }
+.settings-title { cursor: grab; -webkit-user-select: none; user-select: none; touch-action: none; }
+.settings-title:active { cursor: grabbing; }
+.settings-title button { cursor: default; }
+.settings-backdrop { transition: background-color .18s; }
+.settings-backdrop.is-moved { background: transparent; pointer-events: none; }
+.settings-backdrop.is-moved .settings-dialog { pointer-events: auto; }
+.settings-backdrop.is-moved .settings-dialog { box-shadow: 0 0 0 1px #0002, 0 20px 70px #0006; }
 .settings-title h2 { margin: 0; font-size: 19px; font-weight: 600; }
 .settings-title p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
 .settings-title button { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--secondary); }
@@ -215,6 +222,36 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .code-colors button { display: flex; flex-direction: column; align-items: stretch; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 6px 5px; background: transparent; color: var(--secondary); font-size: 12px; text-align: center; min-width: 0; }
 .code-colors button pre { margin: 0; padding: 7px 9px; border-radius: 6px; background: var(--code-bg); color: var(--text); font: 10.5px/1.55 var(--code-font, ui-monospace, Menlo, monospace); text-align: left; white-space: pre; overflow: hidden; }
 .code-colors button[aria-pressed="true"] { border-color: var(--accent); background: var(--selected); color: var(--accent); }
+.code-custom { margin: 4px 0 8px; }
+.code-custom-sample { margin: 10px 0 12px; padding: 12px 14px; border-radius: 8px; background: var(--code-bg); color: var(--text); font: 12px/1.6 var(--code-font, ui-monospace, Menlo, monospace); white-space: pre; overflow-x: auto; box-shadow: 0 0 0 1px var(--page-edge); }
+.code-custom-sample span[style] { cursor: pointer; border-radius: 2px; }
+.code-custom-sample .is-picked { box-shadow: 0 1.5px 0 currentColor; }
+.code-custom-roles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.code-custom-roles button { position: relative; display: flex; align-items: center; gap: 7px; min-width: 0; height: 30px; border: 1px solid var(--line); border-radius: 7px; padding: 0 8px; background: transparent; color: var(--ui-text); font-size: 12px; }
+.code-custom-roles button i { flex: none; width: 14px; height: 14px; border-radius: 4px; box-shadow: inset 0 0 0 1px #0002; }
+.code-custom-roles button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-custom-roles button b { position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.code-custom-roles button[aria-pressed="true"] { border-color: var(--accent); background: var(--selected); }
+.code-palette { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--raised); }
+.code-palette-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 13px; color: var(--ui-text); }
+.code-palette-head i { flex: none; width: 44px; height: 28px; border-radius: 7px; box-shadow: inset 0 0 0 1px #0002; }
+.code-palette-head strong { flex: 1; min-width: 0; font-weight: 600; }
+.code-palette-head input { width: 78px; height: 26px; border: 1px solid var(--line); border-radius: 6px; padding: 0 7px; background: var(--chrome); color: var(--ui-secondary); font: 11px ui-monospace, Menlo, monospace; }
+.code-palette-head button { height: 26px; border: 1px solid var(--line); border-radius: 6px; padding: 0 10px; background: var(--chrome); color: var(--ui-text); font-size: 12px; }
+.code-palette-head button:disabled { opacity: .45; }
+.code-palette-channel { display: flex; align-items: center; gap: 10px; height: 30px; font-size: 12px; color: var(--ui-secondary); }
+.code-palette-channel > span { flex: none; width: 12px; font: 600 11px ui-monospace, Menlo, monospace; }
+.code-palette-channel output { flex: none; width: 28px; text-align: right; font: 11px ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.code-palette-channel input[type="range"] { flex: 1; min-width: 0; height: 12px; margin: 0; border-radius: 6px; -webkit-appearance: none; appearance: none; box-shadow: inset 0 0 0 1px #0002; cursor: pointer; }
+.code-palette-channel input[type="range"]::-webkit-slider-runnable-track { height: 12px; background: transparent; }
+.code-palette-channel input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; margin-top: -3px; border: 2px solid #fff; border-radius: 50%; background: transparent; box-shadow: 0 0 0 1px #0006, inset 0 0 0 1px #0004; }
+.code-palette-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.code-palette-quick button { width: 22px; height: 22px; border: 0; border-radius: 6px; padding: 0; box-shadow: inset 0 0 0 1px #0002; }
+.code-palette-quick button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--chrome), 0 0 0 4px var(--accent); }
+.code-custom-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; font-size: 12px; color: var(--ui-secondary); }
+.code-custom-actions label { display: flex; align-items: center; gap: 8px; margin-right: auto; }
+.code-custom-actions select, .code-custom-actions button { height: 28px; border: 1px solid var(--line); border-radius: 6px; padding: 0 10px; background: var(--raised); color: var(--ui-text); font-size: 12px; }
+.code-custom-actions button:disabled { opacity: .45; }
 .diagram-looks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0 4px; }
 .diagram-looks button { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 6px 6px; background: transparent; color: var(--secondary); font-size: 12px; }
 .diagram-looks button svg { display: block; width: 96px; max-width: 100%; height: 40px; border-radius: 6px; box-shadow: 0 0 0 1px var(--page-edge); }

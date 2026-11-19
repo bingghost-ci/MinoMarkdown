@@ -1,6 +1,6 @@
 import { codeFontStack, fontStack } from '../features/reading/fonts'
 import type { Measure, PageMargin, PageSize, ParagraphSpacing, TableStyle, Typography } from '../features/reading/css'
-import type { CodeColors } from '../features/reading/codeColors'
+import { noCustomCodeColors, type CodeColors, type CustomCodeColors } from '../features/reading/codeColors'
 import type { DocumentScript } from '../features/reading/script'
 import { readingStyle, resolveStyleId, type ReadingStyle, type StyleId, type ThemeId } from '../features/reading/styles'
 import { DEFAULT_EDITOR_FONT_SIZE } from './textZoom'
@@ -18,6 +18,8 @@ export type ReadingSettings = {
   codeFont: string
   /** The colors of code: `auto` is the reading style's own set (T110). */
   codeColors: CodeColors
+  /** The colors the user chose for the `custom` scheme (T111). Replaced as a whole, never changed in place. */
+  codeCustomColors: CustomCodeColors
   editorFontSize: number
   editorLineHeight: 'compact' | 'comfortable' | 'relaxed'
   paragraphSpacing: ParagraphSpacing
@@ -46,7 +48,7 @@ export type ReadingSettings = {
 
 /** New installs; `settings.rs` fills missing fields of older files so their look does not change. */
 export const defaultReadingSettings: ReadingSettings = {
-  theme: 'system', dayTheme: 'white', nightTheme: 'dark', cjkFont: 'auto', latinFont: 'auto', codeFont: 'auto', codeColors: 'auto', editorFontSize: DEFAULT_EDITOR_FONT_SIZE, editorLineHeight: 'comfortable',
+  theme: 'system', dayTheme: 'white', nightTheme: 'dark', cjkFont: 'auto', latinFont: 'auto', codeFont: 'auto', codeColors: 'auto', codeCustomColors: noCustomCodeColors, editorFontSize: DEFAULT_EDITOR_FONT_SIZE, editorLineHeight: 'comfortable',
   paragraphSpacing: 'standard', measure: '36', textAlign: 'left', firstLineIndent: false, tableStyle: 'three-line', diagramStyle: 'page', diagramLine: 'auto', diagramCurve: 'auto', textureStrength: 60, latinLayout: 'auto',
   imageCaptions: true, imageDimming: true, openInReadingMode: true, exportStyle: 'current', pdfMode: 'print', pageSize: 'a4', pageMargin: 'standard',
 }
@@ -77,6 +79,7 @@ export function documentTypography(settings: ReadingSettings, style: ReadingStyl
     fontFamily: documentFontFamily(settings, style),
     codeFontFamily: codeFontStack(settings.codeFont),
     codeColors: settings.codeColors,
+    codeCustomColors: settings.codeCustomColors,
     fontSize: settings.editorFontSize,
     lineHeight,
     paragraphSpacing: settings.paragraphSpacing,

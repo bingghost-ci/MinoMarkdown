@@ -1,7 +1,7 @@
 import { mix, parseHex } from './color'
 import { CODE_FONT_STACK } from './fonts'
 import { readingStyle, readingStyles, type ReadingStyle } from './styles'
-import { syntaxVariables } from './codeColors'
+import { syntaxVariables, type CustomCodeColors } from './codeColors'
 import { textureBackground } from './textures'
 import { syntaxRoles, tokenClass } from '../../core/markdown/syntaxRoleNames'
 
@@ -21,6 +21,8 @@ export type Typography = {
   codeFontFamily?: string
   /** The code color scheme (`codeColors.ts`); the reading style's own when left out. */
   codeColors?: string
+  /** The user's colors, used by the `custom` scheme. */
+  codeCustomColors?: CustomCodeColors
   fontSize: number
   lineHeight: number
   paragraphSpacing: ParagraphSpacing
@@ -182,7 +184,7 @@ export function typographyVariables(typography: Typography, style: ReadingStyle)
   return {
     '--doc-font': typography.fontFamily,
     '--code-font': typography.codeFontFamily ?? CODE_FONT_STACK,
-    ...syntaxVariables(typography.codeColors, style),
+    ...syntaxVariables(typography.codeColors, style, typography.codeCustomColors),
     '--doc-hyphens': typography.hyphens ? 'auto' : 'manual',
     '--doc-justify': typography.hyphens ? 'auto' : 'inter-character',
     '--paper-veil': veil,
