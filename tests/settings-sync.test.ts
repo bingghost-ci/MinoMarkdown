@@ -23,4 +23,19 @@ describe('settings sync', () => {
     const same = applyRemoteSettings(base, base, { ...base, windowWidth: 1 })
     expect(same.current).toBe(base)
   })
+
+  // The custom code colors are an object, and a broadcast always brings a new one (T113).
+  it('compares object settings by content, so an echo of the same colors changes nothing', () => {
+    const colors = { day: { variable: '#112233' }, night: {} }
+    const base = { codeCustomColors: colors, theme: 'white' }
+    expect(settingsPatch(base, { ...base, codeCustomColors: { day: { variable: '#112233' }, night: {} } })).toBeNull()
+    expect(settingsPatch(base, { ...base, codeCustomColors: { day: { variable: '#445566' }, night: {} } })).toEqual({ codeCustomColors: { day: { variable: '#445566' }, night: {} } })
+    const echoed = applyRemoteSettings(base, base, { codeCustomColors: { day: { variable: '#112233' }, night: {} }, theme: 'white' })
+    expect(echoed.current).toBe(base)
+    const remote = applyRemoteSettings(base, base, { codeCustomColors: { day: { variable: '#445566' }, night: {} }, theme: 'white' })
+    expect(remote.current.codeCustomColors).toEqual({ day: { variable: '#445566' }, night: {} })
+    // A local change not yet saved wins over a broadcast.
+    const local = { ...base, codeCustomColors: { day: { variable: '#778899' }, night: {} } }
+    expect(applyRemoteSettings(local, base, { codeCustomColors: { day: { variable: '#445566' }, night: {} }, theme: 'white' }).current).toBe(local)
+  })
 })

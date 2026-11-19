@@ -1,5 +1,5 @@
 import DOMPurify, { type DOMPurify as Purifier } from 'dompurify'
-import { diagramConfig, diagramKey, diagramVariables, parseDiagramKey, type DiagramOptions } from './looks'
+import { diagramConfig, diagramKey, diagramVariables, handPalette, parseDiagramKey, type DiagramOptions } from './looks'
 
 export { diagramVariables } from './looks'
 
@@ -19,7 +19,12 @@ let nextDiagramId = 1
 
 // Mermaid only loads when a document actually has a diagram.
 function loadMermaid() {
-  library ??= import('mermaid').then((module) => module.default)
+  library ??= import('mermaid').then((module) => {
+    // Icons for `@{ icon: "lucide:name" }` nodes, read from the app itself when a diagram first asks for one.
+    // Optional, so a Mermaid without icon packs still draws everything else.
+    (module.default.registerIconPacks as typeof module.default.registerIconPacks | undefined)?.([{ name: 'lucide', loader: () => import('./icons').then((icons) => icons.loadIconPack()) }])
+    return module.default
+  })
   return library
 }
 
@@ -69,10 +74,40 @@ export function currentDiagramKey(): Theme {
   return diagramKey(root.dataset.theme ?? 'white', { look: root.dataset.diagram, line: root.dataset.diagramLine, curve: root.dataset.diagramCurve })
 }
 
-/** Mermaid sizes boxes by measuring their labels, so a look's own font must be ready before it draws. */
-async function fontReady(family: string): Promise<void> {
+/**
+ * Mermaid sizes boxes by measuring their labels, so a look's own font must be ready before it draws. A font
+ * cut into unicode-range subsets loads only the ones the given text needs, hence the diagram's own text.
+ */
+async function fontReady(family: string, text: string): Promise<void> {
   if (family === 'inherit' || typeof document.fonts?.load !== 'function') return
-  try { await document.fonts.load(`16px ${family}`, '图Aa') } catch { /* Drawn in the fallback font. */ }
+  try { await document.fonts.load(`16px ${family}`, `图Aa${text}`) } catch { /* Drawn in the fallback font. */ }
+}
+
+/**
+ * What is done to a drawn diagram in the document, where its style sheet applies and its text is laid out:
+ * icons are put into labels and remarks get their labels centered (T116), and the hand-drawn look redraws
+ * every shape as a pencil sketch (T115). The SVG is put there, out of sight, while that happens.
+ */
+async function finished(svg: string, styleId: string, sketch: boolean, iconNames: readonly string[], remarks: ReadonlySet<string>): Promise<string> {
+  const icons = await import('./icons')
+  const pack = iconNames.length ? await icons.loadIconPack() : null
+  const drawing = sketch ? await Promise.all([import('roughjs'), import('./sketch')]) : null
+  const host = document.createElement('div')
+  host.setAttribute('aria-hidden', 'true')
+  host.style.cssText = 'position:absolute;left:-10000px;top:0;width:1200px;opacity:0;pointer-events:none'
+  host.innerHTML = svg
+  document.body.append(host)
+  try {
+    const root = host.querySelector('svg')
+    if (root) {
+      icons.centerRemarkLabels(root, remarks)
+      if (pack) icons.placeLabelIcons(root, iconNames, pack)
+      if (drawing) drawing[1].sketchDiagram(root, drawing[0].default.generator(), { ...handPalette(styleId), remarks: icons.remarkNodes(root, remarks) })
+    }
+    return host.innerHTML
+  } finally {
+    host.remove()
+  }
 }
 
 /** Mermaid keeps global state, so renders run strictly one at a time. */
@@ -83,15 +118,22 @@ function renderSvg(source: string, theme: Theme): Promise<string> {
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     const mermaid = await loadMermaid()
     const { styleId, ...options } = parseDiagramKey(theme)
-    const { curve, ...config } = diagramConfig(styleId, options, source)
-    await fontReady(config.fontFamily)
+    const { curve, sketch, ...config } = diagramConfig(styleId, options, source)
+    await fontReady(config.fontFamily, source)
     mermaid.initialize({
       ...config,
       startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, theme: 'base', themeVariables: diagramVariables(styleId, options.look), htmlLabels: false, flowchart: { htmlLabels: false, curve }, state: { curve } as never,
       secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'suppressErrorRendering', 'maxEdges', 'themeCSS', 'themeVariables', 'fontFamily', 'altFontFamily', 'htmlLabels'],
     })
-    const { svg } = await mermaid.render(`mino-mermaid-${nextDiagramId++}`, source)
-    return sanitizeDiagramSvg(svg)
+    // `:name:` in a label is an icon; Mermaid is given a one-character place for each (T116).
+    const icons = await import('./icons')
+    const placed = icons.mayHoldIconTokens(source) ? icons.withIconPlaces(source, await icons.loadIconPack()) : { source, names: [] }
+    const remarks = icons.remarkIds(source)
+    const { svg } = await mermaid.render(`mino-mermaid-${nextDiagramId++}`, placed.source)
+    const safe = sanitizeDiagramSvg(svg)
+    if (!sketch && !placed.names.length && !remarks.size) return safe
+    // A diagram that cannot be finished is still a diagram.
+    try { return await finished(safe, styleId, sketch, placed.names, remarks) } catch { return safe }
   })
   renderChain = result.catch(() => undefined)
   return result

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { FocusTrap } from './FocusTrap'
-import type { DocumentWorkspace, Settings } from '../useDocumentWorkspace'
+import type { Settings, SettingsHost } from '../useDocumentWorkspace'
 import { MAX_EDITOR_FONT_SIZE, MIN_EDITOR_FONT_SIZE, zoomedFontSize } from '../textZoom'
 import { translateStatus, type Language } from '../i18n'
 import { readingStyles, type ReadingStyle } from '../../features/reading/styles'
-import { diagramCurveLabels, diagramCurves, diagramLineLabels, diagramLines, diagramLookLabels, diagramLooks, diagramVariables, resolvedCurve, resolvedLine, type DiagramCurve, type DiagramLine, type DiagramLook } from '../../features/diagrams/looks'
+import { diagramCurveLabels, diagramCurves, diagramLineLabels, diagramLines, diagramLookLabels, diagramLooks, diagramVariables, handPalette, resolvedCurve, resolvedLine, type DiagramCurve, type DiagramLine, type DiagramLook } from '../../features/diagrams/looks'
 import { modelChoices, providerHasKey, providerIds, providerLabels, type AiProvider } from '../../features/ai/client'
 import { codeColorIds, codeColorLabels, codePalette, isHexColor, noCustomCodeColors, syntaxRoleLabels, withCustomColor, type CodeColors, type CustomCodeColors } from '../../features/reading/codeColors'
 import type { SyntaxRole } from '../../core/markdown/syntaxRoleNames'
@@ -30,17 +30,22 @@ function DiagramSketch({ style, look, line, curve }: { style: ReadingStyle; look
   const radius = { page: 3, hand: 0, program: 0, scifi: 1, ink: 0, color: 4 }[look]
   const width = { page: 1, hand: 1.3, program: 1.5, scifi: 1.1, ink: 1, color: 1 }[look]
   const glow = look === 'scifi' ? { filter: `drop-shadow(0 0 1.5px ${style.link})` } : undefined
-  const box = (x: number, y: number, fill: string, stroke: string) => look === 'hand'
-    ? <path d={`M${x + 1} ${y} Q${x + 14} ${y - 1.5} ${x + 27} ${y + 0.5} Q${x + 28.5} ${y + 7} ${x + 27} ${y + 14} Q${x + 14} ${y + 15.5} ${x + 1.5} ${y + 13.5} Q${x - 0.5} ${y + 7} ${x + 1} ${y}`} fill={fill} stroke={stroke} strokeWidth={width} />
+  const hand = look === 'hand' ? handPalette(style.id) : null
+  // The hand-drawn look in small: an outline drawn twice, hatching in a pen color, an open arrowhead.
+  const box = (x: number, y: number, fill: string, stroke: string, pen = 0) => hand
+    ? <g fill="none" strokeLinecap="round">
+      <path d={[0, 4.5, 9, 13.5, 18, 22.5, 27, 31.5, 36].map((at) => `M${x + Math.max(0.8, at - 13.2)} ${y + Math.min(13.2, at + 0.8)} L${x + Math.min(26.2, at + 0.8)} ${y + Math.max(0.8, at - 25.4)}`).join('')} stroke={hand.fills[pen]} strokeWidth="0.9" />
+      <path d={`M${x + 1} ${y} Q${x + 14} ${y - 1} ${x + 27} ${y + 0.5} Q${x + 28} ${y + 7} ${x + 27} ${y + 14} Q${x + 14} ${y + 15} ${x + 1.5} ${y + 13.5} Q${x - 0.5} ${y + 7} ${x + 1} ${y}M${x - 0.3} ${y + 0.8} Q${x + 13} ${y + 0.6} ${x + 27.6} ${y - 0.4} Q${x + 26.6} ${y + 7} ${x + 27.5} ${y + 13.4} Q${x + 13} ${y + 13.6} ${x + 0.4} ${y + 14.4} Q${x + 0.8} ${y + 7} ${x - 0.3} ${y + 0.8}`} stroke={stroke} strokeWidth="0.9" />
+    </g>
     : <rect x={x} y={y} width="27" height="14" rx={radius} fill={fill} stroke={stroke} strokeWidth={width} style={glow} />
   const edge = route === 'angular' ? 'M35 13 H46 V27 H55' : route === 'straight' ? 'M35 13 L55 27' : 'M35 13 C47 13 43 27 55 27'
   const dash = pattern === 'dashed' ? '4 2.5' : pattern === 'dotted' ? '0.3 2.6' : undefined
   return <svg viewBox="0 0 96 40" width="96" height="40" aria-hidden="true">
     <rect width="96" height="40" rx="6" fill={style.paper} />
     {box(7, 6, v.primaryColor, v.primaryBorderColor)}
-    {box(61, 20, v.secondaryColor, v.secondaryBorderColor)}
+    {box(61, 20, v.secondaryColor, v.secondaryBorderColor, 1)}
     <path d={edge} fill="none" stroke={v.lineColor} strokeWidth={pattern === 'dotted' ? 1.6 : width} strokeDasharray={dash} strokeLinecap="round" style={glow} />
-    <path d="M55.5 24.5 L60 27 L55.5 29.5 Z" fill={v.lineColor} />
+    {hand ? <path d="M54.6 23.6 Q57.5 25 60 27 Q57 28.6 55 30.6" fill="none" stroke={v.lineColor} strokeWidth="1.1" strokeLinecap="round" /> : <path d="M55.5 24.5 L60 27 L55.5 29.5 Z" fill={v.lineColor} />}
   </svg>
 }
 
@@ -177,7 +182,7 @@ function isLoopback(baseUrl: string): boolean {
 }
 
 /** One provider's key: whether it is stored, and a field to save or remove it. The key itself is never read back. */
-function KeyRow({ workspace: w, provider }: { workspace: DocumentWorkspace; provider: AiProvider }) {
+function KeyRow({ workspace: w, provider }: { workspace: SettingsHost; provider: AiProvider }) {
   const { ai, t } = w
   const [key, setKey] = useState('')
   const saved = providerHasKey(ai.config, provider)
@@ -190,7 +195,7 @@ function KeyRow({ workspace: w, provider }: { workspace: DocumentWorkspace; prov
 }
 
 /** The AI page (T70, T73): off by default; keys go to the macOS Keychain and are never shown again. */
-function AiSettings({ workspace: w }: { workspace: DocumentWorkspace }) {
+function AiSettings({ workspace: w }: { workspace: SettingsHost }) {
   const { ai, settings, t } = w
   const { config } = ai
   const [baseUrl, setBaseUrl] = useState(config.baseUrl)
@@ -265,17 +270,27 @@ function useDialogDrag(open: boolean) {
   return { dialog, moved, onPointerDown, reset }
 }
 
-export function SettingsDialog({ workspace: w }: { workspace: DocumentWorkspace }) {
+/**
+ * The settings pages. Over a document they are a dialog; with `windowed` they fill the settings window (T113),
+ * which has the system's title bar and close button, so the dialog's own title and backdrop are left out.
+ */
+export function SettingsDialog({ workspace: w, windowed = false, documentKind }: { workspace: SettingsHost; windowed?: boolean; documentKind?: string }) {
   const { updateSettings, setSettingsOpen, setSettingsTab, settings, settingsOpen, settingsTab, style: active, t } = w
-  const drag = useDialogDrag(settingsOpen)
+  const drag = useDialogDrag(settingsOpen && !windowed)
   if (!settingsOpen) return null
   const update: Update = updateSettings
   const following = settings.theme === 'system'
-  return <FocusTrap><div className={drag.moved ? 'settings-backdrop is-moved' : 'settings-backdrop'} onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}>
-    <section ref={drag.dialog} className="settings-dialog" role="dialog" aria-modal="true" aria-label={t('设置')}>
-      <header className="settings-title" title={t('拖动标题可以移开对话框，双击回到中间')} onPointerDown={drag.onPointerDown} onDoubleClick={(event) => { if (!(event.target as HTMLElement).closest('button')) drag.reset() }}><div><h2>{t('设置')}</h2><p>{t('自定义阅读、写作和工作区')}</p></div><button type="button" aria-label={t('关闭设置')} onClick={() => setSettingsOpen(false)}><X aria-hidden="true" /></button></header>
+  const frame = (pages: ReactNode) => windowed
+    ? <main className="settings-dialog settings-window" aria-label={t('设置')}>{pages}</main>
+    : <FocusTrap><div className={drag.moved ? 'settings-backdrop is-moved' : 'settings-backdrop'} onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}>
+      <section ref={drag.dialog} className="settings-dialog" role="dialog" aria-modal="true" aria-label={t('设置')}>
+        <header className="settings-title" title={t('拖动标题可以移开对话框，双击回到中间')} onPointerDown={drag.onPointerDown} onDoubleClick={(event) => { if (!(event.target as HTMLElement).closest('button')) drag.reset() }}><div><h2>{t('设置')}</h2><p>{t('自定义阅读、写作和工作区')}</p></div><button type="button" aria-label={t('关闭设置')} onClick={() => setSettingsOpen(false)}><X aria-hidden="true" /></button></header>
+        {pages}
+      </section>
+    </div></FocusTrap>
+  return frame(<>
       <nav className="settings-tabs" aria-label={t('设置分类')}>
-        {([['appearance', '外观'], ['typography', '排版'], ['reading', '阅读与导出'], ['workspace', '工作区'], ['ai', 'AI']] as const).map(([key, label]) => <button key={key} type="button" aria-current={settingsTab === key ? 'page' : undefined} onClick={() => setSettingsTab(key)}>{t(label)}</button>)}
+        {([['appearance', '外观'], ['code', '代码配色'], ['diagrams', '图表'], ['typography', '排版'], ['reading', '阅读与导出'], ['workspace', '工作区'], ['ai', 'AI']] as const).map(([key, label]) => <button key={key} type="button" aria-current={settingsTab === key ? 'page' : undefined} onClick={() => setSettingsTab(key)}>{t(label)}</button>)}
       </nav>
       <div className="settings-content">
         {settingsTab === 'appearance' && <>
@@ -288,19 +303,29 @@ export function SettingsDialog({ workspace: w }: { workspace: DocumentWorkspace 
           <div className="settings-section-heading"><strong>{t('阅读风格')}</strong><small>{t('窗口和标题栏带一点纸张的色调，颜色主要在纸面和标题上')}</small></div>
           <StyleSwatches workspace={w} />
           {active.texture && <Row title={t('纸张纹理')} note={t('纸面纤维、压纹和做旧的明显程度')}><input type="range" aria-label={t('纸张纹理')} min={0} max={100} step={10} value={settings.textureStrength} onChange={(event) => update({ textureStrength: Number(event.target.value) })} /></Row>}
-          <div className="settings-section-heading"><strong>{t('代码配色')}</strong><small>{t('代码块和源码文件里各种记号的颜色；底色始终是纸张的，颜色会按纸张调到看得清，导出也用这里的选择')}</small></div>
+        </>}
+        {settingsTab === 'code' && <>
+          <div className="settings-section-heading is-first"><strong>{t('代码配色')}</strong><small>{t('代码块和源码文件里各种记号的颜色；底色始终是纸张的，颜色会按纸张调到看得清，导出也用这里的选择')}</small></div>
           <CodeColorsPicker style={active} value={settings.codeColors} custom={settings.codeCustomColors ?? noCustomCodeColors} onChange={(codeColors) => update({ codeColors })} t={t} />
           <p className="settings-note">{t(codeColorLabels[settings.codeColors]?.note ?? codeColorLabels.auto.note)}</p>
           {settings.codeColors === 'custom' && <CustomCodeColorsEditor style={active} custom={settings.codeCustomColors ?? noCustomCodeColors} onChange={(codeCustomColors) => update({ codeCustomColors })} t={t} />}
-          <div className="settings-section-heading"><strong>{t('图表风格')}</strong><small>{t('Mermaid 流程图、时序图等的画法：字体、笔触、边角和连线；颜色始终取自当前纸张，导出也用这里的选择')}</small></div>
+        </>}
+        {settingsTab === 'diagrams' && <>
+          <div className="settings-section-heading is-first"><strong>{t('图表风格')}</strong><small>{t('Mermaid 流程图、时序图等的画法：字体、笔触、边角和连线；颜色始终取自当前纸张，导出也用这里的选择')}</small></div>
           <DiagramLookPicker style={active} settings={settings} onChange={(diagramStyle) => update({ diagramStyle })} t={t} />
           <p className="settings-note">{t(diagramLookLabels[settings.diagramStyle].note)}</p>
           <Row title={t('连线样式')} note={t('普通连线的线型；图里本来写成虚线的连线不变')}><Segmented t={t} value={settings.diagramLine} onChange={(value) => update({ diagramLine: value })} options={diagramLines.map((line) => [line, diagramLineLabels[line]] as const)} /></Row>
           <Row title={t('连线走向')} note={t('流程图和状态图的连线怎样绕到下一个节点')}><Segmented t={t} value={settings.diagramCurve} onChange={(value) => update({ diagramCurve: value })} options={diagramCurves.map((curve) => [curve, diagramCurveLabels[curve]] as const)} /></Row>
+          <div className="settings-section-heading"><strong>{t('图标与批注')}</strong><small>{t('写在 Mermaid 流程图的代码里；图标随应用提供，离线可用')}</small></div>
+          <ul className="settings-syntax">
+            <li><code>{'A[:database: 保存]'}</code><span>{t('节点文字里的图标：两个冒号之间写 Lucide 图标的英文名')}</span></li>
+            <li><code>{'s@{ icon: "lucide:star" }'}</code><span>{t('单独的图标；加 form: "square" 带方框，加 label 带文字')}</span></li>
+            <li><code>{'tip@{ shape: cloud, label: "小技巧" }'}</code><span>{t('批注：cloud 是云形，bang 是爆炸形，text 只有文字；手绘风格下用彩色笔写，略微倾斜')}</span></li>
+          </ul>
         </>}
         {settingsTab === 'typography' && <>
           <div className="settings-section-heading"><strong>{t('字体')}</strong><small>{t('中文和西文分开选择；随应用提供的字体离线可用')}</small></div>
-          <FontPicker workspace={w} />
+          <FontPicker workspace={w} documentKind={documentKind} />
           <Row title={t('字号')} note={t('正文大小，标题按比例调整')}><div className="settings-stepper"><button type="button" aria-label={t('缩小字号')} disabled={settings.editorFontSize <= MIN_EDITOR_FONT_SIZE} onClick={() => update({ editorFontSize: zoomedFontSize(settings.editorFontSize, 'zoom-out') })}>−</button><output>{settings.editorFontSize} px</output><button type="button" aria-label={t('增大字号')} disabled={settings.editorFontSize >= MAX_EDITOR_FONT_SIZE} onClick={() => update({ editorFontSize: zoomedFontSize(settings.editorFontSize, 'zoom-in') })}>+</button></div></Row>
           <Row title={t('行距')}><Segmented t={t} value={settings.editorLineHeight} onChange={(value) => update({ editorLineHeight: value })} options={[['compact', '紧凑'], ['comfortable', '舒适'], ['relaxed', '宽松']]} /></Row>
           <Row title={t('段间距')}><Segmented t={t} value={settings.paragraphSpacing} onChange={(value) => update({ paragraphSpacing: value })} options={[['compact', '紧凑'], ['standard', '标准'], ['relaxed', '宽松']]} /></Row>
@@ -331,6 +356,5 @@ export function SettingsDialog({ workspace: w }: { workspace: DocumentWorkspace 
           <label className="settings-row settings-toggle"><span>{t('显示文件操作栏')}<small>{t('打开、新建、保存等按钮；也可从菜单栏使用这些功能')}</small></span><input type="checkbox" checked={settings.showFileToolbar} onChange={(event) => update({ showFileToolbar: event.target.checked })} /></label>
         </>}
       </div>
-    </section>
-  </div></FocusTrap>
+  </>)
 }

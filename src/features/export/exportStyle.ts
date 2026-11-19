@@ -23,6 +23,8 @@ export type ExportStyleInput = {
   /** Reads a bundled font or paper layer by its built path (`/assets/…`); the app reads it through `read_app_asset`. */
   readAsset: (path: string) => Promise<Uint8Array>
   faces?: readonly FontFace[]
+  /** The font of the diagram look and the diagrams' sources: their labels are drawn in it, whatever the document's font is (T115). */
+  diagrams?: { fontFamily: string; text: string }
 }
 
 export type ExportStyle = {
@@ -39,6 +41,11 @@ export async function buildExportStyle(input: ExportStyleInput): Promise<ExportS
   // Code blocks draw with the bundled monospace font, so its Latin subset travels with the page too.
   const families = new Set([...familiesIn(input.typography.fontFamily), ...familiesIn(input.typography.codeFontFamily ?? CODE_FONT_STACK)])
   const faces = facesForText(input.text, families, input.faces ?? bundledFaces, /(^|[^\\*_])[*_][^\s*_]/.test(input.text))
+  // Only the subsets the diagrams' own text needs: a handwriting font for the whole document would not fit the budget.
+  if (input.diagrams?.text) {
+    const extra = new Set([...familiesIn(input.diagrams.fontFamily)].filter((family) => !families.has(family)))
+    faces.push(...facesForText(input.diagrams.text, extra, input.faces ?? bundledFaces, false))
+  }
   const budget = input.mode === 'html' ? HTML_FONT_BUDGET : PRINT_FONT_BUDGET
   let typography = input.typography
   let fontFaces = ''

@@ -98,6 +98,20 @@ describe('export style', () => {
     expect(accented.read.sort()).toEqual(['/assets/latin.woff2', '/assets/mono-ext.woff2', '/assets/mono.woff2', '/assets/source-serif-ext.woff2', '/assets/source-serif.woff2'])
   })
 
+  it('embeds the diagram look\'s font for the diagrams\' own text only (T115)', async () => {
+    const hand = [...faces, face('hand-latin.woff2', latin, 'Mino Excalifont'), face('hand-a.woff2', [[0x4e00, 0x5fff]], 'Mino Xiaolai'), face('hand-b.woff2', [[0x6000, 0x9fff]], 'Mino Xiaolai')]
+    // 开 (U+5F00) is in the first subset; 读书, which only the document has, is in the second.
+    const drawn = input({ faces: hand, text: '读书 Reading', diagrams: { fontFamily: "'Mino Excalifont', 'Mino Xiaolai', 'Kaiti SC', cursive", text: 'A[开]' } })
+    const look = await buildExportStyle(drawn.value)
+    expect(drawn.read).toContain('/assets/hand-latin.woff2')
+    expect(drawn.read).toContain('/assets/hand-a.woff2')
+    expect(drawn.read).not.toContain('/assets/hand-b.woff2')
+    expect(look.stylesheet).toContain("font-family:'Mino Xiaolai'")
+    const plain = input({ faces: hand })
+    await buildExportStyle(plain.value)
+    expect(plain.read.some((path) => path.includes('hand-'))).toBe(false)
+  })
+
   it('embeds the fonts of the chosen stack, and whole-file fonts whole', async () => {
     const xuan = input({ style: readingStyle('xuan') })
     const kai = await buildExportStyle(xuan.value)

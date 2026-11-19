@@ -189,10 +189,33 @@ pie title 阅读时间
 \`\`\`
 `
 
+/** Annotations and icons in a flowchart (T116), for `?ui-preview=editor&ui-sample=annotated` screenshots. */
+export const annotatedSample = `# 批注与图标
+
+\`\`\`mermaid
+flowchart TD
+  A[:wheat: 堆面粉] --> B[:egg: 加鸡蛋]
+  B --> C[:utensils: 用叉子搅拌]
+  C --> D{面团太粘?}
+  D -- 是 --> E[加面粉]
+  D -- 否 --> F[:timer: 静置 30 分钟]
+  tip@{ shape: cloud, label: "小技巧：室温材料更易成团！" }
+  tip -.-> B
+  n1@{ shape: text, label: "耐心揉面口感更筋道" }
+  n1 -.-> C
+  logo@{ shape: bang, label: "现做现吃" }
+  db@{ icon: "lucide:database", label: "食谱库", form: "square" }
+  F --> db
+  star@{ icon: "lucide:star" }
+  heart@{ icon: "lucide:heart" }
+\`\`\`
+`
+
 /** The document shown by `?ui-preview=editor&ui-sample=…` (development screenshots and measurements). */
 export function previewSampleSource(name: string | null): string {
   if (name === 'reading') return readingSample
   if (name === 'diagram') return diagramSample
+  if (name === 'annotated') return annotatedSample
   if (name === 'english') return englishSample
   if (name === 'code') return codeSample
   if (name === 'reading-preview') return `${readingSample}\n$$\nE = mc^2\n$$\n`

@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   bundledFamilies, choiceFamily, cjkFonts, codeFonts, codeFontStack, CODE_FONT_STACK, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, familiesIn, fontStack, isFontChoice, isSystemFontName, latinFonts, systemFontId, systemFontName, withoutBundledFonts,
-  FANGSONG_FAMILY, GARAMOND_FAMILY, HUOSONG_FAMILY, INTER_FAMILY, KAI_FAMILY, LITERATA_FAMILY, MONO_FAMILY, SANS_FAMILY, SERIF_FAMILY, SOURCE_SERIF_FAMILY,
+  EXCALIFONT_FAMILY, XIAOLAI_FAMILY, FANGSONG_FAMILY, GARAMOND_FAMILY, HUOSONG_FAMILY, INTER_FAMILY, KAI_FAMILY, LITERATA_FAMILY, MONO_FAMILY, SANS_FAMILY, SERIF_FAMILY, SOURCE_SERIF_FAMILY,
 } from '../src/features/reading/fonts'
 import { bundledFaces, facesForText, fontFaceCss, type FontFace } from '../src/features/reading/fontFaces'
 import { FONT_BUDGET_BYTES } from '../vite.config'
@@ -15,6 +15,8 @@ const directories: Record<string, string> = {
   [KAI_FAMILY]: 'node_modules/@fontsource/lxgw-wenkai/files',
   [FANGSONG_FAMILY]: 'src/assets/fonts/zhuque-fangsong',
   [HUOSONG_FAMILY]: 'src/assets/fonts/chill-huosong',
+  [EXCALIFONT_FAMILY]: 'src/assets/fonts/excalifont',
+  [XIAOLAI_FAMILY]: 'src/assets/fonts/xiaolai',
   [SOURCE_SERIF_FAMILY]: 'node_modules/@fontsource-variable/source-serif-4/files',
   [LITERATA_FAMILY]: 'node_modules/@fontsource-variable/literata/files',
   [GARAMOND_FAMILY]: 'node_modules/@fontsource-variable/eb-garamond/files',
@@ -29,7 +31,7 @@ const facesOf = (family: string) => bundledFaces.filter((face) => face.family ==
 const rust = readFileSync('src-tauri/src/settings.rs', 'utf8')
 
 describe('bundled fonts', () => {
-  it('bundles twelve families, each with WOFF2 files that exist on disk', () => {
+  it('bundles fourteen families, each with WOFF2 files that exist on disk', () => {
     expect([...bundledFamilies].sort()).toEqual(Object.keys(directories).sort())
     for (const family of Object.keys(directories)) expect(facesOf(family).length, family).toBeGreaterThan(0)
     for (const face of bundledFaces) {
@@ -79,6 +81,20 @@ describe('bundled fonts', () => {
       expect(facesForText('a', new Set([family])).map((face) => face.style).sort(), family).toEqual(['italic', 'normal'])
       expect(facesForText('Жλ读', new Set([family])), family).toEqual([])
     }
+  })
+
+  it('bundles the handwriting of hand-drawn diagrams as subsets: Latin letters and the common Chinese characters (T115)', () => {
+    const latin = facesOf(EXCALIFONT_FAMILY), chinese = facesOf(XIAOLAI_FAMILY)
+    expect(latin).toHaveLength(7)
+    expect(chinese).toHaveLength(38)
+    for (const face of [...latin, ...chinese]) expect(face.ranges !== null && face.ranges.length > 0 && face.weight === '100 900' && face.style === 'normal', face.file).toBe(true)
+    // A label needs only the subsets its characters are in.
+    expect(facesForText('Start', new Set([EXCALIFONT_FAMILY, XIAOLAI_FAMILY]))).toHaveLength(1)
+    expect(facesForText('开始', new Set([XIAOLAI_FAMILY])).length).toBeGreaterThan(0)
+    expect(facesForText('开始', new Set([XIAOLAI_FAMILY])).length).toBeLessThanOrEqual(2)
+    // Neither is offered as a reading font.
+    expect([...cjkFonts, ...latinFonts, ...codeFonts].some((font) => /Excalifont|Xiaolai/.test(font.family ?? ''))).toBe(false)
+    for (const folder of ['excalifont', 'xiaolai']) for (const file of ['LICENSE.txt', 'README.md']) expect(existsSync(join('src/assets/fonts', folder, file)), `${folder}/${file}`).toBe(true)
   })
 
   it('stays within the font budget of the build', () => {
@@ -374,7 +390,7 @@ describe('the generated font files (T98)', () => {
 
   it('register every face under a family the app knows, and every family the app knows has faces', () => {
     expect(new Set(bundledFaces.map((face) => face.family))).toEqual(bundledFamilies)
-    expect(bundledFamilies.size).toBe(12)
+    expect(bundledFamilies.size).toBe(14)
   })
 
   it('give the page the same rules the app used to write from the face list, with each file found by the build', () => {

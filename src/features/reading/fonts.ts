@@ -40,6 +40,9 @@ export const INTER_FAMILY = 'Mino Inter'
 export const MONO_FAMILY = 'Mino JetBrains Mono'
 export const FIRA_CODE_FAMILY = 'Mino Fira Code'
 export const SOURCE_CODE_FAMILY = 'Mino Source Code Pro'
+/** Handwriting for hand-drawn diagrams (T115): Latin letters and Chinese. Not offered as reading fonts. */
+export const EXCALIFONT_FAMILY = 'Mino Excalifont'
+export const XIAOLAI_FAMILY = 'Mino Xiaolai'
 
 const SYSTEM_SANS = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', sans-serif"
 const CODE_FALLBACK = "ui-monospace, SFMono-Regular, Menlo, 'PingFang SC', monospace"
@@ -47,7 +50,7 @@ const CODE_FALLBACK = "ui-monospace, SFMono-Regular, Menlo, 'PingFang SC', monos
 export const CODE_FONT_STACK = `'${MONO_FAMILY}', ${CODE_FALLBACK}`
 
 /** The private families the app ships. Their faces are registered by `bundledFonts.css`; `fontFaces.ts` lists them for exports. */
-export const bundledFamilies: ReadonlySet<string> = new Set([SERIF_FAMILY, SANS_FAMILY, KAI_FAMILY, FANGSONG_FAMILY, HUOSONG_FAMILY, SOURCE_SERIF_FAMILY, LITERATA_FAMILY, GARAMOND_FAMILY, INTER_FAMILY, MONO_FAMILY, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY])
+export const bundledFamilies: ReadonlySet<string> = new Set([SERIF_FAMILY, SANS_FAMILY, KAI_FAMILY, FANGSONG_FAMILY, HUOSONG_FAMILY, SOURCE_SERIF_FAMILY, LITERATA_FAMILY, GARAMOND_FAMILY, INTER_FAMILY, MONO_FAMILY, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, EXCALIFONT_FAMILY, XIAOLAI_FAMILY])
 
 /** Chinese fonts offered by name. `hei` is the system's PingFang; the rest ship with the app. */
 export const cjkFonts: readonly FontOption[] = [

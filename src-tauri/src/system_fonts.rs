@@ -33,7 +33,7 @@ fn installed_families() -> Vec<String> { Vec::new() }
 
 #[tauri::command(async)]
 pub fn list_system_fonts(window: WebviewWindow) -> Result<Vec<String>, String> {
-    crate::require_workspace_window(&window)?;
+    crate::require_app_window(&window)?;
     Ok(clean_families(installed_families()))
 }
 

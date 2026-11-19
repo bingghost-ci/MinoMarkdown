@@ -1,5 +1,5 @@
 use std::{collections::HashMap, sync::{atomic::{AtomicU64, Ordering}, Mutex}};
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 static NEXT_WINDOW: AtomicU64 = AtomicU64::new(1);
 
@@ -41,6 +41,62 @@ pub fn show_if_webview_stalls(app: AppHandle, label: String) {
     });
 }
 
+/// The one settings window (T113). It is a native window so it can sit beside the document or on another display.
+pub const SETTINGS_WINDOW: &str = "settings";
+const SETTINGS_TABS: &[&str] = &["appearance", "code", "diagrams", "typography", "reading", "workspace", "ai"];
+/// The page the settings window should show, read by its webview when it is ready.
+pub struct SettingsTab(pub Mutex<String>);
+impl Default for SettingsTab { fn default() -> Self { Self(Mutex::new(SETTINGS_TABS[0].into())) } }
+
+pub fn settings_title(language: &str) -> &'static str { if language == "en-US" { "Settings" } else { "设置" } }
+pub fn settings_focused(app: &AppHandle) -> bool { app.get_webview_window(SETTINGS_WINDOW).is_some_and(|window| window.is_focused().unwrap_or(false)) }
+pub fn close_settings(app: &AppHandle) { if let Some(window) = app.get_webview_window(SETTINGS_WINDOW) { let _ = window.destroy(); } }
+
+/// Shows the settings window, creating it when there is none. `tab` selects a page; without it an open window keeps its page.
+pub fn open_settings(app: &AppHandle, tab: Option<&str>) -> Result<(), String> {
+    if let Some(tab) = tab {
+        if !SETTINGS_TABS.contains(&tab) { return Err("INVALID_SETTINGS".into()); }
+        *app.state::<SettingsTab>().0.lock().map_err(|_| "IO_ERROR")? = tab.into();
+    }
+    if let Some(window) = app.get_webview_window(SETTINGS_WINDOW) {
+        if let Some(tab) = tab { let _ = app.emit_to(SETTINGS_WINDOW, "settings-tab", tab); }
+        let _ = window.unminimize();
+        let _ = window.show();
+        return window.set_focus().map_err(|_| "WINDOW_SHOW_FAILED".into());
+    }
+    let language = crate::settings::initial_language(app);
+    WebviewWindowBuilder::new(app, SETTINGS_WINDOW, WebviewUrl::App("index.html".into()))
+        .title(settings_title(&language))
+        .inner_size(720.0, 760.0)
+        .min_inner_size(600.0, 420.0)
+        .maximizable(false)
+        .visible(false)
+        .build()
+        .map_err(|_| "WINDOW_CREATE_FAILED")?;
+    show_if_webview_stalls(app.clone(), SETTINGS_WINDOW.into());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_settings_window(app: AppHandle, window: WebviewWindow, tab: Option<String>) -> Result<(), String> {
+    crate::require_workspace_window(&window)?;
+    open_settings(&app, tab.as_deref())
+}
+
+/// Called by the settings window once its page has the saved settings: shows it and tells it which page to open.
+#[tauri::command]
+pub fn settings_window_ready(window: WebviewWindow, tab: State<'_, SettingsTab>) -> Result<String, String> {
+    if window.label() != SETTINGS_WINDOW { return Err("OUT_OF_SCOPE".into()); }
+    if !window.is_visible().unwrap_or(false) { window.show().map_err(|_| "WINDOW_SHOW_FAILED")?; let _ = window.set_focus(); }
+    Ok(tab.0.lock().map_err(|_| "IO_ERROR")?.clone())
+}
+
+#[tauri::command]
+pub fn close_settings_window(window: WebviewWindow) -> Result<(), String> {
+    if window.label() != SETTINGS_WINDOW { return Err("OUT_OF_SCOPE".into()); }
+    window.destroy().map_err(|_| "WINDOW_CLOSE_FAILED".into())
+}
+
 fn external_url(raw: &str) -> Option<String> {
     let url = tauri::Url::parse(raw).ok()?;
     matches!(url.scheme(), "http" | "https" | "mailto").then(|| url.to_string())
@@ -57,6 +113,13 @@ pub fn open_external(window: WebviewWindow, url: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::external_url;
+    #[test]
+    fn the_settings_window_is_an_app_window_but_not_a_document_window() {
+        assert!(crate::is_app_window(super::SETTINGS_WINDOW) && crate::is_app_window("main") && crate::is_app_window("workspace-3"));
+        assert!(!crate::is_workspace_window(super::SETTINGS_WINDOW));
+        for other in ["", "settings-2", "pdf-export", "Settings"] { assert!(!crate::is_app_window(other), "{other}"); }
+        assert_eq!((super::settings_title("en-US"), super::settings_title("zh-CN")), ("Settings", "设置"));
+    }
     #[test]
     fn only_web_and_mail_links_open_externally() {
         assert!(external_url("https://example.com/a").is_some());

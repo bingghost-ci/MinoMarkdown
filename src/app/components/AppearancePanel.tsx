@@ -5,7 +5,7 @@ import { readingStyles, type ReadingStyle } from '../../features/reading/styles'
 import { FontPicker } from './FontPicker'
 
 /** Round color chips, one per reading style: the page color with the accent as a dot of ink. */
-export function StyleSwatches({ workspace: w }: { workspace: DocumentWorkspace }) {
+export function StyleSwatches({ workspace: w }: { workspace: Pick<DocumentWorkspace, 'pickStyle' | 'style' | 't'> }) {
   const { pickStyle, style: active, t } = w
   return <div className="style-swatches" role="listbox" aria-label={t('阅读风格')}>
     {readingStyles.map((style: ReadingStyle) => <button key={style.id} type="button" role="option" className="style-swatch" aria-selected={active.id === style.id} onClick={() => pickStyle(style)}>
@@ -42,7 +42,7 @@ export function AppearancePanel({ workspace: w }: { workspace: DocumentWorkspace
     <section><h3>{t('字体')}</h3>
       <h4 className="panel-font-size">{t('字号')}<output>{settings.editorFontSize}</output></h4>
       <Slider label={t('字号')} value={settings.editorFontSize} min={MIN_EDITOR_FONT_SIZE} max={MAX_EDITOR_FONT_SIZE} step={1} onChange={(value) => update({ editorFontSize: value })} small="A" large="A" />
-      <FontPicker workspace={w} />
+      <FontPicker workspace={w} documentKind={w.document.kind} />
     </section>
   </div>
 }

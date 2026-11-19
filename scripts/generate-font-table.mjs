@@ -30,6 +30,8 @@ const noto = (family, name) => ({ family, directory: `node_modules/@fontsource/$
 const variable = (family, name) => ({ family, directory: `node_modules/@fontsource-variable/${name}`, sheets: ['wght-italic.css', 'wght.css'], keep: latinSubsets })
 /** A font shipped as one file per weight: no subsets, so any text needs the whole file. A weight range lets 400 text use the 500 file. */
 const whole = (family, files) => ({ family, files })
+/** A font kept in the repository as unicode-range subsets; `ranges.json` beside the files gives the range of each. */
+const split = (family, directory) => ({ family, directory, ranges: `${directory}/ranges.json` })
 
 const families = [
   noto('Mino Noto Serif SC', 'noto-serif-sc'),
@@ -38,6 +40,9 @@ const families = [
   // Zhuque Fangsong and ChillHuoSong ship one regular weight; bold is synthesized (`font-synthesis: weight`).
   whole('Mino Zhuque Fangsong', [['src/assets/fonts/zhuque-fangsong/zhuque-fangsong-400.woff2', '100 900']]),
   whole('Mino Chill HuoSong', [['src/assets/fonts/chill-huosong/chill-huosong-400.woff2', '100 900']]),
+  // The handwriting of hand-drawn diagrams (T115): Excalifont has the Latin letters, Xiaolai the Chinese.
+  split('Mino Excalifont', 'src/assets/fonts/excalifont'),
+  split('Mino Xiaolai', 'src/assets/fonts/xiaolai'),
   variable('Mino Source Serif 4', 'source-serif-4'),
   variable('Mino Literata', 'literata'),
   variable('Mino EB Garamond', 'eb-garamond'),
@@ -50,6 +55,7 @@ const families = [
 /** Every face, in the order it is registered: family, path from the project root, weight, style, unicode-range. */
 export function faces() {
   return families.flatMap((entry) => {
+    if (entry.ranges) return Object.entries(JSON.parse(readFileSync(join(root, entry.ranges), 'utf8'))).map(([file, unicodeRange]) => ({ family: entry.family, path: `${entry.directory}/${file}`, weight: '100 900', style: 'normal', unicodeRange }))
     if (entry.files) return entry.files.map(([path, weight]) => ({ family: entry.family, path, weight, style: 'normal', unicodeRange: null }))
     return entry.sheets.map((sheet) => join(root, entry.directory, sheet)).filter((sheet) => existsSync(sheet)).flatMap((sheet) => readFileSync(sheet, 'utf8').split('@font-face').slice(1).flatMap((block) => {
       const file = /files\/([^)]+\.woff2)/.exec(block)?.[1]

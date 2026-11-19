@@ -26,6 +26,10 @@ pub(crate) fn is_workspace_window(label: &str) -> bool { label == "main" || labe
 /// The first line of every command: only the app's own document windows may call it.
 pub(crate) fn require_workspace_window(window: &tauri::WebviewWindow) -> Result<(), String> { require_workspace_label(window.label()) }
 pub(crate) fn require_workspace_label(label: &str) -> Result<(), String> { if is_workspace_window(label) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
+/// The settings window (T113) is one of the app's windows but holds no document: it may read and change settings,
+/// list fonts and manage the AI configuration, and nothing that touches a file or a document.
+pub(crate) fn is_app_window(label: &str) -> bool { is_workspace_window(label) || label == windows::SETTINGS_WINDOW }
+pub(crate) fn require_app_window(window: &tauri::WebviewWindow) -> Result<(), String> { if is_app_window(window.label()) { Ok(()) } else { Err("OUT_OF_SCOPE".into()) } }
 fn focused_workspace(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
     app.webview_windows().into_values().find(|window| is_workspace_window(window.label()) && window.is_focused().unwrap_or(false))
         .or_else(|| app.state::<windows::ActiveWindow>().0.lock().ok().and_then(|label| app.get_webview_window(&label)))
@@ -71,6 +75,7 @@ pub fn run() {
         .manage(open_intents::IntentStore::default())
         .manage(windows::TransferStore::default())
         .manage(windows::ActiveWindow::default())
+        .manage(windows::SettingsTab::default())
         .manage(ai::AiState::default())
         .setup(|app| {
             let handle = app.handle();
@@ -197,6 +202,15 @@ pub fn run() {
                 if let Some((label, id)) = context_menu::target(rest) {
                     if app.get_webview_window(label).is_some() { context_menu::chosen(app, label, id); }
                 }
+            } else if event.id().as_ref() == "preferences" {
+                // Opened from here and not through a document window, so the menu item also works while the
+                // settings window itself is in front.
+                if windows::open_settings(app, None).is_err() {
+                    if let Some(window) = focused_workspace(app) { let _ = app.emit_to(window.label(), "menu-action", "preferences"); }
+                }
+            } else if event.id().as_ref() == "close-tab" && windows::settings_focused(app) {
+                // ⌘W closes the window in front: the settings window, not a document behind it.
+                windows::close_settings(app);
             } else if let Some(window) = focused_workspace(app) {
                 let _ = app.emit_to(window.label(), "menu-action", event.id().as_ref());
             }
@@ -278,6 +292,9 @@ pub fn run() {
             settings::get_settings,
             settings::update_settings,
             windows::create_workspace_window,
+            windows::open_settings_window,
+            windows::settings_window_ready,
+            windows::close_settings_window,
             windows::show_workspace_window,
             windows::open_external,
             windows::take_window_transfer,

@@ -654,6 +654,40 @@ G01–G29 分别对应 T01–T29，每项命令可独立复制到支持 Goals �
 /goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T112 可移动的设置对话框」完成可移动的设置对话框。先读 CLAUDE.md、doc/01-产品方案.md §3.21、doc/02-技术设计.md §32、doc/05-验收与发布.md §8Q 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
 ```
 
+## G113 独立的设置窗口
+
+2026-11-19 按用户“设置应该能移动到其他屏幕”的要求建立，对应 T113，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G113 | T113 | T112 | 设置成为独立的系统窗口，可放到任意显示器，改动实时作用于文档窗口 |
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T113 独立的设置窗口」完成独立的设置窗口。先读 CLAUDE.md、doc/01-产品方案.md §3.22、doc/02-技术设计.md §33、doc/05-验收与发布.md §8R 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
+## G114–G116 设置分页、白板手绘图表、图标与批注
+
+2026-11-19 按用户“代码配色单独一个设置页面”和“手绘风格应是白板草图那样”的要求建立，随后又按“节点内的小插图、批注气泡和图标也要做”的要求增加 G116；对应 T114–T116，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G114 | T114 | T110、T111、T113 | 代码配色和图表各占一页设置，“外观”只留语言、风格和纹理 |
+| G115 | T115 | T107 | “手绘”图表风格改为白板草图：双线笔画、彩色排线、开口箭头、手写字体，适用于所有图表类型和导出 |
+| G116 | T116 | T115 | 图表标签里可写 `:名字:` 放图标，支持 Mermaid 的图标节点和云形、爆炸形、纯文字批注；手绘风格下批注用彩色笔 |
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T114 代码配色与图表的设置页」把代码配色和图表设置各自拆成一页。先读 CLAUDE.md、doc/01-产品方案.md §3.23、doc/02-技术设计.md §34、doc/05-验收与发布.md §8S 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T115 白板手绘的图表风格」把“手绘”图表风格改为白板草图的画法。先读 CLAUDE.md、doc/01-产品方案.md §3.24、doc/02-技术设计.md §35、doc/05-验收与发布.md §8S 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 node scripts/generate-font-table.mjs --check、npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T116 图表里的图标与批注」实现图表标签里的图标、图标节点和批注。先读 CLAUDE.md、doc/01-产品方案.md §3.25、doc/02-技术设计.md §36、doc/05-验收与发布.md §8S 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
 ## 连续开发总 Goal（逐项读取列表）
 
 此命令只负责开发阶段。每轮读取 G01–G29 的当前任务，依据代码依赖推进；已实现的任务先复核，不重复开发。最终原生验收层级与 Gate 留待集中测试，不能虚报 PASS。单项命令和本总 Goal 共用进度表，不创建嵌套 Goal。

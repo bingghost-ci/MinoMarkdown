@@ -33,7 +33,7 @@ export function App() {
       <StatusBar workspace={controller} />
       <DocumentRenameDialog workspace={controller} />
       <DraftsDialog workspace={controller} />
-      <SettingsDialog workspace={controller} />
+      <SettingsDialog workspace={controller} documentKind={controller.document.kind} />
       <AiConsentDialog workspace={controller} />
       <DiffDialog workspace={controller} />
       <VerificationPanel workspace={controller} />

@@ -196,12 +196,16 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .settings-backdrop.is-moved { background: transparent; pointer-events: none; }
 .settings-backdrop.is-moved .settings-dialog { pointer-events: auto; }
 .settings-backdrop.is-moved .settings-dialog { box-shadow: 0 0 0 1px #0002, 0 20px 70px #0006; }
+/* The settings window (T113): the same pages filling a native window. */
+.settings-window { width: 100%; height: 100vh; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
+.settings-window .settings-tabs { padding-top: 10px; }
+.settings-window .settings-content { flex: 1; min-height: 0; }
 .settings-title h2 { margin: 0; font-size: 19px; font-weight: 600; }
 .settings-title p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
 .settings-title button { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--secondary); }
 .settings-title button:hover { background: var(--hover); }
-.settings-tabs { display: flex; gap: 4px; padding: 0 28px; border-bottom: 1px solid var(--line); }
-.settings-tabs button { min-width: 76px; height: 38px; border: 0; border-bottom: 2px solid transparent; padding: 0 12px; background: transparent; color: var(--secondary); font-size: 12px; }
+.settings-tabs { display: flex; gap: 4px; padding: 0 28px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.settings-tabs button { flex: none; min-width: 64px; height: 38px; border: 0; border-bottom: 2px solid transparent; padding: 0 12px; background: transparent; color: var(--secondary); font-size: 12px; }
 .settings-tabs button:hover { color: var(--text); }
 .settings-tabs button[aria-current="page"] { border-bottom-color: var(--accent); color: var(--text); font-weight: 600; }
 .settings-content { min-height: 220px; padding: 8px 28px 28px; overflow: auto; }
@@ -211,6 +215,11 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .settings-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
 .settings-section-heading { display: flex; flex-direction: column; gap: 4px; margin: 24px 0 12px; font-size: 13px; }
 .settings-section-heading small { color: var(--muted); font-size: 11px; }
+.settings-section-heading.is-first { margin-top: 16px; }
+.settings-syntax { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.settings-syntax li { display: flex; flex-direction: column; gap: 3px; }
+.settings-syntax code { align-self: flex-start; border-radius: 4px; padding: 2px 6px; background: var(--chrome); color: var(--text); font-family: var(--code-font, ui-monospace, Menlo, monospace); font-size: 11.5px; user-select: text; }
+.settings-syntax span { color: var(--muted); font-size: 11px; }
 .settings-pair { display: flex; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
 .settings-pair label { display: flex; align-items: center; gap: 8px; color: var(--secondary); }
 .settings-pair select { height: 30px; border: 1px solid var(--line); border-radius: 5px; padding: 0 8px; background: var(--surface); color: var(--text); }

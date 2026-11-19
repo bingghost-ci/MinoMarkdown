@@ -1,3 +1,4 @@
+import { diagramFonts } from '../features/diagrams/looks'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -107,8 +108,15 @@ type RestoredSession = { documents: OpenResult[]; active: number | null; missing
 type OpenIntent = { token: string; name: string; kind: 'document' | 'image' | 'folder' }
 type NativeImageIntent = { name: string; mime: string; staged: string }
 export type Settings = ReadingSettings & { schemaVersion: number; sidebarWidth: number; outlineWidth: number; aiWidth: number; windowWidth: number; windowHeight: number; showFileToolbar: boolean; showSidebar: boolean; showOutline: boolean; autoSave: boolean; autoSaveSeconds: number; restoreSession: boolean; editorWidth: 'centered' | 'wide'; language: Language }
-const defaultSettings: Settings = { ...defaultReadingSettings, schemaVersion: 1, sidebarWidth: 230, outlineWidth: 240, aiWidth: 400, windowWidth: 1100, windowHeight: 760, showFileToolbar: false, showSidebar: true, showOutline: false, autoSave: false, autoSaveSeconds: 30, restoreSession: false, editorWidth: 'centered', language: 'zh-CN' }
-export type SettingsTab = 'appearance' | 'typography' | 'reading' | 'workspace' | 'ai'
+export const defaultSettings: Settings = { ...defaultReadingSettings, schemaVersion: 1, sidebarWidth: 230, outlineWidth: 240, aiWidth: 400, windowWidth: 1100, windowHeight: 760, showFileToolbar: false, showSidebar: true, showOutline: false, autoSave: false, autoSaveSeconds: 30, restoreSession: false, editorWidth: 'centered', language: 'zh-CN' }
+export type SettingsTab = 'appearance' | 'code' | 'diagrams' | 'typography' | 'reading' | 'workspace' | 'ai'
+/**
+ * What the settings pages need from their host: the workspace when they are shown as a dialog over a document, or
+ * `useSettingsWindow` when they fill the settings window (T113).
+ */
+export type SettingsHost = Pick<DocumentWorkspace, 'loadSystemFonts' | 'pickStyle' | 'settings' | 'settingsOpen' | 'settingsTab' | 'setSettingsOpen' | 'setSettingsTab' | 'style' | 'systemFonts' | 't' | 'updateSettings'> & {
+  ai: Pick<DocumentWorkspace['ai'], 'available' | 'clearKey' | 'config' | 'fetchModels' | 'fetchedModels' | 'modelsBusy' | 'modelsError' | 'pickModel' | 'saveConfig' | 'setEnabled' | 'setKey'>
+}
 export type FloatingPanel = 'appearance' | null
 type TabItem = { key: string; document: DocumentState; session: DocumentSession }
 type DetachedAsset = { url: string; staged: string; mime: string }
@@ -276,6 +284,15 @@ export function useDocumentWorkspace() {
   const previewSettingsTab = uiPreview ? new URLSearchParams(window.location.search).get('ui-settings-tab') as SettingsTab | null : null
   const [settingsOpen, setSettingsOpen] = useState(previewSettingsTab !== null)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(previewSettingsTab ?? 'appearance')
+  /**
+   * Settings live in a window of their own (T113), so they can sit beside the document or on another display. The
+   * dialog over the document remains for the browser preview, and for when the window cannot be made.
+   */
+  function openSettings(tab?: SettingsTab) {
+    if (tab) setSettingsTab(tab)
+    if (!isTauri()) { setSettingsOpen(true); return }
+    void invoke('open_settings_window', { tab: tab ?? null }).catch(() => setSettingsOpen(true))
+  }
   const [panel, setPanel] = useState<FloatingPanel>(uiPreview && new URLSearchParams(window.location.search).get('ui-panel') === 'appearance' ? 'appearance' : null)
   const [systemFonts, setSystemFonts] = useState<string[] | null>(null)
   const queuedSave = useRef(false)
@@ -1801,11 +1818,12 @@ export function useDocumentWorkspace() {
       const current = settingsRef.current
       const { buildExportStyle } = await import('../features/export/exportStyle')
       const { readAppAsset } = await import('../features/export/appAssets')
+      const sources = mayContainMermaid(frozen.markdown) ? await mermaidSourcesAsync(frozen.markdown) : []
       const look = await buildExportStyle({
+        diagrams: sources.length ? { fontFamily: diagramFonts[current.diagramStyle] ?? 'inherit', text: sources.join('\n') } : undefined,
         style, typography: documentTypography(current, style, docScript), exportStyle: current.exportStyle, pdfMode: current.pdfMode, pageSize: current.pageSize, pageMargin: current.pageMargin,
         text: `${frozen.title}\n${plainText ?? frozen.markdown}`, mode, readAsset: (path) => readAppAsset(path, (assetPath) => invoke<ArrayBuffer>('read_app_asset', { path: assetPath })),
       })
-      const sources = mayContainMermaid(frozen.markdown) ? await mermaidSourcesAsync(frozen.markdown) : []
       const diagrams = sources.length ? await (await import('../features/diagrams/mermaid')).renderDiagramsForExport(sources, look.diagramStyleId, { look: current.diagramStyle, line: current.diagramLine, curve: current.diagramCurve }) : new Map<string, string>()
       const rendered = await renderExportAsync(frozen.markdown, titleOf(frozen.title), assets, diagrams, { stylesheet: look.stylesheet, fontsEmbedded: look.fontsEmbedded, captions: current.imageCaptions, lang: layoutScript(current, docScript) === 'latin' ? 'en' : 'zh-CN', bodyHtml })
       const { omittedHtml, failedDiagrams } = rendered
@@ -1907,7 +1925,7 @@ export function useDocumentWorkspace() {
     if (action === 'view-toolbar') updateSettings((current) => ({ showFileToolbar: !current.showFileToolbar }))
     if (action === 'view-sidebar') updateSettings((current) => ({ showSidebar: !current.showSidebar }))
     if (action === 'view-outline') updateSettings((current) => ({ showOutline: !current.showOutline }))
-    if (action === 'preferences') setSettingsOpen(true)
+    if (action === 'preferences') openSettings()
     if (action === 'recover-drafts') {
       setDraftsOpen(true)
       void invoke<DraftSummary[]>('list_drafts').then(setDrafts).catch((error: unknown) => setStatus(errorText(error)))

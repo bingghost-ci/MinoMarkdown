@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { diagramConfig, diagramCurveLabels, diagramCurves, diagramKey, diagramLineLabels, diagramLines, diagramLookLabels, diagramLooks, diagramVariables, parseDiagramKey } from '../src/features/diagrams/looks'
+import { diagramConfig, diagramCurveLabels, diagramCurves, diagramKey, diagramLineLabels, diagramLines, diagramLookLabels, diagramLooks, diagramVariables, handPalette, parseDiagramKey } from '../src/features/diagrams/looks'
 import { contrast, fromHsl } from '../src/features/reading/color'
 import { defaultReadingSettings } from '../src/app/readingSettings'
 import { styleIds } from '../src/features/reading/styles'
@@ -24,7 +24,7 @@ describe('diagram looks (T107)', () => {
   it('draws each look differently: font, routing, edge pattern and strokes', () => {
     const config = (look: (typeof diagramLooks)[number], line = 'auto' as const, curve = 'auto' as const) => diagramConfig('paper', { look, line, curve })
     expect(config('program').fontFamily).toContain('JetBrains Mono')
-    expect(config('hand').fontFamily).toContain('WenKai')
+    expect(config('hand').fontFamily).toMatch(/^'Mino Excalifont', 'Mino Xiaolai'/)
     expect(config('program').curve).toBe('stepAfter')
     // Angular edges run into the node along the layout, so their arrowheads point the right way.
     expect(diagramConfig('paper', { look: 'program', line: 'auto', curve: 'auto' }, 'flowchart LR\n A-->B').curve).toBe('stepBefore')
@@ -55,9 +55,20 @@ describe('diagram looks (T107)', () => {
     expect(diagramVariables('paper').primaryColor).not.toBe(diagramVariables('mint').primaryColor)
   })
 
-  it('draws by hand with a fixed seed, so a redraw gives the same strokes', () => {
-    expect(diagramConfig('paper', { look: 'hand', line: 'auto', curve: 'auto' })).toMatchObject({ look: 'handDrawn', handDrawnSeed: 7 })
-    expect(diagramConfig('paper', { look: 'ink', line: 'auto', curve: 'auto' }).look).toBe('classic')
+  it('lets Mermaid draw the plain diagram and marks the hand-drawn look for the sketch pass (T115)', () => {
+    expect(diagramConfig('paper', { look: 'hand', line: 'auto', curve: 'auto' })).toMatchObject({ look: 'classic', sketch: true })
+    expect(diagramConfig('paper', { look: 'ink', line: 'auto', curve: 'auto' })).toMatchObject({ look: 'classic', sketch: false })
+    for (const styleId of styleIds) {
+      const palette = handPalette(styleId), v = diagramVariables(styleId, 'hand') as Record<string, string>
+      expect(palette.plain).toBe(v.primaryColor)
+      expect(new Set(palette.fills).size).toBe(8)
+      for (const color of [...palette.fills, ...palette.frames, palette.paper]) expect(color, styleId).toMatch(hex)
+      // Ink outlines, and frames that can be told from the paper.
+      expect(contrast(v.primaryBorderColor, palette.paper), styleId).toBeGreaterThan(4.5)
+      for (const frame of palette.frames) expect(contrast(frame, palette.paper), `${styleId} ${frame}`).toBeGreaterThan(2.5)
+      // Labels are written over the hatching.
+      for (const fill of palette.fills) expect(contrast(v.primaryTextColor, fill), `${styleId} ${fill}`).toBeGreaterThan(3)
+    }
   })
 
   it('has English names for the settings dialog', () => {

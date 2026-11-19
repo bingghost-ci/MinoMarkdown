@@ -31,11 +31,12 @@ function previewOnRest(family: string) {
  * separately, code has its own monospace font (T90), and the last tab lists the fonts installed on this Mac
  * for any of the three.
  */
-export function FontPicker({ workspace: w }: { workspace: DocumentWorkspace }) {
-  const { document, loadSystemFonts, updateSettings, settings, style, systemFonts, t } = w
+/** `documentKind` is the kind of the document in front: a source file opens the code fonts first. */
+export function FontPicker({ workspace: w, documentKind }: { workspace: Pick<DocumentWorkspace, 'loadSystemFonts' | 'updateSettings' | 'settings' | 'style' | 'systemFonts' | 't'>; documentKind?: string }) {
+  const { loadSystemFonts, updateSettings, settings, style, systemFonts, t } = w
   // A source file is drawn in the code font alone, so the picker opens on it.
-  const [tab, setTab] = useState<Tab>(document.kind === 'code' ? 'code' : systemFontName(settings.cjkFont) ? 'system' : 'cjk')
-  const [target, setTarget] = useState<FontScript>(document.kind === 'code' ? 'code' : systemFontName(settings.latinFont) && !systemFontName(settings.cjkFont) ? 'latin' : 'cjk')
+  const [tab, setTab] = useState<Tab>(documentKind === 'code' ? 'code' : systemFontName(settings.cjkFont) ? 'system' : 'cjk')
+  const [target, setTarget] = useState<FontScript>(documentKind === 'code' ? 'code' : systemFontName(settings.latinFont) && !systemFontName(settings.cjkFont) ? 'latin' : 'cjk')
   const [query, setQuery] = useState('')
   useEffect(() => { if (tab === 'system') loadSystemFonts() }, [tab])
   const pick = (script: FontScript, id: string) => updateSettings({ [settingOf[script]]: id })

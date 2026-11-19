@@ -1,5 +1,5 @@
-import { fromHsl, mix, toHsl } from '../reading/color'
-import { INTER_FAMILY, KAI_FAMILY, MONO_FAMILY } from '../reading/fonts'
+import { contrast, fromHsl, mix, toHsl } from '../reading/color'
+import { EXCALIFONT_FAMILY, INTER_FAMILY, MONO_FAMILY, XIAOLAI_FAMILY } from '../reading/fonts'
 import { readingStyle, type ReadingStyle } from '../reading/styles'
 
 /**
@@ -21,7 +21,7 @@ export const defaultDiagramOptions: DiagramOptions = { look: 'page', line: 'auto
 /** Names and notes for the settings dialog, in Chinese; `i18n.ts` translates them. */
 export const diagramLookLabels: Record<DiagramLook, { name: string; note: string }> = {
   page: { name: '纸面', note: '节点染上纸张的强调色，圆角、曲线，安静地印在纸上' },
-  hand: { name: '手绘', note: '铅笔草图：抖动的笔画、斜线填充、手写字体' },
+  hand: { name: '手绘', note: '白板草图：每条线画两遍、彩色斜线填充、开口箭头和手写字体，各类图表都这样画' },
   program: { name: '程序', note: '工程图：等宽字体、直角方框、粗线、横平竖直的折线' },
   scifi: { name: '科幻', note: '全息界面：强调色描边并发光、半透明节点、虚线数据流' },
   ink: { name: '线描', note: '只有墨线，不填色，像书里的插图' },
@@ -69,7 +69,7 @@ export function resolvedCurve(look: DiagramLook, curve: DiagramCurve): Exclude<D
 /** Fonts the looks draw labels in; `inherit` is the document's own. Mermaid measures labels in them, so they are loaded first. */
 export const diagramFonts: Record<DiagramLook, string> = {
   page: 'inherit',
-  hand: `'${KAI_FAMILY}', 'Kaiti SC', cursive`,
+  hand: `'${EXCALIFONT_FAMILY}', '${XIAOLAI_FAMILY}', 'Kaiti SC', cursive`,
   program: `'${MONO_FAMILY}', 'PingFang SC', monospace`,
   scifi: `'${INTER_FAMILY}', 'PingFang SC', sans-serif`,
   ink: 'inherit',
@@ -93,6 +93,24 @@ function accentHues(style: ReadingStyle): number[] {
   return [0, 40, -40, 80, -80, 160, 120, -120, 20, -20, 60, -60].map((step) => hue + step)
 }
 const brightHues = [212, 150, 36, 350, 268, 186, 18, 96, 232, 320, 58, 166]
+/** The hand-drawn look hatches each node in its own color, like felt pens on a whiteboard. */
+const penHues = [340, 165, 210, 95, 268, 28, 188, 48]
+
+/** The colors the sketch pass (`sketch.ts`) draws with, besides what Mermaid's variables already carry. */
+export function handPalette(styleId: string): { fills: string[]; frames: string[]; plain: string; paper: string } {
+  const style = readingStyle(styleId)
+  return {
+    // Hatching covers about a third of a node, so it is drawn stronger than a flat fill would be.
+    fills: penHues.map((hue) => mix(style.dark ? fromHsl(hue, 0.5, 0.34) : fromHsl(hue, 0.72, 0.74), style.paper, 0.08)),
+    // A frame keeps its hue as far as the paper lets it be seen; on a mid-tone paper such as kraft it moves toward the ink.
+    frames: [150, 350, 212, 36, 268].map((hue) => {
+      const pen = style.dark ? fromHsl(hue, 0.5, 0.62) : fromHsl(hue, 0.6, 0.36)
+      return [0.1, 0.25, 0.4, 0.55, 0.7].map((ink) => mix(pen, style.text, ink)).find((color) => contrast(color, style.paper) >= 3) ?? style.text
+    }),
+    plain: String(diagramVariables(styleId, 'hand').primaryColor),
+    paper: style.paper,
+  }
+}
 
 function shared(style: ReadingStyle, line: string, font: string): Record<string, unknown> {
   return {
@@ -166,7 +184,19 @@ export function diagramVariables(styleId: string, look: DiagramLook = defaultDia
     const node = { fill: style.codeBg, border: ink }
     return { ...filled(style, set, node, ink, font), secondaryColor: mix(style.codeBg, style.link, style.dark ? 0.15 : 0.1), secondaryBorderColor: ink, clusterBorder: mix(ink, style.paper, 0.35) }
   }
-  // `page` and `hand`: the accent tints the nodes and its neighbouring hues fill the charts.
+  if (look === 'hand') {
+    // Ink for every stroke; the nodes' own colors are given out by the sketch pass (`handPalette`).
+    const ink = mix(style.text, style.paper, 0.1)
+    const pens = swatches(style, brightHues, 0.7, 0.12)
+    const node = { fill: pens[0].fill, border: ink }
+    return {
+      ...filled(style, pens, node, ink, font),
+      secondaryBorderColor: ink, activationBorderColor: ink, noteBorderColor: ink,
+      clusterBkg: style.paper, clusterBorder: mix(ink, style.paper, 0.3),
+      pieStrokeColor: ink, pieStrokeWidth: '1.4px', pieOuterStrokeColor: ink, pieOuterStrokeWidth: '1.4px',
+    }
+  }
+  // `page`: the accent tints the nodes and its neighbouring hues fill the charts.
   const node = { fill: mix(style.paper, style.link, style.dark ? 0.2 : 0.11), border: mix(mix(style.link, style.text, 0.4), style.paper, style.dark ? 0.3 : 0.25) }
   return filled(style, set, node, line, font)
 }
@@ -183,7 +213,8 @@ function lookCss(style: ReadingStyle, look: DiagramLook): string {
     case 'page': return `${ROUND_NODE}{rx:5px;ry:5px}${EDGE}{stroke-width:1.2px}`
     case 'color': return `${ROUND_NODE}{rx:7px;ry:7px}${NODE}{stroke-width:1.2px}${EDGE}{stroke-width:1.3px}`
     case 'ink': return `${NODE}{stroke-width:1.2px}${EDGE}{stroke-width:1.1px}`
-    case 'hand': return `${NODE},.rough-node path{stroke-width:1.4px}${EDGE}{stroke-width:1.6px;stroke-linecap:round}.cluster rect{stroke-dasharray:8 5}`
+    // Excalidraw's proportions: a 1.6 px pen, rounded boxes, subgraphs as dashed outlines. `sketch.ts` reads these back.
+    case 'hand': return `${ROUND_NODE}{rx:6px;ry:6px}${NODE}{stroke-width:1.6px}${EDGE}{stroke-width:1.6px}.actor-line{stroke-width:1.2px}.cluster rect{rx:10px;ry:10px;stroke-dasharray:9 7;stroke-width:1.5px}.edgeLabel rect,.edgeLabel .label rect{opacity:1}`
     case 'program': return `${ROUND_NODE}{rx:0!important;ry:0!important}${NODE}{stroke-width:1.6px}${EDGE}{stroke-width:1.6px}.cluster rect{rx:0!important;ry:0!important;stroke-dasharray:5 3;stroke-width:1.2px}.edgeLabel rect,.labelBkg{rx:0}`
     case 'scifi': {
       const glow = `drop-shadow(0 0 ${style.dark ? 3 : 2}px ${style.link}${style.dark ? 'cc' : '99'})`
@@ -216,14 +247,15 @@ function mermaidCurve(curve: Exclude<DiagramCurve, 'auto'>, source: string): 'ba
 }
 
 /** The Mermaid settings for a style, the diagram options and the diagram's source, besides the theme variables. */
-export function diagramConfig(styleId: string, options: DiagramOptions, source = ''): { look: 'classic' | 'handDrawn'; handDrawnSeed?: number; fontFamily: string; themeCSS: string; curve: 'basis' | 'stepBefore' | 'stepAfter' | 'linear' } {
+export function diagramConfig(styleId: string, options: DiagramOptions, source = ''): { look: 'classic'; sketch: boolean; fontFamily: string; themeCSS: string; curve: 'basis' | 'stepBefore' | 'stepAfter' | 'linear' } {
   const style = readingStyle(styleId)
   return {
-    look: options.look === 'hand' ? 'handDrawn' : 'classic',
-    // A fixed seed draws the same strokes every time, so the cache and restyling stay stable.
-    ...(options.look === 'hand' ? { handDrawnSeed: 7 } : {}),
+    // Mermaid always draws the plain diagram; the hand-drawn look is redrawn from it by `sketch.ts` (T115).
+    look: 'classic',
+    sketch: options.look === 'hand',
     fontFamily: diagramFonts[options.look],
-    themeCSS: lookCss(style, options.look) + lineCss(resolvedLine(options.look, options.line)),
+    // A node of bare text keeps an unseen box, which the looks' stroke widths would otherwise bring out.
+    themeCSS: lookCss(style, options.look) + lineCss(resolvedLine(options.look, options.line)) + '.node rect.text{stroke:none!important;fill:none!important}',
     curve: mermaidCurve(resolvedCurve(options.look, options.curve), source),
   }
 }

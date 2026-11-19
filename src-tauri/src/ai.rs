@@ -638,27 +638,27 @@ fn publish(app: &AppHandle, view: AiConfigView) -> AiConfigView {
 
 #[tauri::command(async)]
 pub fn ai_get_config(app: AppHandle, window: WebviewWindow, state: tauri::State<AiState>) -> Result<AiConfigView, String> {
-    crate::require_workspace_window(&window)?;
+    crate::require_app_window(&window)?;
     Ok(view(read_at(&path(&app)?), state.secrets.as_ref()))
 }
 
 #[tauri::command(async)]
 pub fn ai_set_config(app: AppHandle, window: WebviewWindow, state: tauri::State<AiState>, patch: serde_json::Value) -> Result<AiConfigView, String> {
-    crate::require_workspace_window(&window)?;
+    crate::require_app_window(&window)?;
     let next = update_at(&path(&app)?, patch)?;
     Ok(publish(&app, view(next, state.secrets.as_ref())))
 }
 
 #[tauri::command(async)]
 pub fn ai_set_key(app: AppHandle, window: WebviewWindow, state: tauri::State<AiState>, key: String, provider: Option<String>) -> Result<AiConfigView, String> {
-    crate::require_workspace_window(&window)?;
+    crate::require_app_window(&window)?;
     let saved = store_key(read_at(&path(&app)?), state.secrets.as_ref(), provider.as_deref(), &key)?;
     Ok(publish(&app, saved))
 }
 
 #[tauri::command(async)]
 pub fn ai_clear_key(app: AppHandle, window: WebviewWindow, state: tauri::State<AiState>, provider: Option<String>) -> Result<AiConfigView, String> {
-    crate::require_workspace_window(&window)?;
+    crate::require_app_window(&window)?;
     let cleared = remove_key(read_at(&path(&app)?), state.secrets.as_ref(), provider.as_deref())?;
     Ok(publish(&app, cleared))
 }
@@ -666,7 +666,7 @@ pub fn ai_clear_key(app: AppHandle, window: WebviewWindow, state: tauri::State<A
 /// The model ids the selected provider offers, sorted. Passes the same gates as a chat and sends no document content.
 #[tauri::command(async)]
 pub fn ai_list_models(app: AppHandle, window: WebviewWindow, state: tauri::State<AiState>) -> Result<Vec<String>, String> {
-    crate::require_workspace_window(&window)?;
+    crate::require_app_window(&window)?;
     list_models(&read_at(&path(&app)?), state.secrets.as_ref(), TIMING)
 }
 

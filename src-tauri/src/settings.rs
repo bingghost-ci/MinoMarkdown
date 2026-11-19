@@ -147,7 +147,7 @@ fn write_at(path: &Path, settings: &Settings) -> Result<(), String> {
 }
 #[tauri::command(async)]
 pub fn get_settings(app: AppHandle, window: WebviewWindow) -> Result<Settings, String> {
-    crate::require_workspace_window(&window)?;
+    crate::require_app_window(&window)?;
     Ok(read_at(&path(&app)?))
 }
 fn merged(current: &Settings, patch: serde_json::Map<String, serde_json::Value>) -> Result<Settings, String> {
@@ -164,7 +164,7 @@ fn menu_follows(current: &Settings, next: &Settings) -> bool { current.language 
 /// Applies only the fields a window changed, so one window cannot write back another window's stale values.
 #[tauri::command(async)]
 pub fn update_settings(app: AppHandle, window: WebviewWindow, patch: serde_json::Map<String, serde_json::Value>) -> Result<Settings, String> {
-    crate::require_workspace_window(&window)?;
+    crate::require_app_window(&window)?;
     let file = path(&app)?;
     let (next, relabel) = { let _merge = MERGE_LOCK.lock().map_err(|_| "IO_ERROR")?; let current = read_at(&file); let next = merged(&current, patch)?; write_at(&file, &next)?; let relabel = menu_follows(&current, &next); (next, relabel) };
     // Most patches are a window size, a pane width or a font size, several a second while one is dragged.
@@ -175,6 +175,7 @@ pub fn update_settings(app: AppHandle, window: WebviewWindow, patch: serde_json:
         // Native menu items may only be changed from the main thread.
         let _ = app.run_on_main_thread(move || crate::native_menu::set_language(&menu_app, &language));
         crate::recent::refresh_menu(&app);
+        if let Some(settings) = app.get_webview_window(crate::windows::SETTINGS_WINDOW) { let _ = settings.set_title(crate::windows::settings_title(&next.language)); }
     }
     let _ = app.emit("settings-changed", &next);
     Ok(next)
