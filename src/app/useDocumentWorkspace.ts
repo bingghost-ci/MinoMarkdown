@@ -2567,7 +2567,7 @@ export function useDocumentWorkspace() {
   /** While reading, a click on an image opens it large over a dimmed page. */
   function openImageFromClick(event: { target: EventTarget | null }) {
     if (!documentRef.current.reading) return
-    // A diagram opens at its real size, where it can be zoomed: the page may have had to shrink it (T119).
+    // A diagram opens on its own, fitted to the window, where it can be zoomed: the page may have had to shrink it (T119).
     const diagram = event.target instanceof Element ? event.target.closest<HTMLElement>('.mermaid-preview:not(.mermaid-error), .mermaid-diagram') : null
     if (diagram?.closest('.editor-root') && diagram.querySelector('svg')) { setLightbox({ svg: diagram.innerHTML, alt: '', paper: style.paper }); return }
     const image = event.target instanceof HTMLImageElement ? event.target : null

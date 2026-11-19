@@ -4,9 +4,9 @@ import { pinchedZoom } from '../pinchZoom'
 export type Lightbox = { src: string; alt: string } | { svg: string; alt: string; paper: string }
 
 /**
- * An image or a diagram on its own, over the document (T119): it opens at its real size, so a wide diagram
- * that the page had to shrink can be read, and it can be pinched, scrolled about and dragged. A click that
- * was not a drag, or Escape, closes it.
+ * An image or a diagram on its own, over the document (T119): it opens fitted to the window, so a wide
+ * diagram that the page had to shrink can be read, and it can be pinched, scrolled about and dragged. A click
+ * that was not a drag, or Escape, closes it.
  */
 export function ZoomViewer({ lightbox, onClose, t }: { lightbox: Lightbox; onClose: () => void; t: (text: string) => string }) {
   const stage = useRef<HTMLDivElement>(null)
@@ -37,8 +37,16 @@ export function ZoomViewer({ lightbox, onClose, t }: { lightbox: Lightbox; onClo
   useEffect(() => {
     const element = stage.current
     if (!element) return
-    // An image larger than the window is fitted; a diagram is shown at its real size, where its text is the size the author sees.
-    if ('src' in lightbox) fit(); else place(1, 0, 0)
+    // Mermaid states a diagram's real width only as a `max-width`; without a width of its own the drawing
+    // would fall back to the 300 px of an unsized SVG, and 100% would not be its real size.
+    const drawing = content.current?.querySelector<SVGSVGElement>('.zoom-viewer-diagram svg')
+    if (drawing) {
+      const real = parseFloat(drawing.style.maxWidth) || drawing.viewBox.baseVal?.width || 0
+      if (real > 0) drawing.style.width = `${real}px`
+    }
+    // Either opens fitted to the window: all of it in view, as large as the window allows.
+    view.current = { zoom: 1, x: 0, y: 0 }
+    fit()
     let start = 1
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
