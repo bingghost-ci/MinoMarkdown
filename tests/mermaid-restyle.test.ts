@@ -54,7 +54,7 @@ describe('diagram looks (T107)', () => {
     expect(copy).not.toBe(returned)
     document.documentElement.dataset.diagram = 'scifi'
     expect(await restyleDiagrams(shown)).toBe(1)
-    expect(copy.dataset.diagramKey).toBe('paper:scifi:auto:auto')
+    expect(copy.dataset.diagramKey).toBe('paper:scifi:auto:auto:auto:auto:auto:....')
     expect(copy.innerHTML).toContain('X--&gt;Y')
     expect(await restyleDiagrams(shown)).toBe(0)
     delete document.documentElement.dataset.diagram

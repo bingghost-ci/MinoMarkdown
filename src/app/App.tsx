@@ -1,4 +1,7 @@
+import { useRef } from 'react'
 import { useDocumentWorkspace } from './useDocumentWorkspace'
+import { usePinchZoom } from './pinchZoom'
+import { ZoomViewer } from './components/ZoomViewer'
 import { DiffDialog } from './components/NoticeBar'
 import { FileControls } from './components/FileControls'
 import { FileSidebar } from './components/FileSidebar'
@@ -15,12 +18,15 @@ import { AiConsentDialog, AiDrawer } from './components/AiDrawer'
 export function App() {
   const controller = useDocumentWorkspace()
   const { latinLayout, lightbox, openBodyMenu, openImageFromClick, reading, setLightbox, settings, t } = controller
+  const panel = useRef<HTMLElement>(null)
+  // Two fingers on the trackpad zoom the reading page; it is drawn straight into the page, not through this render.
+  usePinchZoom(panel, (percent) => `${percent}%`)
   return (
     <main className="app-shell" data-reading={reading}>
       <FileControls workspace={controller} />
       <div className="workspace-layout">
         <FileSidebar workspace={controller} />
-        <section className="editor-panel" data-editor-width={settings.editorWidth} data-reading={reading} data-image-captions={settings.imageCaptions} data-script={latinLayout ? 'latin' : 'cjk'} lang={latinLayout ? 'en' : undefined} aria-label={t('Markdown 编辑区域')} onClickCapture={openImageFromClick} onContextMenu={openBodyMenu}>
+        <section ref={panel} className="editor-panel" data-editor-width={settings.editorWidth} data-reading={reading} data-image-captions={settings.imageCaptions} data-script={latinLayout ? 'latin' : 'cjk'} lang={latinLayout ? 'en' : undefined} aria-label={t('Markdown 编辑区域')} onClickCapture={openImageFromClick} onContextMenu={openBodyMenu}>
           <TabBar workspace={controller} />
           <EditorToolbar workspace={controller} />
           <div className="reading-progress" aria-hidden="true" hidden={!reading}><i /></div>
@@ -37,7 +43,7 @@ export function App() {
       <AiConsentDialog workspace={controller} />
       <DiffDialog workspace={controller} />
       <VerificationPanel workspace={controller} />
-      {lightbox && <div className="image-lightbox" role="dialog" aria-modal="true" aria-label={lightbox.alt || t('查看图片')} onClick={() => setLightbox(null)}><img src={lightbox.src} alt={lightbox.alt} /></div>}
+      {lightbox && <ZoomViewer lightbox={lightbox} onClose={() => setLightbox(null)} t={t} />}
     </main>
   )
 }

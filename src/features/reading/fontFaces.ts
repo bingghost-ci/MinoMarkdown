@@ -14,6 +14,8 @@ const fontFiles = {
   ...import.meta.glob<string>('/node_modules/@fontsource/{noto-serif-sc,noto-sans-sc}/files/noto-{serif,sans}-sc-{latin,latin-ext,cyrillic,vietnamese}-{400,700}-normal.woff2', { query: '?url', import: 'default', eager: true }),
   ...import.meta.glob<string>('/node_modules/@fontsource/lxgw-wenkai/files/lxgw-wenkai-latin-{500,700}-normal.woff2', { query: '?url', import: 'default', eager: true }),
   ...import.meta.glob<string>('/node_modules/@fontsource-variable/{source-serif-4,literata,eb-garamond,inter,jetbrains-mono,fira-code,source-code-pro}/files/*-{latin,latin-ext}-wght-{normal,italic}.woff2', { query: '?url', import: 'default', eager: true }),
+  ...import.meta.glob<string>('/node_modules/@fontsource/{long-cang,ma-shan-zheng}/files/{long-cang,ma-shan-zheng}-{[0-9]*,latin}-400-normal.woff2', { query: '?url', import: 'default', eager: true }),
+  ...import.meta.glob<string>('/node_modules/@fontsource-variable/{caveat,oxanium}/files/*-latin-wght-normal.woff2', { query: '?url', import: 'default', eager: true }),
   ...import.meta.glob<string>('/src/assets/fonts/*/*.woff2', { query: '?url', import: 'default', eager: true }),
 }
 const urlByFile = new Map(Object.entries(fontFiles).map(([path, url]) => [path.split('/').pop()!, url]))

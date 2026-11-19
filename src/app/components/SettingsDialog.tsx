@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { FocusTrap } from './FocusTrap'
 import type { Settings, SettingsHost } from '../useDocumentWorkspace'
 import { MAX_EDITOR_FONT_SIZE, MIN_EDITOR_FONT_SIZE, zoomedFontSize } from '../textZoom'
 import { translateStatus, type Language } from '../i18n'
 import { readingStyles, type ReadingStyle } from '../../features/reading/styles'
-import { diagramCurveLabels, diagramCurves, diagramLineLabels, diagramLines, diagramLookLabels, diagramLooks, diagramVariables, handPalette, resolvedCurve, resolvedLine, type DiagramCurve, type DiagramLine, type DiagramLook } from '../../features/diagrams/looks'
+// The diagrams page brings the looks with it, so it loads when the page is opened, not with the window.
+const DiagramSettings = lazy(() => import('./DiagramSettings').then((module) => ({ default: module.DiagramSettings })))
 import { modelChoices, providerHasKey, providerIds, providerLabels, type AiProvider } from '../../features/ai/client'
 import { codeColorIds, codeColorLabels, codePalette, isHexColor, noCustomCodeColors, syntaxRoleLabels, withCustomColor, type CodeColors, type CustomCodeColors } from '../../features/reading/codeColors'
 import type { SyntaxRole } from '../../core/markdown/syntaxRoleNames'
@@ -23,41 +24,6 @@ function Row({ title, note, children }: { title: string; note?: string; children
   return <div className="settings-row"><span>{title}{note && <small>{note}</small>}</span>{children}</div>
 }
 
-/** A two-node sketch of a diagram look in the current style, drawn without loading Mermaid. */
-function DiagramSketch({ style, look, line, curve }: { style: ReadingStyle; look: DiagramLook; line: DiagramLine; curve: DiagramCurve }) {
-  const v = diagramVariables(style.id, look) as Record<string, string>
-  const pattern = resolvedLine(look, line), route = resolvedCurve(look, curve)
-  const radius = { page: 3, hand: 0, program: 0, scifi: 1, ink: 0, color: 4 }[look]
-  const width = { page: 1, hand: 1.3, program: 1.5, scifi: 1.1, ink: 1, color: 1 }[look]
-  const glow = look === 'scifi' ? { filter: `drop-shadow(0 0 1.5px ${style.link})` } : undefined
-  const hand = look === 'hand' ? handPalette(style.id) : null
-  // The hand-drawn look in small: an outline drawn twice, hatching in a pen color, an open arrowhead.
-  const box = (x: number, y: number, fill: string, stroke: string, pen = 0) => hand
-    ? <g fill="none" strokeLinecap="round">
-      <path d={[0, 4.5, 9, 13.5, 18, 22.5, 27, 31.5, 36].map((at) => `M${x + Math.max(0.8, at - 13.2)} ${y + Math.min(13.2, at + 0.8)} L${x + Math.min(26.2, at + 0.8)} ${y + Math.max(0.8, at - 25.4)}`).join('')} stroke={hand.fills[pen]} strokeWidth="0.9" />
-      <path d={`M${x + 1} ${y} Q${x + 14} ${y - 1} ${x + 27} ${y + 0.5} Q${x + 28} ${y + 7} ${x + 27} ${y + 14} Q${x + 14} ${y + 15} ${x + 1.5} ${y + 13.5} Q${x - 0.5} ${y + 7} ${x + 1} ${y}M${x - 0.3} ${y + 0.8} Q${x + 13} ${y + 0.6} ${x + 27.6} ${y - 0.4} Q${x + 26.6} ${y + 7} ${x + 27.5} ${y + 13.4} Q${x + 13} ${y + 13.6} ${x + 0.4} ${y + 14.4} Q${x + 0.8} ${y + 7} ${x - 0.3} ${y + 0.8}`} stroke={stroke} strokeWidth="0.9" />
-    </g>
-    : <rect x={x} y={y} width="27" height="14" rx={radius} fill={fill} stroke={stroke} strokeWidth={width} style={glow} />
-  const edge = route === 'angular' ? 'M35 13 H46 V27 H55' : route === 'straight' ? 'M35 13 L55 27' : 'M35 13 C47 13 43 27 55 27'
-  const dash = pattern === 'dashed' ? '4 2.5' : pattern === 'dotted' ? '0.3 2.6' : undefined
-  return <svg viewBox="0 0 96 40" width="96" height="40" aria-hidden="true">
-    <rect width="96" height="40" rx="6" fill={style.paper} />
-    {box(7, 6, v.primaryColor, v.primaryBorderColor)}
-    {box(61, 20, v.secondaryColor, v.secondaryBorderColor, 1)}
-    <path d={edge} fill="none" stroke={v.lineColor} strokeWidth={pattern === 'dotted' ? 1.6 : width} strokeDasharray={dash} strokeLinecap="round" style={glow} />
-    {hand ? <path d="M54.6 23.6 Q57.5 25 60 27 Q57 28.6 55 30.6" fill="none" stroke={v.lineColor} strokeWidth="1.1" strokeLinecap="round" /> : <path d="M55.5 24.5 L60 27 L55.5 29.5 Z" fill={v.lineColor} />}
-  </svg>
-}
-
-function DiagramLookPicker({ style, settings, onChange, t }: { style: ReadingStyle; settings: Pick<Settings, 'diagramStyle' | 'diagramLine' | 'diagramCurve'>; onChange: (value: DiagramLook) => void; t: (text: string) => string }) {
-  return <div className="diagram-looks" role="group" aria-label={t('图表风格')}>
-    {diagramLooks.map((look) => <button key={look} type="button" aria-pressed={settings.diagramStyle === look} title={t(diagramLookLabels[look].note)} onClick={() => onChange(look)}>
-      <DiagramSketch style={style} look={look} line={settings.diagramLine} curve={settings.diagramCurve} /><span>{t(diagramLookLabels[look].name)}</span>
-    </button>)}
-  </div>
-}
-
-/** Two lines that show most token roles; `null` is punctuation in the text color. */
 const codeSample: readonly (readonly (readonly [SyntaxRole | null, string])[])[] = [
   [['keyword', 'const '], ['definition', 'total'], ['operator', ' = '], ['function', 'sum'], [null, '('], ['variable', 'items'], [null, ') '], ['comment', '// 合计']],
   [['keyword', 'if '], [null, '('], ['variable', 'user'], [null, '.'], ['property', 'name'], ['operator', ' === '], ['string', '"mino"'], [null, ') '], ['keyword', 'return '], ['number', '42']],
@@ -311,11 +277,7 @@ export function SettingsDialog({ workspace: w, windowed = false, documentKind }:
           {settings.codeColors === 'custom' && <CustomCodeColorsEditor style={active} custom={settings.codeCustomColors ?? noCustomCodeColors} onChange={(codeCustomColors) => update({ codeCustomColors })} t={t} />}
         </>}
         {settingsTab === 'diagrams' && <>
-          <div className="settings-section-heading is-first"><strong>{t('图表风格')}</strong><small>{t('Mermaid 流程图、时序图等的画法：字体、笔触、边角和连线；颜色始终取自当前纸张，导出也用这里的选择')}</small></div>
-          <DiagramLookPicker style={active} settings={settings} onChange={(diagramStyle) => update({ diagramStyle })} t={t} />
-          <p className="settings-note">{t(diagramLookLabels[settings.diagramStyle].note)}</p>
-          <Row title={t('连线样式')} note={t('普通连线的线型；图里本来写成虚线的连线不变')}><Segmented t={t} value={settings.diagramLine} onChange={(value) => update({ diagramLine: value })} options={diagramLines.map((line) => [line, diagramLineLabels[line]] as const)} /></Row>
-          <Row title={t('连线走向')} note={t('流程图和状态图的连线怎样绕到下一个节点')}><Segmented t={t} value={settings.diagramCurve} onChange={(value) => update({ diagramCurve: value })} options={diagramCurves.map((curve) => [curve, diagramCurveLabels[curve]] as const)} /></Row>
+          <Suspense fallback={null}><DiagramSettings workspace={w} /></Suspense>
           <div className="settings-section-heading"><strong>{t('图标与批注')}</strong><small>{t('写在 Mermaid 流程图的代码里；图标随应用提供，离线可用')}</small></div>
           <ul className="settings-syntax">
             <li><code>{'A[:database: 保存]'}</code><span>{t('节点文字里的图标：两个冒号之间写 Lucide 图标的英文名')}</span></li>

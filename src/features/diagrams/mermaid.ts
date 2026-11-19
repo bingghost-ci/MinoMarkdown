@@ -1,5 +1,5 @@
 import DOMPurify, { type DOMPurify as Purifier } from 'dompurify'
-import { diagramConfig, diagramKey, diagramVariables, handPalette, parseDiagramKey, type DiagramOptions } from './looks'
+import { diagramConfig, diagramKey, diagramTone, diagramVariables, handPalette, parseCustomColorsKey, parseDiagramKey, type DiagramOptions, type DiagramPass } from './looks'
 
 export { diagramVariables } from './looks'
 
@@ -68,10 +68,13 @@ export function sanitizeDiagramSvg(svg: string): string {
   return root.innerHTML
 }
 
-/** The style and diagram options the page shows now: `data-theme`, `data-diagram`, `data-diagram-line` and `data-diagram-curve` on `<html>`. */
+/** The style and diagram options the page shows now: `data-theme` and the `data-diagram…` attributes on `<html>`. */
 export function currentDiagramKey(): Theme {
   const root = document.documentElement
-  return diagramKey(root.dataset.theme ?? 'white', { look: root.dataset.diagram, line: root.dataset.diagramLine, curve: root.dataset.diagramCurve })
+  return diagramKey(root.dataset.theme ?? 'white', {
+    look: root.dataset.diagram, line: root.dataset.diagramLine, curve: root.dataset.diagramCurve, fill: root.dataset.diagramFill,
+    colors: root.dataset.diagramColors, font: root.dataset.diagramFont, custom: parseCustomColorsKey(root.dataset.diagramCustom),
+  })
 }
 
 /**
@@ -85,13 +88,15 @@ async function fontReady(family: string, text: string): Promise<void> {
 
 /**
  * What is done to a drawn diagram in the document, where its style sheet applies and its text is laid out:
- * icons are put into labels and remarks get their labels centered (T116), and the hand-drawn look redraws
- * every shape as a pencil sketch (T115). The SVG is put there, out of sight, while that happens.
+* icons are put into labels and remarks get their labels centered (T116), the hand-drawn looks redraw every
+ * shape (T115), and the cards and the console are finished and given their board (T117). The SVG is put there, out of sight, while that happens.
  */
-async function finished(svg: string, styleId: string, sketch: boolean, iconNames: readonly string[], remarks: ReadonlySet<string>): Promise<string> {
+async function finished(svg: string, styleId: string, options: DiagramOptions, pass: DiagramPass, iconNames: readonly string[], remarks: ReadonlySet<string>): Promise<string> {
   const icons = await import('./icons')
   const pack = iconNames.length ? await icons.loadIconPack() : null
-  const drawing = sketch ? await Promise.all([import('roughjs'), import('./sketch')]) : null
+  const drawing = pass === 'sketch' ? await Promise.all([import('roughjs'), import('./sketch')]) : null
+  const dress = await import('./dress')
+  const tone = diagramTone(styleId, options)
   const host = document.createElement('div')
   host.setAttribute('aria-hidden', 'true')
   host.style.cssText = 'position:absolute;left:-10000px;top:0;width:1200px;opacity:0;pointer-events:none'
@@ -102,12 +107,31 @@ async function finished(svg: string, styleId: string, sketch: boolean, iconNames
     if (root) {
       icons.centerRemarkLabels(root, remarks)
       if (pack) icons.placeLabelIcons(root, iconNames, pack)
-      if (drawing) drawing[1].sketchDiagram(root, drawing[0].default.generator(), { ...handPalette(styleId), remarks: icons.remarkNodes(root, remarks) })
+      if (drawing) drawing[1].sketchDiagram(root, drawing[0].default.generator(), { ...handPalette(styleId, options), remarks: icons.remarkNodes(root, remarks) })
+      if (pass === 'cards') dress.dressCards(root, tone)
+      if (pass === 'console') dress.dressConsole(root, tone)
+      if (pass === 'colors') dress.dressColors(root, tone)
+      // Squared paper under the pen, a grid on the console's screen; the other boards are plain.
+      dress.layBoard(root, tone, options.look === 'ink' ? 22 : options.look === 'scifi' ? 16 : 0, options.look === 'scifi')
     }
     return host.innerHTML
   } finally {
     host.remove()
   }
+}
+
+/** Labels are never drawn smaller than this many pixels: below it they cannot be read without zooming. */
+export const LEGIBLE_PX = 13.5
+
+/**
+ * Mermaid lets a diagram shrink to the width it is given, which turns the text of a wide one to specks. This
+ * gives the drawing a least width, the one at which its labels are `LEGIBLE_PX` tall, so that where it does
+ * not fit it scrolls sideways instead (T119). `fontSize` is the size the labels were set in.
+ */
+export function keepLegible(svg: string, fontSize = 16): string {
+  const share = Math.min(1, LEGIBLE_PX / Math.max(LEGIBLE_PX, fontSize))
+  return svg.replace(/(<svg\b[^>]*?\bstyle=")([^"]*?max-width:\s*([\d.]+)px[^"]*)"/, (whole, before: string, style: string, width: string) =>
+    /min-width/.test(style) ? whole : `${before}${style.replace(/;?\s*$/, '')};min-width:${Math.round(parseFloat(width) * share)}px"`)
 }
 
 /** Mermaid keeps global state, so renders run strictly one at a time. */
@@ -118,11 +142,13 @@ function renderSvg(source: string, theme: Theme): Promise<string> {
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     const mermaid = await loadMermaid()
     const { styleId, ...options } = parseDiagramKey(theme)
-    const { curve, sketch, ...config } = diagramConfig(styleId, options, source)
+    const { curve, pass, ...config } = diagramConfig(styleId, options, source)
     await fontReady(config.fontFamily, source)
+    const variables = diagramVariables(styleId, options.look, options)
+    const size = parseFloat(String(variables.fontSize)) || 16
     mermaid.initialize({
       ...config,
-      startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, theme: 'base', themeVariables: diagramVariables(styleId, options.look), htmlLabels: false, flowchart: { htmlLabels: false, curve }, state: { curve } as never,
+      startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, theme: 'base', themeVariables: variables, htmlLabels: false, flowchart: { htmlLabels: false, curve }, state: { curve } as never,
       secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'suppressErrorRendering', 'maxEdges', 'themeCSS', 'themeVariables', 'fontFamily', 'altFontFamily', 'htmlLabels'],
     })
     // `:name:` in a label is an icon; Mermaid is given a one-character place for each (T116).
@@ -131,9 +157,9 @@ function renderSvg(source: string, theme: Theme): Promise<string> {
     const remarks = icons.remarkIds(source)
     const { svg } = await mermaid.render(`mino-mermaid-${nextDiagramId++}`, placed.source)
     const safe = sanitizeDiagramSvg(svg)
-    if (!sketch && !placed.names.length && !remarks.size) return safe
+    if (pass === 'none' && !placed.names.length && !remarks.size) return keepLegible(safe, size)
     // A diagram that cannot be finished is still a diagram.
-    try { return await finished(safe, styleId, sketch, placed.names, remarks) } catch { return safe }
+    try { return keepLegible(await finished(safe, styleId, options, pass, placed.names, remarks), size) } catch { return keepLegible(safe, size) }
   })
   renderChain = result.catch(() => undefined)
   return result

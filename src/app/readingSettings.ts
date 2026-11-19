@@ -4,7 +4,8 @@ import { noCustomCodeColors, type CodeColors, type CustomCodeColors } from '../f
 import type { DocumentScript } from '../features/reading/script'
 import { readingStyle, resolveStyleId, type ReadingStyle, type StyleId, type ThemeId } from '../features/reading/styles'
 import { DEFAULT_EDITOR_FONT_SIZE } from './textZoom'
-import type { DiagramCurve, DiagramLine, DiagramLook } from '../features/diagrams/looks'
+import { noDiagramColors, type DiagramCustomColors } from '../features/diagrams/colorKey'
+import type { DiagramColorScheme, DiagramCurve, DiagramFill, DiagramFont, DiagramLine, DiagramLook } from '../features/diagrams/looks'
 
 /** The reading-related settings; `settings.rs` keeps the same whitelist and defaults. */
 export type ReadingSettings = {
@@ -33,6 +34,13 @@ export type ReadingSettings = {
   diagramLine: DiagramLine
   /** How edges are routed; `auto` uses the look's own. */
   diagramCurve: DiagramCurve
+  /** How the hand-drawn looks fill their shapes. */
+  diagramFill: DiagramFill
+  /** The color scheme of diagrams, and the colors the user set when it is `custom`. */
+  diagramColors: DiagramColorScheme
+  diagramCustomColors: DiagramCustomColors
+  /** The font of diagram labels: the look's own, one of the offered ones, or `sys:<family>`. */
+  diagramFont: DiagramFont
   /** 0–100 in steps of 10. */
   textureStrength: number
   /** `auto` lays out mostly-Western documents the Western way. */
@@ -49,7 +57,7 @@ export type ReadingSettings = {
 /** New installs; `settings.rs` fills missing fields of older files so their look does not change. */
 export const defaultReadingSettings: ReadingSettings = {
   theme: 'system', dayTheme: 'white', nightTheme: 'dark', cjkFont: 'auto', latinFont: 'auto', codeFont: 'auto', codeColors: 'auto', codeCustomColors: noCustomCodeColors, editorFontSize: DEFAULT_EDITOR_FONT_SIZE, editorLineHeight: 'comfortable',
-  paragraphSpacing: 'standard', measure: '36', textAlign: 'left', firstLineIndent: false, tableStyle: 'three-line', diagramStyle: 'page', diagramLine: 'auto', diagramCurve: 'auto', textureStrength: 60, latinLayout: 'auto',
+  paragraphSpacing: 'standard', measure: '36', textAlign: 'left', firstLineIndent: false, tableStyle: 'three-line', diagramStyle: 'page', diagramLine: 'auto', diagramCurve: 'auto', diagramFill: 'auto', diagramColors: 'auto', diagramCustomColors: noDiagramColors, diagramFont: 'auto', textureStrength: 60, latinLayout: 'auto',
   imageCaptions: true, imageDimming: true, openInReadingMode: true, exportStyle: 'current', pdfMode: 'print', pageSize: 'a4', pageMargin: 'standard',
 }
 

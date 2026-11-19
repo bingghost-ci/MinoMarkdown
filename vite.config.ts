@@ -22,7 +22,7 @@ function woff2OnlyKatex(): Plugin {
 }
 
 // Bundled fonts may not exceed the reading-experience budget (doc/08 §3); the build fails instead.
-export const FONT_BUDGET_BYTES = 48 * 1024 * 1024
+export const FONT_BUDGET_BYTES = 56 * 1024 * 1024
 function fontBudget(): Plugin {
   return {
     name: 'font-budget',

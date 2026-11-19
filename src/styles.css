@@ -50,8 +50,19 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .menu-separator { height: 1px; margin: 4px 6px; background: var(--line); }
 .workspace-layout { display: flex; flex: 1; min-height: 0; }
 .document-sidebar { display: flex; flex-direction: column; flex: none; position: relative; min-width: 170px; max-width: 520px; height: 100%; padding: 0; border-right: 1px solid var(--line); background: var(--sidebar); overflow: hidden; }
-.mermaid-preview { display: flex; justify-content: center; overflow-x: auto; padding: 8px 0; }
-.mermaid-preview svg { max-width: 100%; height: auto; }
+/* A diagram is never shrunk below the size its text can be read at (its own min-width): past that it scrolls sideways. */
+.mermaid-preview { display: flex; justify-content: safe center; overflow-x: auto; padding: 8px 0; }
+.mermaid-preview svg { flex: none; max-width: 100%; height: auto; }
+/* A bar that stays in view, so a diagram cut off at the edge is seen to go on. */
+.mermaid-preview::-webkit-scrollbar { height: 7px; }
+.mermaid-preview::-webkit-scrollbar-thumb { border-radius: 4px; background: color-mix(in srgb, var(--text) 26%, transparent); }
+.mermaid-preview::-webkit-scrollbar-track { background: transparent; }
+.editor-panel[data-reading="true"] .mermaid-preview:not(.mermaid-error), .editor-panel[data-reading="true"] .mermaid-diagram { cursor: zoom-in; }
+/* In reading mode a diagram may use the page's side margins as well as the column. */
+.editor-panel[data-reading="true"] .editor-root .milkdown .ProseMirror .milkdown-code-block:has(.mermaid-preview:not(.mermaid-error)) { margin-inline: -44px; }
+.editor-panel[data-reading="true"] .editor-root .milkdown, .editor-panel[data-reading="true"] .markdown-preview-content { zoom: var(--pinch-zoom, 1); }
+.pinch-zoom-badge { position: absolute; top: 96px; left: 50%; z-index: 30; transform: translateX(-50%); height: 28px; border: 0; border-radius: 14px; padding: 0 14px; background: #000000b8; color: #fff; font: 600 12px/28px ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.editor-panel { position: relative; }
 .mermaid-error { display: block; color: var(--text); }
 .mermaid-error p { margin: 0 0 8px; color: #c2413a; font-size: 13px; }
 .mermaid-error pre { margin: 0; white-space: pre-wrap; font-size: 13px; }
@@ -204,7 +215,7 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .settings-title p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
 .settings-title button { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--secondary); }
 .settings-title button:hover { background: var(--hover); }
-.settings-tabs { display: flex; gap: 4px; padding: 0 28px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.settings-tabs { display: flex; gap: 4px; padding: 0 28px; border-bottom: 1px solid var(--line); flex: none; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .settings-tabs button { flex: none; min-width: 64px; height: 38px; border: 0; border-bottom: 2px solid transparent; padding: 0 12px; background: transparent; color: var(--secondary); font-size: 12px; }
 .settings-tabs button:hover { color: var(--text); }
 .settings-tabs button[aria-current="page"] { border-bottom-color: var(--accent); color: var(--text); font-weight: 600; }
@@ -216,6 +227,17 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .settings-section-heading { display: flex; flex-direction: column; gap: 4px; margin: 24px 0 12px; font-size: 13px; }
 .settings-section-heading small { color: var(--muted); font-size: 11px; }
 .settings-section-heading.is-first { margin-top: 16px; }
+.diagram-looks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.diagram-looks button { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 9px; padding: 9px 4px 7px; background: var(--raised); color: var(--ui-secondary); font-size: 12px; }
+.diagram-looks button svg { flex: none; width: 96px; height: 40px; max-width: 100%; border-radius: 6px; box-shadow: 0 0 0 1px #0000000f; }
+.diagram-looks button[aria-checked="true"] { border-color: var(--accent); background: var(--selected); color: var(--accent); font-weight: 600; }
+.diagram-preview { display: flex; justify-content: center; min-height: 150px; margin: 4px 0 6px; border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--paper, var(--surface)); overflow: hidden; }
+.diagram-preview svg { max-width: 100%; height: auto; max-height: 300px; }
+.diagram-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.diagram-chips button { display: inline-flex; align-items: center; gap: 6px; height: 28px; border: 1px solid var(--line); border-radius: 14px; padding: 0 11px; background: var(--raised); color: var(--ui-secondary); font-size: 12px; white-space: nowrap; }
+.diagram-chips button i { width: 11px; height: 11px; border-radius: 50%; box-shadow: inset 0 0 0 1px #0002; }
+.diagram-chips button[aria-pressed="true"] { border-color: var(--accent); background: var(--selected); color: var(--accent); font-weight: 600; }
+.diagram-system-fonts { width: 100%; height: 32px; margin-top: 8px; border: 1px solid var(--line); border-radius: 7px; padding: 0 10px; background: var(--raised); color: var(--ui-text); }
 .settings-syntax { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
 .settings-syntax li { display: flex; flex-direction: column; gap: 3px; }
 .settings-syntax code { align-self: flex-start; border-radius: 4px; padding: 2px 6px; background: var(--chrome); color: var(--text); font-family: var(--code-font, ui-monospace, Menlo, monospace); font-size: 11.5px; user-select: text; }
@@ -261,10 +283,6 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .code-custom-actions label { display: flex; align-items: center; gap: 8px; margin-right: auto; }
 .code-custom-actions select, .code-custom-actions button { height: 28px; border: 1px solid var(--line); border-radius: 6px; padding: 0 10px; background: var(--raised); color: var(--ui-text); font-size: 12px; }
 .code-custom-actions button:disabled { opacity: .45; }
-.diagram-looks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0 4px; }
-.diagram-looks button { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 6px 6px; background: transparent; color: var(--secondary); font-size: 12px; }
-.diagram-looks button svg { display: block; width: 96px; max-width: 100%; height: 40px; border-radius: 6px; box-shadow: 0 0 0 1px var(--page-edge); }
-.diagram-looks button[aria-pressed="true"] { border-color: var(--accent); background: var(--selected); color: var(--accent); }
 .settings-preview { margin-top: 20px; border: 1px solid var(--page-edge); border-radius: 10px; padding: 20px 24px; background-color: var(--surface); background-image: var(--paper-veil, none), var(--paper-texture); background-size: auto, var(--paper-texture-size, auto); }
 @media (max-width: 620px) { .settings-backdrop { padding: 12px; } .settings-title { padding: 20px 20px 12px; } .settings-tabs { padding: 0 20px; } .settings-content { padding: 8px 20px 20px; } .settings-row { gap: 12px; } }
 .drafts-dialog { width: min(820px, 100%); max-height: 80vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 20px 24px; background: var(--surface); color: var(--text); box-shadow: 0 20px 70px #0004; }
@@ -326,8 +344,17 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .editor-panel[data-reading="true"] .editor-root .milkdown .ProseMirror .milkdown-code-block:has(.mermaid-preview:not(.mermaid-error)) .preview-panel { margin: 0; padding: 0; background: none; }
 .editor-panel[data-reading="true"] .milkdown-code-block:has(.mermaid-preview:not(.mermaid-error)) .preview-label { display: none; }
 .editor-panel[data-reading="true"] .editor-root img { cursor: zoom-in; }
-.image-lightbox { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 32px; background: #000c; cursor: zoom-out; }
-.image-lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 3px; box-shadow: 0 12px 48px #0008; }
+.zoom-viewer { position: fixed; inset: 0; z-index: 80; overflow: hidden; background: #000000d0; cursor: grab; touch-action: none; user-select: none; }
+.zoom-viewer:active { cursor: grabbing; }
+.zoom-viewer-content { position: absolute; top: 50%; left: 50%; width: 0; height: 0; transform-origin: 0 0; }
+.zoom-viewer-content > * { position: absolute; transform: translate(-50%, -50%); box-shadow: 0 12px 48px #0008; }
+.zoom-viewer-content img { display: block; max-width: none; border-radius: 3px; }
+.zoom-viewer-diagram { border-radius: 10px; padding: 24px; }
+.zoom-viewer-diagram svg { display: block; width: max-content; min-width: 0 !important; max-width: none !important; height: auto; }
+.zoom-viewer-bar { position: absolute; bottom: 22px; left: 50%; display: flex; align-items: center; gap: 2px; transform: translateX(-50%); border-radius: 10px; padding: 4px; background: #1c1c1eeb; box-shadow: 0 6px 24px #0006; cursor: default; }
+.zoom-viewer-bar button { min-width: 30px; height: 30px; border: 0; border-radius: 7px; padding: 0 10px; background: transparent; color: #f2f2f2; font-size: 13px; }
+.zoom-viewer-bar button:hover { background: #ffffff22; }
+.zoom-viewer-bar output { min-width: 48px; color: #f2f2f2; font: 12px ui-monospace, Menlo, monospace; text-align: center; font-variant-numeric: tabular-nums; }
 
 /* Images (T57): framed like a print on paper styles, a hairline elsewhere; dimmed at night; captions are render-only. */
 .editor-root .milkdown .milkdown-image-block > .image-wrapper { padding: var(--image-padding); background: var(--image-bg); border: var(--image-border); border-radius: 3px; box-shadow: var(--image-shadow); }

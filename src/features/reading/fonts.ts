@@ -40,9 +40,12 @@ export const INTER_FAMILY = 'Mino Inter'
 export const MONO_FAMILY = 'Mino JetBrains Mono'
 export const FIRA_CODE_FAMILY = 'Mino Fira Code'
 export const SOURCE_CODE_FAMILY = 'Mino Source Code Pro'
-/** Handwriting for hand-drawn diagrams (T115): Latin letters and Chinese. Not offered as reading fonts. */
-export const EXCALIFONT_FAMILY = 'Mino Excalifont'
-export const XIAOLAI_FAMILY = 'Mino Xiaolai'
+/** Handwriting, offered for reading and for diagrams (T117, T118): a running script, a brush-written regular script, and Latin to go with them. */
+export const LONG_CANG_FAMILY = 'Mino Long Cang'
+export const MA_SHAN_FAMILY = 'Mino Ma Shan Zheng'
+export const CAVEAT_FAMILY = 'Mino Caveat'
+/** The display face of the sci-fi diagram look. */
+export const OXANIUM_FAMILY = 'Mino Oxanium'
 
 const SYSTEM_SANS = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', sans-serif"
 const CODE_FALLBACK = "ui-monospace, SFMono-Regular, Menlo, 'PingFang SC', monospace"
@@ -50,7 +53,7 @@ const CODE_FALLBACK = "ui-monospace, SFMono-Regular, Menlo, 'PingFang SC', monos
 export const CODE_FONT_STACK = `'${MONO_FAMILY}', ${CODE_FALLBACK}`
 
 /** The private families the app ships. Their faces are registered by `bundledFonts.css`; `fontFaces.ts` lists them for exports. */
-export const bundledFamilies: ReadonlySet<string> = new Set([SERIF_FAMILY, SANS_FAMILY, KAI_FAMILY, FANGSONG_FAMILY, HUOSONG_FAMILY, SOURCE_SERIF_FAMILY, LITERATA_FAMILY, GARAMOND_FAMILY, INTER_FAMILY, MONO_FAMILY, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, EXCALIFONT_FAMILY, XIAOLAI_FAMILY])
+export const bundledFamilies: ReadonlySet<string> = new Set([SERIF_FAMILY, SANS_FAMILY, KAI_FAMILY, FANGSONG_FAMILY, HUOSONG_FAMILY, SOURCE_SERIF_FAMILY, LITERATA_FAMILY, GARAMOND_FAMILY, INTER_FAMILY, MONO_FAMILY, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, LONG_CANG_FAMILY, MA_SHAN_FAMILY, CAVEAT_FAMILY, OXANIUM_FAMILY])
 
 /** Chinese fonts offered by name. `hei` is the system's PingFang; the rest ship with the app. */
 export const cjkFonts: readonly FontOption[] = [
@@ -59,6 +62,8 @@ export const cjkFonts: readonly FontOption[] = [
   { id: 'sans', label: '思源黑体', note: '黑体，各字重均匀清晰', script: 'cjk', kind: 'sans', family: `'${SANS_FAMILY}', 'PingFang SC'`, bundled: true },
   { id: 'fangsong', label: '朱雀仿宋', note: '仿宋，清秀，适合公文与随笔', script: 'cjk', kind: 'fangsong', family: `'${FANGSONG_FAMILY}', 'STFangsong'`, bundled: true, heavy: true },
   { id: 'huosong', label: '寒蝉活宋', note: '活字印刷质感的宋体', script: 'cjk', kind: 'serif', family: `'${HUOSONG_FAMILY}', 'Songti SC'`, bundled: true, heavy: true },
+  { id: 'xingshu', label: '龙藏行书', note: '手写的行书，适合便签、书信与随笔', script: 'cjk', kind: 'kai', family: `'${LONG_CANG_FAMILY}', 'Xingkai SC', 'Kaiti SC'`, bundled: true },
+  { id: 'kaishu', label: '马善政楷书', note: '毛笔手写的楷书，适合诗文与标题感强的短文', script: 'cjk', kind: 'kai', family: `'${MA_SHAN_FAMILY}', 'Kaiti SC', 'STKaiti'`, bundled: true },
   { id: 'hei', label: '苹方', note: '系统黑体，适合技术文档', script: 'cjk', kind: 'sans', family: "'PingFang SC', 'Hiragino Sans GB'", bundled: false },
 ]
 

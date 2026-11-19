@@ -211,11 +211,85 @@ flowchart TD
 \`\`\`
 `
 
+/** An architecture diagram with groups, a dark core and labelled edges (T117), for `?ui-preview=editor&ui-sample=arch`. */
+export const archSample = `# 架构
+
+\`\`\`mermaid
+flowchart TD
+  rule([模块边界由 tools/xref.py check 检查])
+  subgraph callers["调用方<br/>不碰终端和驱动"]
+    direction LR
+    c1[console · 控制台]
+    c2[app + server]
+    c3[cli.py · 命令行]
+  end
+  subgraph core["AgentService 与内核<br/>jarvis/service.py"]
+    direction LR
+    k0[send · resolve · open]
+    k1([registry])
+    k2([scheduler])
+  end
+  subgraph agents["jarvis/agents<br/>只懂 CLI 的画面和记录"]
+    a1[claude.py]
+    a2[codex.py]
+  end
+  subgraph data["本地数据<br/>storage · config"]
+    d1[SQLite 回合库]
+    d2[config.yaml]
+  end
+  host[本机 · iTerm2 Python API]
+  callers -- 唯一入口 --> core
+  core -- 解析画面和记录 --> agents
+  core -- 先写库，再动终端 --> data
+  agents --> host
+  data --> host
+  class core dark
+\`\`\`
+`
+
+/** One node feeding many and many feeding one (T118), for `?ui-preview=editor&ui-sample=dense`: where edges crowd. */
+export const denseSample = `# 总体架构
+
+\`\`\`mermaid
+flowchart TD
+  im[手机 IM 与本地控制台] --> entry[消息与事件入口]
+  cron[爬虫 文件事件 定时触发] --> entry
+  entry --> core[Jarvis Core 调度与策略]
+  core --> ai[AI 决策层]
+  core --> ledger[任务账本与产物索引]
+  core --> mac[Mac Desktop Agent]
+  core --> node[局域网 Node Agent]
+  core --> notify[通知与附件回传]
+  cron --> notify
+  im --> notify
+  mac --> term[现有 iTerm2 与 AI 窗口]
+  mac --> browser[可见浏览器]
+  node --> build[构建 爬虫 本地服务]
+\`\`\`
+`
+
+/** A long left-to-right chain (T119), for `?ui-preview=editor&ui-sample=wide`: wider than the column it sits in. */
+export const wideSample = `# 总体结构
+
+\`\`\`mermaid
+flowchart LR
+  subgraph Electron
+    r[渲染进程<br/>React 页面<br/>无 Node 权限] -- window.jarvis.call / on --> p[preload<br/>contextBridge] -- ipc --> m[主进程<br/>启动、监视后台<br/>转发消息]
+  end
+  m -- stdin / stdout<br/>JSON-RPC，一行一条 --> s[jarvis serve<br/>Python 后台] --> a[AgentService · Brain · 设置 ·<br/>数据库 · 日志] --> i[iTerm2 中的 Agent]
+\`\`\`
+
+后台是一个 Python 进程，由 Electron 主进程启动、作为子进程运行。
+`
+
 /** The document shown by `?ui-preview=editor&ui-sample=…` (development screenshots and measurements). */
 export function previewSampleSource(name: string | null): string {
   if (name === 'reading') return readingSample
   if (name === 'diagram') return diagramSample
   if (name === 'annotated') return annotatedSample
+  if (name === 'arch') return archSample
+  if (name === 'dense') return denseSample
+  if (name === 'wide') return wideSample
   if (name === 'english') return englishSample
   if (name === 'code') return codeSample
   if (name === 'reading-preview') return `${readingSample}\n$$\nE = mc^2\n$$\n`

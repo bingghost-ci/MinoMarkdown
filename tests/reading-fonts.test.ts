@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   bundledFamilies, choiceFamily, cjkFonts, codeFonts, codeFontStack, CODE_FONT_STACK, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, familiesIn, fontStack, isFontChoice, isSystemFontName, latinFonts, systemFontId, systemFontName, withoutBundledFonts,
-  EXCALIFONT_FAMILY, XIAOLAI_FAMILY, FANGSONG_FAMILY, GARAMOND_FAMILY, HUOSONG_FAMILY, INTER_FAMILY, KAI_FAMILY, LITERATA_FAMILY, MONO_FAMILY, SANS_FAMILY, SERIF_FAMILY, SOURCE_SERIF_FAMILY,
+  LONG_CANG_FAMILY, MA_SHAN_FAMILY, CAVEAT_FAMILY, OXANIUM_FAMILY, FANGSONG_FAMILY, GARAMOND_FAMILY, HUOSONG_FAMILY, INTER_FAMILY, KAI_FAMILY, LITERATA_FAMILY, MONO_FAMILY, SANS_FAMILY, SERIF_FAMILY, SOURCE_SERIF_FAMILY,
 } from '../src/features/reading/fonts'
 import { bundledFaces, facesForText, fontFaceCss, type FontFace } from '../src/features/reading/fontFaces'
 import { FONT_BUDGET_BYTES } from '../vite.config'
@@ -15,8 +15,10 @@ const directories: Record<string, string> = {
   [KAI_FAMILY]: 'node_modules/@fontsource/lxgw-wenkai/files',
   [FANGSONG_FAMILY]: 'src/assets/fonts/zhuque-fangsong',
   [HUOSONG_FAMILY]: 'src/assets/fonts/chill-huosong',
-  [EXCALIFONT_FAMILY]: 'src/assets/fonts/excalifont',
-  [XIAOLAI_FAMILY]: 'src/assets/fonts/xiaolai',
+  [LONG_CANG_FAMILY]: 'node_modules/@fontsource/long-cang/files',
+  [MA_SHAN_FAMILY]: 'node_modules/@fontsource/ma-shan-zheng/files',
+  [CAVEAT_FAMILY]: 'node_modules/@fontsource-variable/caveat/files',
+  [OXANIUM_FAMILY]: 'node_modules/@fontsource-variable/oxanium/files',
   [SOURCE_SERIF_FAMILY]: 'node_modules/@fontsource-variable/source-serif-4/files',
   [LITERATA_FAMILY]: 'node_modules/@fontsource-variable/literata/files',
   [GARAMOND_FAMILY]: 'node_modules/@fontsource-variable/eb-garamond/files',
@@ -31,7 +33,7 @@ const facesOf = (family: string) => bundledFaces.filter((face) => face.family ==
 const rust = readFileSync('src-tauri/src/settings.rs', 'utf8')
 
 describe('bundled fonts', () => {
-  it('bundles fourteen families, each with WOFF2 files that exist on disk', () => {
+  it('bundles sixteen families, each with WOFF2 files that exist on disk', () => {
     expect([...bundledFamilies].sort()).toEqual(Object.keys(directories).sort())
     for (const family of Object.keys(directories)) expect(facesOf(family).length, family).toBeGreaterThan(0)
     for (const face of bundledFaces) {
@@ -83,22 +85,23 @@ describe('bundled fonts', () => {
     }
   })
 
-  it('bundles the handwriting of hand-drawn diagrams as subsets: Latin letters and the common Chinese characters (T115)', () => {
-    const latin = facesOf(EXCALIFONT_FAMILY), chinese = facesOf(XIAOLAI_FAMILY)
-    expect(latin).toHaveLength(7)
-    expect(chinese).toHaveLength(38)
-    for (const face of [...latin, ...chinese]) expect(face.ranges !== null && face.ranges.length > 0 && face.weight === '100 900' && face.style === 'normal', face.file).toBe(true)
-    // A label needs only the subsets its characters are in.
-    expect(facesForText('Start', new Set([EXCALIFONT_FAMILY, XIAOLAI_FAMILY]))).toHaveLength(1)
-    expect(facesForText('开始', new Set([XIAOLAI_FAMILY])).length).toBeGreaterThan(0)
-    expect(facesForText('开始', new Set([XIAOLAI_FAMILY])).length).toBeLessThanOrEqual(2)
-    // Neither is offered as a reading font.
-    expect([...cjkFonts, ...latinFonts, ...codeFonts].some((font) => /Excalifont|Xiaolai/.test(font.family ?? ''))).toBe(false)
-    for (const folder of ['excalifont', 'xiaolai']) for (const file of ['LICENSE.txt', 'README.md']) expect(existsSync(join('src/assets/fonts', folder, file)), `${folder}/${file}`).toBe(true)
+  it('bundles two hands as subsets, offered for reading and for diagrams, with Latin to go with them (T117, T118)', () => {
+    // A running script and a brush-written regular script, as Google's unicode-range subsets: a text needs only the ones its characters are in.
+    for (const family of [LONG_CANG_FAMILY, MA_SHAN_FAMILY]) {
+      expect(facesOf(family).length, family).toBeGreaterThan(80)
+      expect(facesOf(family).every((face) => face.ranges !== null && face.weight === '100 900' && face.style === 'normal'), family).toBe(true)
+      expect(facesForText('开始', new Set([family])).length, family).toBeGreaterThan(0)
+      expect(facesForText('开始', new Set([family])).length, family).toBeLessThanOrEqual(2)
+    }
+    for (const family of [CAVEAT_FAMILY, OXANIUM_FAMILY]) expect(facesOf(family).map((face) => /-latin-/.test(face.file)), family).toEqual([true])
+    expect(cjkFonts.find((font) => font.id === 'xingshu')?.family.startsWith(`'${LONG_CANG_FAMILY}'`)).toBe(true)
+    expect(cjkFonts.find((font) => font.id === 'kaishu')?.family.startsWith(`'${MA_SHAN_FAMILY}'`)).toBe(true)
+    // The Latin hand and the console's display face are for diagrams only.
+    expect([...cjkFonts, ...latinFonts, ...codeFonts].some((font) => /Caveat|Oxanium/.test(font.family ?? ''))).toBe(false)
   })
 
   it('stays within the font budget of the build', () => {
-    expect(FONT_BUDGET_BYTES).toBe(48 * 1024 * 1024)
+    expect(FONT_BUDGET_BYTES).toBe(56 * 1024 * 1024)
     const byFamily = new Map<string, number>()
     for (const face of bundledFaces) byFamily.set(face.family, (byFamily.get(face.family) ?? 0) + statSync(fileOnDisk(face)).size)
     const total = [...byFamily.values()].reduce((sum, size) => sum + size, 0)
@@ -121,8 +124,8 @@ describe('bundled fonts', () => {
     expect(fontFaceCss([])).toBe('')
   })
 
-  it('offers six Chinese and five Western fonts with unique IDs and families that exist', () => {
-    expect(cjkFonts.map((font) => font.id)).toEqual(['song', 'kai', 'sans', 'fangsong', 'huosong', 'hei'])
+  it('offers eight Chinese and five Western fonts with unique IDs and families that exist', () => {
+    expect(cjkFonts.map((font) => font.id)).toEqual(['song', 'kai', 'sans', 'fangsong', 'huosong', 'xingshu', 'kaishu', 'hei'])
     expect(latinFonts.map((font) => font.id)).toEqual(['source-serif', 'literata', 'garamond', 'inter', 'mono'])
     for (const font of [...cjkFonts, ...latinFonts]) {
       expect(font.label.length, font.id).toBeGreaterThan(0)
@@ -390,7 +393,7 @@ describe('the generated font files (T98)', () => {
 
   it('register every face under a family the app knows, and every family the app knows has faces', () => {
     expect(new Set(bundledFaces.map((face) => face.family))).toEqual(bundledFamilies)
-    expect(bundledFamilies.size).toBe(14)
+    expect(bundledFamilies.size).toBe(16)
   })
 
   it('give the page the same rules the app used to write from the face list, with each file found by the build', () => {

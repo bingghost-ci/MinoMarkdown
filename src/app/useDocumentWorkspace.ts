@@ -1,4 +1,4 @@
-import { diagramFonts } from '../features/diagrams/looks'
+import { customColorsKey } from '../features/diagrams/colorKey'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -36,6 +36,8 @@ import { previewAiTransport, previewSampleSource } from './previewSample'
 import { useAiAssistant, type InsertPlacement } from './aiAssistant'
 import type { AiTransport } from '../features/ai/client'
 import { isZoomAction, zoomedFontSize } from './textZoom'
+import { resetPinchZoom } from './pinchZoom'
+import type { Lightbox } from './components/ZoomViewer'
 import { formatMenuCommands, transformMenuActions } from './formatActions'
 import type { SourceEditor } from '../features/source/SourceEditor'
 import { applyRemoteSettings, settingsPatch } from './settingsSync'
@@ -280,7 +282,7 @@ export function useDocumentWorkspace() {
   const tabDragRef = useRef<{ key: string; x: number; y: number } | null>(null)
   const closingTabsRef = useRef(false)
   const closingWindowRef = useRef(false)
-  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
+  const [lightbox, setLightbox] = useState<Lightbox | null>(null)
   const previewSettingsTab = uiPreview ? new URLSearchParams(window.location.search).get('ui-settings-tab') as SettingsTab | null : null
   const [settingsOpen, setSettingsOpen] = useState(previewSettingsTab !== null)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(previewSettingsTab ?? 'appearance')
@@ -910,9 +912,13 @@ export function useDocumentWorkspace() {
     root.dataset.diagram = settings.diagramStyle
     root.dataset.diagramLine = settings.diagramLine
     root.dataset.diagramCurve = settings.diagramCurve
+    root.dataset.diagramFill = settings.diagramFill ?? 'auto'
+    root.dataset.diagramColors = settings.diagramColors ?? 'auto'
+    root.dataset.diagramFont = settings.diagramFont ?? 'auto'
+    root.dataset.diagramCustom = customColorsKey(settings.diagramCustomColors ?? {})
     // Diagrams take their colors from the style and their drawing from the diagram settings; Mermaid only loads when one is on screen.
     if (window.document.querySelector('.mermaid-preview')) void import('../features/diagrams/mermaid').then((module) => module.restyleDiagrams(window.document))
-  }, [style.id, settings.diagramStyle, settings.diagramLine, settings.diagramCurve])
+  }, [style.id, settings.diagramStyle, settings.diagramLine, settings.diagramCurve, settings.diagramFill, settings.diagramColors, settings.diagramFont, settings.diagramCustomColors])
 
   // The window takes the style's light or dark appearance rather than the system's, so the traffic lights, native
   // menus, dialogs and the color shown while the window is resized match the page.
@@ -1820,11 +1826,11 @@ export function useDocumentWorkspace() {
       const { readAppAsset } = await import('../features/export/appAssets')
       const sources = mayContainMermaid(frozen.markdown) ? await mermaidSourcesAsync(frozen.markdown) : []
       const look = await buildExportStyle({
-        diagrams: sources.length ? { fontFamily: diagramFonts[current.diagramStyle] ?? 'inherit', text: sources.join('\n') } : undefined,
+        diagrams: sources.length ? { fontFamily: (await import('../features/diagrams/looks')).diagramFontFamily(current.diagramStyle, current.diagramFont), text: sources.join('\n') } : undefined,
         style, typography: documentTypography(current, style, docScript), exportStyle: current.exportStyle, pdfMode: current.pdfMode, pageSize: current.pageSize, pageMargin: current.pageMargin,
         text: `${frozen.title}\n${plainText ?? frozen.markdown}`, mode, readAsset: (path) => readAppAsset(path, (assetPath) => invoke<ArrayBuffer>('read_app_asset', { path: assetPath })),
       })
-      const diagrams = sources.length ? await (await import('../features/diagrams/mermaid')).renderDiagramsForExport(sources, look.diagramStyleId, { look: current.diagramStyle, line: current.diagramLine, curve: current.diagramCurve }) : new Map<string, string>()
+      const diagrams = sources.length ? await (await import('../features/diagrams/mermaid')).renderDiagramsForExport(sources, look.diagramStyleId, { look: current.diagramStyle, line: current.diagramLine, curve: current.diagramCurve, fill: current.diagramFill, colors: current.diagramColors, custom: current.diagramCustomColors, font: current.diagramFont }) : new Map<string, string>()
       const rendered = await renderExportAsync(frozen.markdown, titleOf(frozen.title), assets, diagrams, { stylesheet: look.stylesheet, fontsEmbedded: look.fontsEmbedded, captions: current.imageCaptions, lang: layoutScript(current, docScript) === 'latin' ? 'en' : 'zh-CN', bodyHtml })
       const { omittedHtml, failedDiagrams } = rendered
       const html = rendered.hasMath ? (await import('../features/export/katexStyles')).embedMathStyles(rendered.html) : rendered.html
@@ -1908,6 +1914,8 @@ export function useDocumentWorkspace() {
     if (action.startsWith('recent:')) { void openRecent(action); return }
     if (action.startsWith('format-') || action.startsWith('transform-')) { runFormatAction(action); return }
     if (isZoomAction(action) && documentRef.current.kind === 'pdf') { pdfView.current?.zoom(action as 'zoom-in' | 'zoom-out' | 'zoom-reset'); return }
+    // ⌘0 is "actual size" for the pinch too.
+    if (action === 'zoom-reset') resetPinchZoom()
     if (isZoomAction(action)) { updateSettings((current) => ({ editorFontSize: zoomedFontSize(current.editorFontSize, action) })); return }
     if (action === 'new') void newDocument()
     if (action === 'open') void openDocument()
@@ -2559,6 +2567,9 @@ export function useDocumentWorkspace() {
   /** While reading, a click on an image opens it large over a dimmed page. */
   function openImageFromClick(event: { target: EventTarget | null }) {
     if (!documentRef.current.reading) return
+    // A diagram opens at its real size, where it can be zoomed: the page may have had to shrink it (T119).
+    const diagram = event.target instanceof Element ? event.target.closest<HTMLElement>('.mermaid-preview:not(.mermaid-error), .mermaid-diagram') : null
+    if (diagram?.closest('.editor-root') && diagram.querySelector('svg')) { setLightbox({ svg: diagram.innerHTML, alt: '', paper: style.paper }); return }
     const image = event.target instanceof HTMLImageElement ? event.target : null
     if (!image || !image.closest('.editor-root') || !image.currentSrc) return
     setLightbox({ src: image.currentSrc, alt: image.alt })

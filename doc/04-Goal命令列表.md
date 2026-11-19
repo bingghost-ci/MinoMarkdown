@@ -688,6 +688,42 @@ G01–G29 分别对应 T01–T29，每项命令可独立复制到支持 Goals �
 /goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T116 图表里的图标与批注」实现图表标签里的图标、图标节点和批注。先读 CLAUDE.md、doc/01-产品方案.md §3.25、doc/02-技术设计.md §36、doc/05-验收与发布.md §8S 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
 ```
 
+## G117 重做图表风格与风格内的选项
+
+2026-11-19 按用户“手绘要有真正不同的几种、程序风应是架构图、科幻要像科幻、风格之内能设置配色线型字体，并做钢笔风格”的要求建立，对应 T117，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G117 | T117 | T115、T116 | 八种各有画法的图表风格（纸面、架构、彩笔、铅笔、粉笔、钢笔、科幻、彩色），每种之内可设置配色、字体、线型和填充，设置页有实时预览 |
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T117 重做图表风格与风格内的选项」重做图表风格。先读 CLAUDE.md、doc/01-产品方案.md §3.26、doc/02-技术设计.md §37、doc/05-验收与发布.md §8T 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 node scripts/generate-font-table.mjs --check、npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
+## G118 手画的笔画，科幻与彩色重做，行书与楷书
+
+2026-11-19 按用户在应用里看过 G117 后的意见建立，对应 T118，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G118 | T118 | T117 | 手绘风格的方框、菱形和连线像手画的而不是尺规画的，钢笔干净清爽；科幻和彩色重做；图表与正文的字体提供行书和手写楷书；切换风格时选项回到该风格的默认 |
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T118 手画的笔画，科幻与彩色重做，行书与楷书」修正图表风格。先读 CLAUDE.md、doc/01-产品方案.md §3.27、doc/02-技术设计.md §38、doc/05-验收与发布.md §8T 和 doc/06-开发进度.md，并遵守本文件的通用约束。图表外观用 WebKit 核对，不用 Chrome。完成后运行 node scripts/generate-font-table.mjs --check、npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
+## G119 图表看得清，阅读可缩放
+
+2026-11-19 按用户“宽图缩得看不清，默认要能看清，并且能自由缩放阅读界面”的要求建立，对应 T119，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G119 | T119 | T118 | 图表不缩到看不清（放不下时横向滚动），点开可单独缩放查看，阅读页可用触控板捏合缩放 |
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T119 图表看得清，阅读可缩放」实现图表的最小尺寸、查看器和阅读页的捏合缩放。先读 CLAUDE.md、doc/01-产品方案.md §3.28、doc/02-技术设计.md §39、doc/05-验收与发布.md §8T 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
 ## 连续开发总 Goal（逐项读取列表）
 
 此命令只负责开发阶段。每轮读取 G01–G29 的当前任务，依据代码依赖推进；已实现的任务先复核，不重复开发。最终原生验收层级与 Gate 留待集中测试，不能虚报 PASS。单项命令和本总 Goal 共用进度表，不创建嵌套 Goal。
