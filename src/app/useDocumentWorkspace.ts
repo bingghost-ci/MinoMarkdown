@@ -31,6 +31,7 @@ import { typographyVariables } from '../features/reading/css'
 import { dominantScript } from '../features/reading/script'
 import { createWordCounter, sameOutline } from '../features/document/derived'
 import { useStableFunctions } from './stable'
+import { whenStyled } from './whenStyled'
 import { migrateStyleId, type ReadingStyle } from '../features/reading/styles'
 import { previewAiTransport, previewSampleSource } from './previewSample'
 import { useAiAssistant, type InsertPlacement } from './aiAssistant'
@@ -1026,7 +1027,7 @@ export function useDocumentWorkspace() {
   useEffect(() => {
     // The window starts hidden so the default theme and size never flash before saved settings apply.
     if (!desktop || !settingsLoaded) return
-    requestAnimationFrame(() => requestAnimationFrame(() => void invoke('show_workspace_window').catch(() => undefined)))
+    whenStyled(() => void invoke('show_workspace_window').catch(() => undefined))
   }, [desktop, settingsLoaded])
 
   useEffect(() => {

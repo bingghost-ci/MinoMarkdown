@@ -7,6 +7,7 @@ import type { ReadingStyle } from '../features/reading/styles'
 import type { AiTransport } from '../features/ai/client'
 import { useAiAssistant } from './aiAssistant'
 import { translate } from './i18n'
+import { whenStyled } from './whenStyled'
 import { activeStyle, documentTypography, pickedStyle } from './readingSettings'
 import { applyRemoteSettings, settingsPatch } from './settingsSync'
 import { defaultSettings, type Settings, type SettingsHost, type SettingsTab } from './useDocumentWorkspace'
@@ -70,7 +71,7 @@ export function useSettingsWindow(): SettingsHost {
     let canceled = false
     let stop: (() => void) | undefined
     const open = (tab: string) => { if ((tabs as readonly string[]).includes(tab)) setSettingsTab(tab as SettingsTab) }
-    requestAnimationFrame(() => requestAnimationFrame(() => void invoke<string>('settings_window_ready').then((tab) => { if (!canceled) open(tab) }).catch(() => undefined)))
+    whenStyled(() => void invoke<string>('settings_window_ready').then((tab) => { if (!canceled) open(tab) }).catch(() => undefined))
     void getCurrentWindow().listen<string>('settings-tab', (event) => open(event.payload)).then((unlisten) => { if (canceled) unlisten(); else stop = unlisten })
     return () => { canceled = true; stop?.() }
   }, [loaded])
