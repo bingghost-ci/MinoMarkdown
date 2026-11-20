@@ -1,14 +1,9 @@
-import { isInlineImageData, localHtmlImagePath, parseHtmlImages, type HtmlPiece } from '../../core/markdown/htmlImages'
-import { assetUrl } from './assetUrl'
+import { parseHtmlImages, type HtmlPiece } from '../../core/markdown/htmlImages'
+import { htmlImageSource } from './assetUrl'
 
 // Raw HTML stays raw text in the document; the editor only draws a picture of it (see core/markdown/htmlImages.ts).
 
-/** Where an `<img src>` may load from in the editor: a file beside the document (through the asset scheme) or inline data. */
-export function htmlImageSource(src: string, assetKey: string): string | null {
-  if (isInlineImageData(src)) return src
-  const path = assetKey ? localHtmlImagePath(src) : null
-  return path === null ? null : assetUrl(assetKey, path)
-}
+export { htmlImageSource }
 
 function append(pieces: readonly HtmlPiece[], assetKey: string, out: HTMLElement): void {
   for (const piece of pieces) {

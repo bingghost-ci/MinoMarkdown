@@ -7,11 +7,8 @@ import { EditorAdapter } from '../src/features/editor/EditorAdapter'
 import { typographyVariables } from '../src/features/reading/css'
 import { readingStyle } from '../src/features/reading/styles'
 import { defaultReadingSettings, documentTypography } from '../src/app/readingSettings'
+import './helpers/jsdomLayout'
 
-const rect = { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}) }
-Range.prototype.getClientRects = () => ({ length: 0, item: () => null, [Symbol.iterator]: [][Symbol.iterator] }) as unknown as DOMRectList
-Range.prototype.getBoundingClientRect = () => rect as DOMRect
-document.elementFromPoint = () => null
 
 const table = '| 书名 | 页数 | 价格 | 备注 |\n| --- | --- | :-: | --- |\n| 浮生六记 | 156 | ¥32.50 | 1 册 |\n| 人间词话 | 1,098 | 18 |  |\n| 陶庵梦忆 |  | -5% | 2 |\n'
 

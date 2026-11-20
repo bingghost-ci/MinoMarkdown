@@ -1,10 +1,10 @@
-use crate::{documents::{DocumentStore, asset_mime, display_mime, read_granted_asset, validate_image}, staging::{StagedAsset, StagingStore}, fs::asset_directory::{AssetDirectory, PutResult}, markdown_images};
+use crate::{documents::{DocumentStore, asset_mime, display_mime, put_unique, read_granted_asset, validate_image}, staging::{DiskAsset, StagedAsset, StagingStore}, fs::asset_directory::AssetDirectory, markdown_images};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::Path, sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex}, time::{Duration, Instant}};
 use tauri::{AppHandle, State, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 
-const MAX_DOCUMENT: usize = 20 * 1024 * 1024;
+const MAX_DOCUMENT: usize = crate::file_kinds::MAX_TEXT_BYTES as usize;
 const MAX_TOTAL_ASSETS: usize = 100 * 1024 * 1024;
 const MAX_GLOBAL_ASSETS: usize = 128 * 1024 * 1024;
 const MAX_ASSETS: usize = 64;
@@ -29,9 +29,6 @@ pub struct ExportResult { name: String, sha256: String, assets: Vec<ExportedAsse
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotOut { markdown: String, title: String, assets: Vec<StagedAsset>, generation: u64, revision: u64 }
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiskAsset { url: String, relative: String }
 
 fn digest(bytes: &[u8]) -> String { crate::fs::sha256_hex(bytes) }
 #[cfg(test)]
@@ -90,13 +87,7 @@ fn export_at(snapshot: &Snapshot, target: &Path, text_only: bool) -> Result<Expo
         for url in urls {
             let (asset, ext) = *lookup.get(url.as_str()).ok_or("EXPORT_RESOURCE_MISSING")?;
             let sha256 = digest(&asset.bytes);
-            let mut selected = None;
-            for attempt in 0..100 {
-                let name = if attempt == 0 { format!("image-{}.{}", &sha256[..24], ext) } else { format!("image-{}-{}.{}", &sha256[..24], attempt, ext) };
-                if directory.as_ref().ok_or("ASSET_WRITE_FAILED")?.put(std::ffi::OsStr::new(&name), &asset.bytes)? == PutResult::ExistingDifferent { continue; }
-                selected = Some(format!("assets/{name}")); break;
-            }
-            let relative = selected.ok_or("ASSET_WRITE_FAILED")?;
+            let relative = format!("assets/{}", put_unique(directory.as_ref().ok_or("ASSET_WRITE_FAILED")?, &asset.bytes, &sha256, ext)?);
             replacements.insert(url, relative.clone());
             assets_out.push(ExportedAsset { path: relative, sha256 });
         }

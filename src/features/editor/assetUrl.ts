@@ -1,3 +1,5 @@
+import { isInlineImageData, localHtmlImagePath } from '../../core/markdown/htmlImages'
+
 const prefix = 'mino-asset://localhost/'
 
 function encodeSegment(segment: string): string {
@@ -8,6 +10,16 @@ function encodeSegment(segment: string): string {
 /** URL the webview loads lazily for an image beside a granted document. */
 export function assetUrl(assetKey: string, relative: string): string {
   return `${prefix}${assetKey}/${relative.split('/').map(encodeSegment).join('/')}`
+}
+
+/**
+ * Where a raw HTML `<img src>` may load from, in the editor and in the preview alike: a file beside the document
+ * (through the asset scheme) or inline raster data. Null for anything else, and for a document without a grant.
+ */
+export function htmlImageSource(src: string, assetKey: string): string | null {
+  if (isInlineImageData(src)) return src
+  const path = assetKey ? localHtmlImagePath(src) : null
+  return path === null ? null : assetUrl(assetKey, path)
 }
 
 export function isAssetUrl(url: string): boolean {

@@ -1,8 +1,5 @@
-// Minimal HAST shapes, so this file needs no extra type package.
-type Text = { type: 'text'; value: string }
-type Element = { type: 'element'; tagName: string; properties?: Record<string, unknown>; children: Node[] }
-type Node = Element | Text | { type: string; children?: Node[] }
-type Root = { type: 'root'; children: Node[] }
+import type { Element, Node, Root, Text } from './hast'
+
 type ElementContent = Node
 
 /**

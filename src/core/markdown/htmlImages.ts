@@ -108,7 +108,15 @@ export function htmlImageSources(pieces: readonly HtmlPiece[]): string[] {
 /** A relative address of a file beside the document (`images/a.svg`, `./a.png`), or null for anything else. */
 export function localHtmlImagePath(src: string): string | null {
   if (/^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith('//') || src.startsWith('/') || src.startsWith('#') || /[?#]/.test(src)) return null
-  const raw = src.startsWith('./') ? src.slice(2) : src
+  return localAssetPath(src)
+}
+
+/**
+ * The decoded path of an image beside the document, at most eight folders deep, or null when a part of it is
+ * empty, `.` or `..`, or holds a backslash, a colon or a NUL. Rust checks the path again before reading.
+ */
+export function localAssetPath(url: string): string | null {
+  const raw = url.startsWith('./') ? url.slice(2) : url
   let decoded: string
   try { decoded = decodeURIComponent(raw) } catch { return null }
   const parts = decoded.split('/')

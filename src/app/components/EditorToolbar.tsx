@@ -62,11 +62,11 @@ export function EditorToolbar({ workspace: w }: { workspace: DocumentWorkspace }
             {document.mode === 'visual' && <div className="toolbar-group">{toolbarItems.filter((item) => item.command === 'undo' || item.command === 'redo').map((item) => renderToolbarButton(item))}</div>}
           </div>
           {linkOpen && <div className="editor-popover" role="dialog" aria-label={t('编辑链接')}>
-            <label>{t('链接地址')} <input autoFocus value={linkHref} onChange={(event) => setLinkHref(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') applyLink(); if (event.key === 'Escape') { setLinkOpen(false); adapter.current?.focus() } }} /></label>
+            <label>{t('链接地址')} <input autoFocus value={linkHref} onChange={(event) => setLinkHref(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing) return; if (event.key === 'Enter') applyLink(); if (event.key === 'Escape') { setLinkOpen(false); adapter.current?.focus() } }} /></label>
             <button type="button" onClick={applyLink}>{t('确定')}</button><button type="button" onClick={() => { setLinkOpen(false); adapter.current?.focus() }}>{t('取消')}</button>
           </div>}
           {imageAltOpen && <div className="editor-popover" role="dialog" aria-label={t('编辑图片说明')}>
-            <label>{t('替代文本')} <input autoFocus value={imageAltText} onChange={(event) => setImageAltText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setImageAltOpen(false); adapter.current?.focus() } }} /></label>
+            <label>{t('替代文本')} <input autoFocus value={imageAltText} onChange={(event) => setImageAltText(event.target.value)} onKeyDown={(event) => { if (event.nativeEvent.isComposing) return; if (event.key === 'Escape') { setImageAltOpen(false); adapter.current?.focus() } }} /></label>
             <button type="button" onClick={() => { adapter.current?.setImageAlt(imageAltText); setImageAltOpen(false) }}>{t('确定')}</button><button type="button" onClick={() => { setImageAltOpen(false); adapter.current?.focus() }}>{t('取消')}</button>
           </div>}
           {tablePicker && <TableSizePicker anchor={tablePicker} label={t} onClose={() => { setTablePicker(null); adapter.current?.focus() }} onSelect={({ rows, columns }) => { adapter.current?.runTableCommand('insert', rows, columns); setTablePicker(null) }} />}

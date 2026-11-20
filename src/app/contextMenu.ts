@@ -4,6 +4,7 @@
  * `context-action`. Every id must be in `CONTEXT_ITEMS` there or be a main-menu id.
  */
 import type { DocumentKind } from '../features/document/kinds'
+import { transformMenuActions } from './formatActions'
 
 export type MenuEntry =
   | { type: 'item'; id: string; enabled: boolean }
@@ -50,7 +51,7 @@ const paragraphItems = () => [
   item('format-paragraph'), item('format-heading1'), item('format-heading2'), item('format-heading3'), item('format-heading4'), separator,
   item('format-quote'), item('format-bullet'), item('format-ordered'), item('format-task'), item('format-code-block'),
 ]
-const transformItems = () => ['transform-upper', 'transform-lower', 'transform-title', 'transform-cjk-spacing', 'transform-full-punct', 'transform-half-punct'].map((id) => item(id))
+const transformItems = () => Object.keys(transformMenuActions).map((id) => item(id))
 
 /** The file part every document menu ends with. */
 function fileItems(saved: boolean): MenuEntry[] {

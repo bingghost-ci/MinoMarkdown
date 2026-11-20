@@ -1,6 +1,6 @@
 import { fitColor, type DiagramTone } from './looks'
 import { fromHsl, mix, toHsl } from '../reading/color'
-import { colorHex } from './sketch'
+import { colorHex, straightPoints } from './sketch'
 
 /**
  * Finishes the looks Mermaid's variables and CSS cannot reach (T117). Like the sketch pass, these work on the
@@ -130,18 +130,8 @@ function titleFrames(svg: Element, title: string, caption: string, pad = 14): vo
  * the first and last points stay put, so arrowheads still meet their nodes.
  */
 export function roundCorners(d: string, radius: number, chamfer = false): string {
-  if (!/^[\sMLHV\d.,e+-]+$/.test(d)) return d
-  const points: [number, number][] = []
-  for (const [, command, values] of d.matchAll(/([MLHV])([^MLHV]*)/g)) {
-    const list = values.split(/[\s,]+/).filter(Boolean).map(Number)
-    if (list.some((value) => !Number.isFinite(value))) return d
-    const last = points[points.length - 1] ?? [0, 0]
-    if (command === 'H') for (const x of list) points.push([x, last[1]])
-    else if (command === 'V') for (const y of list) points.push([last[0], y])
-    else for (let at = 0; at + 1 < list.length; at += 2) points.push([list[at], list[at + 1]])
-  }
-  const turns = points.filter((point, index) => index === 0 || Math.hypot(point[0] - points[index - 1][0], point[1] - points[index - 1][1]) > 0.01)
-  if (turns.length < 3) return d
+  const turns = straightPoints(d)
+  if (!turns || turns.length < 3) return d
   let path = `M${number(turns[0][0])} ${number(turns[0][1])}`
   for (let index = 1; index < turns.length - 1; index++) {
     const [before, corner, after] = [turns[index - 1], turns[index], turns[index + 1]]

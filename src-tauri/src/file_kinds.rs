@@ -14,6 +14,8 @@ pub const PDF_EXTENSIONS: &[&str] = &["pdf"];
 pub const MAX_TEXT_BYTES: u64 = 20 * 1024 * 1024;
 /// A PDF is read in ranges and never held whole in the webview, so it may be larger.
 pub const MAX_PDF_BYTES: u64 = 200 * 1024 * 1024;
+/// The most one image may hold, wherever it is read, staged or written.
+pub const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
 
 impl DocumentKind {
     pub fn of(path: &Path) -> Option<Self> {

@@ -2,12 +2,8 @@
 import { describe, expect, it } from 'vitest'
 import { EditorAdapter } from '../src/features/editor/EditorAdapter'
 import { opensInReadingMode } from '../src/app/readingSettings'
+import './helpers/jsdomLayout'
 
-// jsdom has no layout; ProseMirror's cursor and Crepe's widgets only need empty rectangles.
-const rect = { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}) }
-Range.prototype.getClientRects = () => ({ length: 0, item: () => null, [Symbol.iterator]: [][Symbol.iterator] }) as unknown as DOMRectList
-Range.prototype.getBoundingClientRect = () => rect as DOMRect
-document.elementFromPoint = () => null
 
 const source = '# 标题\n\n第一段正文。\n\n- 列表项\n'
 

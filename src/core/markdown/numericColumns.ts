@@ -1,3 +1,5 @@
+import { textOf, type Element, type Node, type Root } from './hast'
+
 /**
  * Display-only right alignment of number columns (T56). A column counts as numeric when every non-empty
  * body cell is a number (signs, currency, thousands separators, decimals and % allowed) and at least one is.
@@ -20,15 +22,9 @@ export function numericColumns(bodyRows: readonly (readonly string[])[]): boolea
   })
 }
 
-// Minimal HAST shapes, as in figures.ts.
-type Text = { type: 'text'; value: string }
-type Element = { type: 'element'; tagName: string; properties?: Record<string, unknown>; children: Node[] }
-type Node = Element | Text | { type: string; children?: Node[] }
-type Root = { type: 'root'; children: Node[] }
 
 const elements = (node: Element, tagName?: string): Element[] =>
   node.children.filter((child): child is Element => child.type === 'element' && (!tagName || (child as Element).tagName === tagName))
-const textOf = (node: Node): string => node.type === 'text' ? (node as Text).value : ('children' in node ? node.children ?? [] : []).map(textOf).join('')
 
 function markTable(table: Element) {
   const sections = elements(table).filter((child) => child.tagName === 'thead' || child.tagName === 'tbody')

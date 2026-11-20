@@ -2,12 +2,8 @@
 import { describe, expect, it } from 'vitest'
 import { EditorView } from '@codemirror/view'
 import { EditorAdapter } from '../src/features/editor/EditorAdapter'
+import './helpers/jsdomLayout'
 
-// jsdom has no layout; ProseMirror's cursor and Crepe's widgets only need empty rectangles.
-const rect = { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}) }
-Range.prototype.getClientRects = () => ({ length: 0, item: () => null, [Symbol.iterator]: [][Symbol.iterator] }) as unknown as DOMRectList
-Range.prototype.getBoundingClientRect = () => rect as DOMRect
-document.elementFromPoint = () => null
 // Crepe starts a code block's CodeMirror once the block comes on screen; here every block is on screen.
 globalThis.IntersectionObserver = class {
   constructor(private readonly callback: IntersectionObserverCallback) {}

@@ -187,7 +187,8 @@ export function handLine(points: readonly Point[], seed: number, hand: HandStrok
 }
 
 /** The corner points of a path made only of straight pieces; `null` for one with curves in it. */
-function straightPoints(d: string): Point[] | null {
+/** The corners of a path made of straight pieces only (one subpath), or null when it has curves or fewer than two points. */
+export function straightPoints(d: string): Point[] | null {
   if (!/^[\sMLHV\d.,e+-]+$/.test(d) || (d.match(/M/g) ?? []).length !== 1) return null
   const points: Point[] = []
   for (const [, command, values] of d.matchAll(/([MLHV])([^MLHV]*)/g)) {

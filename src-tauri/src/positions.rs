@@ -46,11 +46,14 @@ fn remember(record: &mut Record, key: String, position: Position, at: u64) {
 
 fn storage(app: &AppHandle) -> Result<PathBuf, String> { Ok(ensure_dir(&app.path().app_data_dir().map_err(|_| "IO_ERROR")?)?.join("reading-positions.json")) }
 
-fn load(path: &Path) -> (Record, Option<String>) {
-    let bytes = read_canonical_parent(path, MAX_FILE).ok();
-    let expected = bytes.as_ref().map(|bytes| crate::fs::sha256_hex(bytes));
-    let record = bytes.and_then(|bytes| serde_json::from_slice::<Record>(&bytes).ok()).filter(|record| record.schema_version == 1).unwrap_or_default();
-    (record, expected)
+/// A record that cannot be read (missing, damaged, grown past the limit) starts empty; `replace_record` then
+/// writes over it, as it does for the app's other records. Writers hold `WRITE_LOCK`.
+fn load(path: &Path) -> Record {
+    read_canonical_parent(path, MAX_FILE).ok().and_then(|bytes| serde_json::from_slice::<Record>(&bytes).ok()).filter(|record| record.schema_version == 1).unwrap_or_default()
+}
+
+fn save(path: &Path, record: &Record) -> Result<(), String> {
+    atomic_write::replace_record(path, &serde_json::to_vec(record).map_err(|_| "IO_ERROR")?, MAX_FILE)
 }
 
 /// Markdown keeps its place for the session only, as before; these records are for the kinds that are read like a book.
@@ -64,7 +67,7 @@ fn tracked(store: &DocumentStore, token: &str) -> Result<String, String> {
 pub fn get_reading_position(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, token: String) -> Result<Option<Position>, String> {
     crate::require_workspace_window(&window)?;
     let key = tracked(&store, &token)?;
-    Ok(lookup(&load(&storage(&app)?).0, &key))
+    Ok(lookup(&load(&storage(&app)?), &key))
 }
 
 #[tauri::command(async)]
@@ -74,12 +77,11 @@ pub fn set_reading_position(app: AppHandle, window: WebviewWindow, store: State<
     let key = tracked(&store, &token)?;
     let _guard = WRITE_LOCK.lock().map_err(|_| "IO_ERROR")?;
     let path = storage(&app)?;
-    let (mut record, expected) = load(&path);
+    let mut record = load(&path);
     if lookup(&record, &key) == Some(position) { return Ok(()); }
     let at = SystemTime::now().duration_since(UNIX_EPOCH).map(|elapsed| elapsed.as_secs()).unwrap_or(0);
     remember(&mut record, key, position, at);
-    let bytes = serde_json::to_vec(&record).map_err(|_| "IO_ERROR")?;
-    atomic_write::commit_canonical_parent(&path, &bytes, expected.as_deref()).map(|_| ())
+    save(&path, &record)
 }
 
 /// Moves the keys of `old`, or of every file below a moved folder, to their new place (T109), so reading
@@ -114,9 +116,9 @@ fn relocate_keys(record: &mut Record, old: &Path, new: &Path) -> bool {
 pub(crate) fn relocate(app: &AppHandle, old: &Path, new: &Path) {
     let Ok(_guard) = WRITE_LOCK.lock() else { return };
     let Ok(path) = storage(app) else { return };
-    let (mut record, expected) = load(&path);
+    let mut record = load(&path);
     if !relocate_keys(&mut record, old, new) { return; }
-    if let Ok(bytes) = serde_json::to_vec(&record) { let _ = atomic_write::commit_canonical_parent(&path, &bytes, expected.as_deref()); }
+    let _ = save(&path, &record);
 }
 
 #[cfg(test)]
@@ -180,6 +182,21 @@ mod tests {
         assert!(relocate_keys(&mut record, &dir.join("new/a.txt"), &dir.join("new/c.txt")));
         assert_eq!(lookup(&record, &key_of(&dir.join("new/c.txt"))), Some(Position { page: 0, offset: 0.5 }));
         assert!(!relocate_keys(&mut record, &dir.join("nothing"), &dir.join("new/sub")));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_record_that_outgrew_its_limit_is_replaced_instead_of_staying_unwritable() {
+        let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap().join(format!("mino-positions-large-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("reading-positions.json");
+        std::fs::write(&path, vec![b' '; MAX_FILE as usize + 1]).unwrap();
+        let mut record = load(&path);
+        assert!(record.entries.is_empty());
+        remember(&mut record, "a".into(), Position { page: 2, offset: 0.5 }, 1);
+        save(&path, &record).unwrap();
+        assert_eq!(lookup(&load(&path), "a"), Some(Position { page: 2, offset: 0.5 }));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -2,7 +2,7 @@
 use std::fs::OpenOptions;
 use std::{ffi::OsStr, fs::{self, File}, io::{Read, Write}, path::{Path, PathBuf}};
 
-const MAX_ASSET: u64 = 20 * 1024 * 1024;
+const MAX_ASSET: u64 = crate::file_kinds::MAX_IMAGE_BYTES;
 #[cfg(target_os = "macos")]
 static NEXT_TEMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 #[cfg(target_os = "macos")]

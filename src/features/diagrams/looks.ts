@@ -1,5 +1,5 @@
-import { contrast, fromHsl, luminance, mix, toHsl } from '../reading/color'
-import { CAVEAT_FAMILY, INTER_FAMILY, isSystemFontName, KAI_FAMILY, LONG_CANG_FAMILY, MA_SHAN_FAMILY, MONO_FAMILY, OXANIUM_FAMILY, systemFontName } from '../reading/fonts'
+import { contrast, fromHsl, isHexColor, luminance, mix, toHsl } from '../reading/color'
+import { CAVEAT_FAMILY, INTER_FAMILY, KAI_FAMILY, LONG_CANG_FAMILY, MA_SHAN_FAMILY, MONO_FAMILY, OXANIUM_FAMILY, systemFontName } from '../reading/fonts'
 import { readingStyle, type ReadingStyle } from '../reading/styles'
 import { customColorsKey, diagramColorRoles, noDiagramColors, type DiagramColorRole, type DiagramCustomColors } from './colorKey'
 
@@ -60,14 +60,13 @@ export const isDiagramCurve = isOneOf(diagramCurves)
 export const isDiagramFill = isOneOf(diagramFills)
 export const isDiagramColorScheme = isOneOf(diagramColorSchemes)
 const isFontId = isOneOf(diagramFontIds)
-const HEX = /^#[0-9a-f]{6}$/i
 export function isDiagramFont(value: unknown): value is DiagramFont {
-  return value === 'auto' || isFontId(value) || (typeof value === 'string' && value.startsWith('sys:') && isSystemFontName(value.slice(4)))
+  return value === 'auto' || isFontId(value) || (typeof value === 'string' && systemFontName(value) !== null)
 }
 /** Only known roles with `#rrggbb` values: these reach CSS. */
 export function cleanDiagramColors(value: unknown): DiagramCustomColors {
   const colors: DiagramCustomColors = {}
-  if (value && typeof value === 'object') for (const role of diagramColorRoles) { const color = (value as Record<string, unknown>)[role]; if (typeof color === 'string' && HEX.test(color)) colors[role] = color.toLowerCase() }
+  if (value && typeof value === 'object') for (const role of diagramColorRoles) { const color = (value as Record<string, unknown>)[role]; if (isHexColor(color)) colors[role] = color.toLowerCase() }
   return colors
 }
 
@@ -132,7 +131,7 @@ const fontStacks: Record<DiagramFontId, string> = {
 }
 /** The font stack labels are drawn in; `inherit` is the document's own. Mermaid measures labels in it, so it is loaded first. */
 export function diagramFontFamily(look: DiagramLook, font: DiagramFont = 'auto'): string {
-  if (font.startsWith('sys:')) { const name = systemFontName(font); return name && isSystemFontName(name) ? `'${name}', 'PingFang SC', sans-serif` : fontStacks[lookDefaults[look].font] }
+  if (font.startsWith('sys:')) { const name = systemFontName(font); return name ? `'${name}', 'PingFang SC', sans-serif` : fontStacks[lookDefaults[look].font] }
   return fontStacks[font === 'auto' ? lookDefaults[look].font : font as DiagramFontId]
 }
 /** The look's own font; kept for callers that know nothing of the font option. */

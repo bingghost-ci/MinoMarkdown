@@ -2,6 +2,7 @@ import type { Root } from 'mdast'
 import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
+import { localAssetPath } from '../../core/markdown/htmlImages'
 
 type ImageNode = { type: string; url?: string; identifier?: string; position?: { start: { offset?: number }; end: { offset?: number } }; children?: unknown[] }
 
@@ -40,14 +41,7 @@ function urlsOf({ images, imageReferences, definitions }: Parsed): string[] {
   return [...urls]
 }
 
-export function localAssetPath(url: string): string | null {
-  const raw = url.startsWith('./') ? url.slice(2) : url
-  let decoded: string
-  try { decoded = decodeURIComponent(raw) } catch { return null }
-  const parts = decoded.split('/')
-  if (parts.length < 1 || parts.length > 8 || parts.some((part) => !part || part === '.' || part === '..' || part.includes('\\') || part.includes('\0') || part.includes(':'))) return null
-  return decoded
-}
+export { localAssetPath }
 
 /**
  * Splits the images a snapshot needs into in-memory assets and files next to the document.

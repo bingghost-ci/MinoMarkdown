@@ -1,13 +1,9 @@
 import { LanguageDescription, type Language } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
 import { highlightTree } from '@lezer/highlight'
+import { textOf, type Element, type Node, type Root } from './hast'
 import { syntaxClassHighlighter } from './syntaxRoles'
 
-// Minimal HAST shapes, as in figures.ts.
-type Text = { type: 'text'; value: string }
-type Element = { type: 'element'; tagName: string; properties?: Record<string, unknown>; children: Node[] }
-type Node = Element | Text | { type: string; children?: Node[] }
-type Root = { type: 'root'; children: Node[] }
 
 export type CodeParsers = ReadonlyMap<string, Language['parser']>
 
@@ -57,11 +53,6 @@ function languageOf(code: Element): string | null {
   const list = Array.isArray(classes) ? classes : typeof classes === 'string' ? classes.split(/\s+/) : []
   const found = list.map(String).find((name) => name.startsWith('language-'))
   return found ? found.slice('language-'.length).toLowerCase() : null
-}
-
-function textOf(node: Node): string {
-  if (node.type === 'text') return (node as Text).value
-  return ('children' in node ? node.children ?? [] : []).map(textOf).join('')
 }
 
 /** Splits a code block's text into spans whose only attribute is a fixed token class. */

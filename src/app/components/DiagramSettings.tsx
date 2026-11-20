@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Settings, SettingsHost } from '../useDocumentWorkspace'
-import { parseHex, toHex } from '../../features/reading/color'
+import { isHexColor, parseHex, toHex } from '../../features/reading/color'
 import { systemFontName } from '../../features/reading/fonts'
 import {
   cleanDiagramColors, diagramColorLabels, diagramColorRoleLabels, diagramColorRoles, diagramColorSchemes, diagramCurveLabels, diagramCurves, diagramFillLabels, diagramFills, diagramFontFamily,
@@ -9,7 +9,6 @@ import {
 } from '../../features/diagrams/looks'
 
 type T = (text: string) => string
-const HEX = /^#[0-9a-f]{6}$/i
 
 /** The diagram options in the settings, as the drawing code takes them. */
 export function diagramOptionsOf(settings: Pick<Settings, 'diagramStyle' | 'diagramLine' | 'diagramCurve' | 'diagramFill' | 'diagramColors' | 'diagramCustomColors' | 'diagramFont'>, look: DiagramLook = settings.diagramStyle): DiagramOptions {
@@ -117,7 +116,7 @@ function DiagramColorsEditor({ styleId, options, onChange, t }: { styleId: strin
         <strong>{t(diagramColorRoleLabels[role])}</strong>
         <input key={color} type="text" aria-label={t('色值')} defaultValue={color} maxLength={7} spellCheck={false}
           onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
-          onBlur={(event) => { const value = event.target.value.trim(); if (HEX.test(value)) { if (value.toLowerCase() !== color) commit(role, value) } else event.target.value = color }} />
+          onBlur={(event) => { const value = event.target.value.trim(); if (isHexColor(value)) { if (value.toLowerCase() !== color) commit(role, value) } else event.target.value = color }} />
         <button type="button" disabled={!options.custom[role] && draft?.role !== role} onClick={() => commit(role, null)}>{t('恢复默认')}</button>
       </div>
       {([['红', 'R'], ['绿', 'G'], ['蓝', 'B']] as const).map(([name, letter], index) => {

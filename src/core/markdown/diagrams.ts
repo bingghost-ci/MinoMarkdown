@@ -1,7 +1,7 @@
+import { isCodeWithClass, textOf, type HastNode } from './hast'
 import { parseMathTree } from './math'
 
 type TreeNode = { type: string; lang?: string | null; value?: string; children?: TreeNode[] }
-type HastNode = { type: string; tagName?: string; value?: string; properties?: { className?: unknown }; children?: HastNode[] }
 
 /** A cheap check that spares documents without diagrams from any parsing. */
 export function mayContainMermaid(markdown: string): boolean { return /(?:`{3,}|~{3,})[ \t]*mermaid/i.test(markdown) }
@@ -16,10 +16,8 @@ export function mermaidSources(markdown: string): string[] {
   return [...sources]
 }
 
-function textOf(node: HastNode): string { return node.value ?? (node.children ?? []).map(textOf).join('') }
-
 function isMermaid(node: HastNode | undefined): boolean {
-  return node?.tagName === 'code' && Array.isArray(node.properties?.className) && node.properties.className.some((name) => String(name).toLowerCase() === 'language-mermaid')
+  return isCodeWithClass(node, (name) => String(name).toLowerCase() === 'language-mermaid')
 }
 
 /** Runs after sanitizing. `diagrams` holds SVG that has already been sanitized; a fence without one stays as code. */

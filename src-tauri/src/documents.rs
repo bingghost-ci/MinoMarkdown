@@ -20,7 +20,7 @@ use crate::text_encoding::{self, TextEncoding};
 const MAX_DOCUMENT: u64 = file_kinds::MAX_TEXT_BYTES;
 /// The most one `read_document_range` call returns.
 const MAX_RANGE: u64 = 8 * 1024 * 1024;
-const MAX_IMAGE: usize = 20 * 1024 * 1024;
+const MAX_IMAGE: usize = file_kinds::MAX_IMAGE_BYTES as usize;
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 static SAVE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -57,7 +57,7 @@ fn random_key() -> Result<String, String> {
     use std::io::Read;
     let mut bytes = [0u8; 16];
     fs::File::open("/dev/urandom").and_then(|mut file| file.read_exact(&mut bytes)).map_err(|_| "IO_ERROR")?;
-    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    Ok(crate::fs::hex(&bytes))
 }
 
 fn stamp_of(path: &Path) -> Option<FileStamp> { fs::symlink_metadata(path).ok().map(|meta| FileStamp::of(&meta)) }
@@ -227,15 +227,9 @@ pub(crate) fn read_selected_image_bytes(path: &Path) -> Result<Vec<u8>, String> 
     let path = validate_selected_file(path)?;
     #[cfg(target_os = "macos")]
     {
-        use std::io::Read;
         let directory = open_parent_directory(path.parent().ok_or("INVALID_PATH")?)?;
         let image = open_child(&directory, path.file_name().ok_or("INVALID_PATH")?, 0)?;
-        let meta = image.metadata().map_err(|_| "NOT_FOUND")?;
-        if !meta.is_file() || meta.len() > MAX_IMAGE as u64 { return Err("IMAGE_TOO_LARGE".into()); }
-        let mut bytes = Vec::new();
-        image.take(MAX_IMAGE as u64 + 1).read_to_end(&mut bytes).map_err(|_| "IO_ERROR")?;
-        if bytes.len() > MAX_IMAGE { return Err("IMAGE_TOO_LARGE".into()); }
-        Ok(bytes)
+        read_open_image(image)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -526,8 +520,9 @@ pub fn reload_document(window: WebviewWindow, store: State<'_, DocumentStore>, t
 
 /// Writes `bytes` into `directory` as `image-<hash>.<extension>`, or `image-<hash>-<n>.<extension>` when that name
 /// already holds other bytes, and returns the name used.
-fn put_unique(directory: &AssetDirectory, bytes: &[u8], extension: &str) -> Result<String, String> {
-    let hash = digest(bytes);
+/// Writes an image as `image-<hash>[-n].<ext>` and returns that name; an existing file with the same bytes is reused.
+/// `hash` is the SHA-256 of `bytes`, which the callers need for their own records too.
+pub(crate) fn put_unique(directory: &AssetDirectory, bytes: &[u8], hash: &str, extension: &str) -> Result<String, String> {
     for attempt in 0..100 {
         let filename = if attempt == 0 { format!("image-{}.{}", &hash[..24], extension) } else { format!("image-{}-{}.{}", &hash[..24], attempt, extension) };
         if directory.put(std::ffi::OsStr::new(&filename), bytes)? != PutResult::ExistingDifferent { return Ok(filename); }
@@ -561,7 +556,7 @@ fn copy_assets_for_copy(source: &Path, target: &Path, markdown: &str) -> Result<
     for (relative, name, bytes) in images {
         if target_assets.put(&name, &bytes)? == PutResult::ExistingDifferent {
             let extension = Path::new(&name).extension().and_then(|v| v.to_str()).unwrap_or("bin");
-            replacements.insert(relative, format!("assets/{}", put_unique(&target_assets, &bytes, extension)?));
+            replacements.insert(relative, format!("assets/{}", put_unique(&target_assets, &bytes, &digest(&bytes), extension)?));
         }
     }
     target_assets.verify_location()?;
@@ -793,7 +788,7 @@ fn save_assets(kind: DocumentKind, parent: &Path, markdown: &str, assets: Vec<As
     let directory = AssetDirectory::open(parent, true)?;
     // A name that already holds other bytes (a file the user put there) gets a numbered neighbour instead.
     for (asset, ext) in prepared {
-        paths.insert(asset.url.clone(), format!("assets/{}", put_unique(&directory, &asset.bytes, ext)?));
+        paths.insert(asset.url.clone(), format!("assets/{}", put_unique(&directory, &asset.bytes, &digest(&asset.bytes), ext)?));
     }
     directory.verify_location()?;
     Ok((markdown_images::rewrite_image_urls(markdown, &paths)?, paths))
@@ -928,14 +923,10 @@ fn read_scoped_asset(grant: &Grant, relative: &str) -> Result<Vec<u8>, String> {
     }
 }
 
+/// The bytes of an image that is already open, refused when it is not a regular file or is over the image limit.
 #[cfg(target_os = "macos")]
-fn read_asset_from_directory(parent: &Path, parts: &[&str]) -> Result<Vec<u8>, String> {
+fn read_open_image(image: fs::File) -> Result<Vec<u8>, String> {
     use std::io::Read;
-    let mut directory = open_parent_directory(parent)?;
-    for part in &parts[..parts.len() - 1] {
-        directory = open_child(&directory, std::ffi::OsStr::new(part), libc::O_DIRECTORY)?;
-    }
-    let image = open_child(&directory, std::ffi::OsStr::new(parts[parts.len() - 1]), 0)?;
     let meta = image.metadata().map_err(|_| "NOT_FOUND")?;
     if !meta.is_file() || meta.len() > MAX_IMAGE as u64 { return Err("IMAGE_TOO_LARGE".into()); }
     let mut bytes = Vec::new();
@@ -944,10 +935,20 @@ fn read_asset_from_directory(parent: &Path, parts: &[&str]) -> Result<Vec<u8>, S
     Ok(bytes)
 }
 
+#[cfg(target_os = "macos")]
+fn read_asset_from_directory(parent: &Path, parts: &[&str]) -> Result<Vec<u8>, String> {
+    let mut directory = open_parent_directory(parent)?;
+    for part in &parts[..parts.len() - 1] {
+        directory = open_child(&directory, std::ffi::OsStr::new(part), libc::O_DIRECTORY)?;
+    }
+    let image = open_child(&directory, std::ffi::OsStr::new(parts[parts.len() - 1]), 0)?;
+    read_open_image(image)
+}
+
 #[tauri::command]
 pub async fn export_html(app: AppHandle, window: WebviewWindow, html: String) -> Result<Option<String>, String> {
     crate::require_workspace_window(&window)?;
-    if html.len() > 100 * 1024 * 1024 { return Err("EXPORT_TOO_LARGE".into()); }
+    if html.len() > crate::pdf_export::MAX_PAGE_BYTES { return Err("EXPORT_TOO_LARGE".into()); }
     let selected = app.dialog().file().add_filter("HTML", &["html"]).blocking_save_file();
     let Some(selected) = selected else { return Ok(None); };
     let path = selected.into_path().map_err(|_| "INVALID_PATH")?;

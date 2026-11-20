@@ -6,6 +6,7 @@ import remarkMath from 'remark-math'
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
+import { looksLikeFrontMatter } from '../../core/markdown/frontMatter'
 import { remarkDemoteCurrency } from '../../core/markdown/math'
 import { loadMathRenderer, rehypeRenderMath, withMathClasses } from '../../core/markdown/renderMath'
 import { rehypeEmbedDiagrams } from '../../core/markdown/diagrams'
@@ -13,6 +14,7 @@ import { rehypeFigures } from '../../core/markdown/figures'
 import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
 import { loadCodeParsers, rehypeHighlightCode } from '../../core/markdown/highlight'
 import { base64 } from './appAssets'
+import { escapeHtml } from '../text/textDocument'
 import { htmlImageSources, isInlineImageData, parseHtmlImages, remarkHtmlImages } from '../../core/markdown/htmlImages'
 
 export type ResolvedImage = { bytes: Uint8Array; mime: string }
@@ -34,9 +36,6 @@ const fallbackStylesheet = `
   @media print { body { max-width: none; padding: 0; } thead { display: table-header-group; } img,blockquote,tr { break-inside: avoid; } pre { break-inside: auto; } }
 `
 
-function escapeHtml(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
-}
 
 
 // SVG reaches an export only from a file beside the document, and a page shows it only as an `<img>`, where it can
@@ -112,10 +111,14 @@ function embedImages(resolveImage: ImageResolver) {
   }
 }
 
-/** HTML and PDF carry the document body only; metadata stays in the Markdown file. */
+/**
+ * HTML and PDF carry the document body only; metadata stays in the Markdown file. What counts as front matter
+ * is decided by the same check as in the editor and the outline, so a paragraph between two rules is exported.
+ */
 export function exportBody(markdown: string): string {
   const text = markdown.startsWith('\uFEFF') ? markdown.slice(1) : markdown
-  return text.replace(/^---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)(?:\r?\n|$)/, '')
+  const match = /^---\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)(?:\r?\n|$)/.exec(text)
+  return match && looksLikeFrontMatter(match[1].split(/\r?\n/)) ? text.slice(match[0].length) : text
 }
 
 /**

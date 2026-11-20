@@ -1,4 +1,4 @@
-import { contrast, fromHsl, toHsl } from './color'
+import { contrast, fromHsl, isHexColor, toHsl } from './color'
 import type { SyntaxRole } from '../../core/markdown/syntaxRoleNames'
 import type { CodeTheme, ReadingStyle } from './styles'
 
@@ -95,9 +95,7 @@ export const syntaxRoleLabels: readonly (readonly [SyntaxRole, string])[] = [
   ['number', '数字'], ['atom', '常量与内置名'], ['operator', '运算符'], ['comment', '注释'], ['meta', '修饰与标注'], ['heading', '标题'], ['invalid', '错误'],
 ]
 
-export function isHexColor(value: unknown): value is string {
-  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)
-}
+export { isHexColor }
 
 function chosen(custom: CustomCodeColors | undefined, dark: boolean): Partial<SyntaxPalette> {
   const half = (dark ? custom?.night : custom?.day) ?? {}

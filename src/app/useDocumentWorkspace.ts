@@ -156,6 +156,9 @@ const previewTree: Record<string, TreeState> = {
   'preview-plan': { entries: [{ token: 'preview-spec', name: '编辑器需求.md', directory: false }], nextOffset: null, expanded: true, loading: false, error: null },
 }
 
+/** The name of a document that has no file yet, in the language of the interface. */
+function untitledName(language: string): string { return language === 'en-US' ? 'Untitled' : '未命名' }
+
 function makeDocument(markdown: string, name = '未命名', sampleId?: string, prepared = prepareMarkdown(markdown)): DocumentState {
   return { id: nextDocumentId++, draftId: crypto.randomUUID(), name, kind: 'markdown', token: '', assetKey: '', revision: '', markdown: prepared.editorMarkdown, originalMarkdown: markdown, imageUrls: new Map(), recoveredAssets: new Map(), pendingFiles: new Map(), retiredTokens: [], sampleId, prepared, sourceText: markdown, mode: prepared.analysis.mode }
 }
@@ -208,6 +211,9 @@ const SOURCE_MATCH_LIMIT = 5000
 function revokeDocumentUrls(closed: DocumentState): void {
   for (const urls of [closed.imageUrls, closed.recoveredAssets, closed.pendingFiles]) for (const url of urls.keys()) URL.revokeObjectURL(url)
 }
+
+/** What the find bar counts before a search and when nothing matches. */
+const NO_MATCHES: { current: number; total: number } = { current: 0, total: 0 }
 
 /** The text of a document that a draft is written from. */
 function draftText(note: DocumentState): string {
@@ -310,7 +316,7 @@ export function useDocumentWorkspace() {
   const [findOpen, setFindOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [replaceText, setReplaceText] = useState('')
-  const [findCount, setFindCount] = useState({ current: 0, total: 0 })
+  const [findCount, setFindCount] = useState(NO_MATCHES)
   const sourceFind = useRef<{ matches: FindMatch[]; index: number }>({ matches: [], index: 0 })
   const [findOptions, setFindOptionsState] = useState<FindOptions>(defaultFindOptions)
   const findOptionsRef = useRef<FindOptions>(defaultFindOptions)
@@ -667,7 +673,7 @@ export function useDocumentWorkspace() {
   async function focusTabForSave(key: string): Promise<boolean> {
     if (key !== activeTabKeyRef.current) {
       switchTab(key)
-      if (activeTabKeyRef.current !== key) { setStatus('当前操作尚未完成，请稍后再试'); return false }
+      if (activeTabKeyRef.current !== key) { noteBusy(); return false }
     }
     const deadline = performance.now() + 5000
     while (performance.now() < deadline) {
@@ -710,7 +716,7 @@ export function useDocumentWorkspace() {
   function removeTab(key: string, index: number) {
     const remaining = tabsRef.current.filter((tab) => tab.key !== key)
     if (remaining.length) { updateTabs(remaining); activateTab(remaining[Math.min(index, remaining.length - 1)]); return }
-    const empty = makeDocument('')
+    const empty = makeDocument('', untitledName(settingsRef.current.language))
     initialDocumentId.current = empty.id
     const replacement = { key: crypto.randomUUID(), document: empty, session: createSession(empty.id) }
     updateTabs([replacement])
@@ -782,7 +788,7 @@ export function useDocumentWorkspace() {
     const tab = captureCurrentTab()
     const note = tab.document
     const live = liveEditorFor(note)
-    const markdown = note.mode === 'visual' ? note.markdown : note.sourceText
+    const markdown = draftText(note)
     takeBusy()
     try {
       const assets: DetachedAsset[] = []
@@ -972,7 +978,7 @@ export function useDocumentWorkspace() {
 
   // Every untitled tab takes the name of the new language, not only the one in front.
   useEffect(() => {
-    const name = settings.language === 'en-US' ? 'Untitled' : '未命名'
+    const name = untitledName(settings.language)
     const renamed = (note: DocumentState) => !note.token && note.name !== name && ['未命名', 'Untitled'].includes(note.name)
     const current = documentRef.current
     if (renamed(current)) { documentRef.current = { ...current, name }; setDocument(documentRef.current) }
@@ -1345,7 +1351,7 @@ export function useDocumentWorkspace() {
   }
 
   async function canProceed(finalizeDiscard = false): Promise<boolean> {
-    if (busyRef.current) { setStatus('当前操作尚未完成，请稍后再试'); return false }
+    if (busyRef.current) { noteBusy(); return false }
     if (!isDirty(sessionRef.current)) { pendingDiscardDraftId.current = null; return true }
     pendingDiscardDraftId.current = null
     if (!desktop) return window.confirm(translateStatus('当前修改尚未保存。确定放弃修改吗？', settingsRef.current.language))
@@ -1498,7 +1504,7 @@ export function useDocumentWorkspace() {
 
   async function newDocument() {
     if (busyRef.current) { noteBusy(); return }
-    openTab(makeDocument('', settings.language === 'en-US' ? 'Untitled' : '未命名'))
+    openTab(makeDocument('', untitledName(settings.language)))
   }
 
   async function openDocument() {
@@ -1937,7 +1943,7 @@ export function useDocumentWorkspace() {
     if (action === 'preferences') openSettings()
     if (action === 'recover-drafts') {
       setDraftsOpen(true)
-      void invoke<DraftSummary[]>('list_drafts').then(setDrafts).catch((error: unknown) => setStatus(errorText(error)))
+      refreshDrafts()
     }
     if (action === 'new-window') void invoke('create_workspace_window', { transfer: null }).catch((error: unknown) => setStatus(errorText(error)))
     if (action === 'close-tab') void closeTabs([activeTabKeyRef.current])
@@ -2020,7 +2026,7 @@ export function useDocumentWorkspace() {
     if (documentRef.current.kind === 'pdf') void pdfView.current?.find('', findOptionsRef.current)
     // A text or source file being read returns from its source to the reading page.
     else if (documentRef.current.kind !== 'markdown' && documentRef.current.reading) setSourceView(false)
-    setFindCount({ current: 0, total: 0 })
+    setFindCount(NO_MATCHES)
     adapter.current?.focus()
   }
 
@@ -2079,7 +2085,7 @@ export function useDocumentWorkspace() {
       void pdfView.current?.find(query, findOptionsRef.current).then((count) => { if (sequence === pdfFindSequence.current) setFindCount(count) }, () => undefined)
       return
     }
-    if (documentRef.current.mode === 'visual') { setFindRegexBlocked(false); setFindCount(adapter.current?.find(query, findOptionsRef.current) ?? { current: 0, total: 0 }); return }
+    if (documentRef.current.mode === 'visual') { setFindRegexBlocked(false); setFindCount(adapter.current?.find(query, findOptionsRef.current) ?? NO_MATCHES); return }
     const text = sourceEditor.current?.value ?? documentRef.current.sourceText
     setFindRegexBlocked(exceedsVisualLimit(text))
     sourceFind.current = { matches: sourceMatches(text, query), index: 0 }
@@ -2098,7 +2104,7 @@ export function useDocumentWorkspace() {
   function findGoTo(index: number) {
     flushQueuedFind()
     if (documentRef.current.kind === 'pdf') { for (let step = 0; step < index; step++) findStep(1); return }
-    if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.findAt(index) ?? { current: 0, total: 0 }); return }
+    if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.findAt(index) ?? NO_MATCHES); return }
     refreshSourceMatches()
     const { matches } = sourceFind.current
     if (matches.length === 0) return
@@ -2109,8 +2115,8 @@ export function useDocumentWorkspace() {
 
   function findStep(direction: 1 | -1) {
     flushQueuedFind()
-    if (documentRef.current.kind === 'pdf') { setFindCount(pdfView.current?.findStep(direction) ?? { current: 0, total: 0 }); return }
-    if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.findStep(direction) ?? { current: 0, total: 0 }); return }
+    if (documentRef.current.kind === 'pdf') { setFindCount(pdfView.current?.findStep(direction) ?? NO_MATCHES); return }
+    if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.findStep(direction) ?? NO_MATCHES); return }
     refreshSourceMatches()
     const { matches, index } = sourceFind.current
     if (matches.length === 0) return
@@ -2139,7 +2145,7 @@ export function useDocumentWorkspace() {
   function replaceOne() {
     if (documentRef.current.reading || documentRef.current.kind === 'pdf') { setStatus(errorText('READING_MODE')); return }
     flushQueuedFind()
-    if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.replaceCurrent(replaceText) ?? { current: 0, total: 0 }); return }
+    if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.replaceCurrent(replaceText) ?? NO_MATCHES); return }
     refreshSourceMatches()
     const match = sourceFind.current.matches[sourceFind.current.index]
     if (match) replaceInSource([match])
@@ -2148,7 +2154,7 @@ export function useDocumentWorkspace() {
   function replaceEvery() {
     if (documentRef.current.reading || documentRef.current.kind === 'pdf') { setStatus(errorText('READING_MODE')); return }
     flushQueuedFind()
-    if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.replaceAll(replaceText) ?? { current: 0, total: 0 }); return }
+    if (documentRef.current.mode === 'visual') { setFindCount(adapter.current?.replaceAll(replaceText) ?? NO_MATCHES); return }
     // Every match, not only the listed ones.
     const text = sourceEditor.current?.value ?? documentRef.current.sourceText
     replaceInSource(findInText(text, findQuery, sourceFindOptions(text)))
@@ -2166,7 +2172,7 @@ export function useDocumentWorkspace() {
     if (!documentRef.current.entryToken) return
     let name: string
     try { name = decodeURIComponent(href.split(/[?#]/, 1)[0]).replace(/^\.\//, '') } catch { return }
-    if (!name || name.includes('/') || name.includes('\\') || name === '.' || name === '..' || !/\.(?:md|markdown)$/i.test(name)) return
+    if (!name || name.includes('/') || name.includes('\\') || name === '.' || name === '..' || kindOfName(name) !== 'markdown') return
     const siblings = Object.values(tree).find((state) => state.entries.some((entry) => entry.token === documentRef.current.entryToken))?.entries
     const sibling = siblings?.find((entry) => !entry.directory && entry.name === name)
     if (sibling) void openWorkspaceEntry(sibling.token)

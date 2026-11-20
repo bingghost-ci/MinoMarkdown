@@ -9,7 +9,7 @@ static NEXT_ENTRY: AtomicU64 = AtomicU64::new(1);
 const PAGE_SIZE: usize = 200;
 const MAX_SEARCH_HITS: usize = 500;
 const MAX_HITS_PER_FILE: usize = 5;
-const MAX_SEARCH_DOCUMENT: u64 = 20 * 1024 * 1024;
+const MAX_SEARCH_DOCUMENT: u64 = crate::file_kinds::MAX_TEXT_BYTES;
 const MAX_SEARCH_QUERY_CHARS: usize = 256;
 const SNIPPET_CHARS: usize = 120;
 
@@ -17,6 +17,12 @@ const SNIPPET_CHARS: usize = 120;
 struct EntryGrant { workspace: String, root: PathBuf, path: PathBuf, directory: bool }
 #[derive(Default)]
 pub struct WorkspaceStore(Mutex<HashMap<String, EntryGrant>>);
+impl WorkspaceStore {
+    /// The entry a token was issued for; an unknown token is out of scope.
+    fn grant(&self, token: &str) -> Result<EntryGrant, String> {
+        self.0.lock().map_err(|_| "IO_ERROR")?.get(token).cloned().ok_or("OUT_OF_SCOPE".into())
+    }
+}
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceRoot { token: String, name: String }
@@ -223,7 +229,7 @@ fn checked_path(grant: &EntryGrant) -> Result<PathBuf, String> {
     Ok(canonical)
 }
 fn list_at(store: &WorkspaceStore, token: &str, offset: usize) -> Result<ChildrenPage, String> {
-    let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(token).cloned().ok_or("OUT_OF_SCOPE")?;
+    let grant = store.grant(token)?;
     if !grant.directory { return Err("OUT_OF_SCOPE".into()); }
     let directory = checked_path(&grant)?;
     let mut children = Vec::new();
@@ -290,7 +296,7 @@ pub(crate) fn register_workspace(store: &WorkspaceStore, path: PathBuf) -> Resul
 
 /// The checked path of any sidebar entry, file or folder, and whether it is a folder (T105).
 pub(crate) fn entry_path(store: &WorkspaceStore, token: &str) -> Result<(PathBuf, bool), String> {
-    let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(token).cloned().ok_or("OUT_OF_SCOPE")?;
+    let grant = store.grant(token)?;
     Ok((checked_path(&grant)?, grant.directory))
 }
 
@@ -317,7 +323,7 @@ pub(crate) fn forget_entries(store: &WorkspaceStore, path: &Path) -> Result<(), 
 }
 
 pub(crate) fn workspace_path(store: &WorkspaceStore, token: &str) -> Result<PathBuf, String> {
-    let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(token).cloned().ok_or("OUT_OF_SCOPE")?;
+    let grant = store.grant(token)?;
     if grant.workspace != token { return Err("OUT_OF_SCOPE".into()); }
     checked_path(&grant)
 }
@@ -329,7 +335,7 @@ pub fn list_children(window: WebviewWindow, store: State<'_, WorkspaceStore>, di
 #[tauri::command(async)]
 pub fn open_workspace_document(window: WebviewWindow, workspace: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String) -> Result<OpenDocument, String> {
     crate::require_workspace_window(&window)?;
-    let grant = workspace.0.lock().map_err(|_| "IO_ERROR")?.get(&entry_token).cloned().ok_or("OUT_OF_SCOPE")?;
+    let grant = workspace.grant(&entry_token)?;
     if grant.directory { return Err("OUT_OF_SCOPE".into()); }
     let path = checked_path(&grant)?;
     open_granted_path(&documents, &path)
@@ -347,7 +353,7 @@ pub fn release_workspace(window: WebviewWindow, store: State<'_, WorkspaceStore>
 pub fn create_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, parent_token: String, name: String, directory: bool) -> Result<WorkspaceEntry, String> {
     crate::require_workspace_window(&window)?;
     if !valid_name(&name, directory) { return Err("INVALID_NAME".into()); }
-    let parent_grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(&parent_token).cloned().ok_or("OUT_OF_SCOPE")?;
+    let parent_grant = store.grant(&parent_token)?;
     if !parent_grant.directory { return Err("OUT_OF_SCOPE".into()); }
     let parent = checked_path(&parent_grant)?;
     let path = parent.join(&name);
@@ -366,7 +372,7 @@ pub fn rename_workspace_entry(app: AppHandle, window: WebviewWindow, store: Stat
 }
 
 fn rename_entry(store: &WorkspaceStore, documents: &DocumentStore, entry_token: String, new_name: String) -> Result<(WorkspaceEntry, PathBuf, PathBuf), String> {
-    let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(&entry_token).cloned().ok_or("OUT_OF_SCOPE")?;
+    let grant = store.grant(&entry_token)?;
     if grant.path == grant.root || !valid_rename(&grant.path, &new_name, grant.directory) { return Err("INVALID_NAME".into()); }
     let source = checked_path(&grant)?;
     // A folder is renamed with everything in it; open files inside it and expanded subfolders follow it.
@@ -476,7 +482,7 @@ fn forget_within(store: &WorkspaceStore, documents: &DocumentStore, path: &Path)
 #[tauri::command(async)]
 pub fn trash_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String) -> Result<(), String> {
     crate::require_workspace_window(&window)?;
-    let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(&entry_token).cloned().ok_or("OUT_OF_SCOPE")?;
+    let grant = store.grant(&entry_token)?;
     if grant.path == grant.root { return Err("OUT_OF_SCOPE".into()); }
     let path = checked_path(&grant)?;
     removing(&documents, &path, || move_to_trash(&path))?;
@@ -517,7 +523,7 @@ fn search_text(text: &str, query: &str, path: &Path, relative: &str, hits: &mut 
 
 /// Reads no file outside the granted root: it never follows links and rechecks each directory it enters.
 fn search_at(store: &WorkspaceStore, root_token: &str, query: &str, canceled: impl Fn() -> bool) -> Result<SearchResults, String> {
-    let grant = store.0.lock().map_err(|_| "IO_ERROR")?.get(root_token).cloned().ok_or("OUT_OF_SCOPE")?;
+    let grant = store.grant(root_token)?;
     if grant.workspace != root_token || !grant.directory { return Err("OUT_OF_SCOPE".into()); }
     let root = checked_path(&grant)?;
     let query = query.trim().to_lowercase();

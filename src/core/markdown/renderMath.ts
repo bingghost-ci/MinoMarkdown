@@ -1,4 +1,4 @@
-type HastNode = { type: string; tagName?: string; value?: string; properties?: { className?: unknown }; children?: HastNode[] }
+import { isCodeWithClass, textOf, type HastNode } from './hast'
 
 /** Lets the class names remark-math sets survive sanitizing. User-written `html` nodes never reach this schema. */
 export function withMathClasses<T extends { attributes?: Record<string, unknown> | null }>(schema: T): T {
@@ -6,10 +6,8 @@ export function withMathClasses<T extends { attributes?: Record<string, unknown>
 }
 
 function isMath(node: HastNode | undefined, kind: 'math-inline' | 'math-display'): boolean {
-  return node?.tagName === 'code' && Array.isArray(node.properties?.className) && node.properties.className.includes(kind)
+  return isCodeWithClass(node, (name) => name === kind)
 }
-
-function textOf(node: HastNode): string { return node.value ?? (node.children ?? []).map(textOf).join('') }
 
 /** The largest size, in em, a formula may ask for with `\rule` or spacing commands; KaTeX's default has no limit. */
 export const KATEX_MAX_SIZE = 50

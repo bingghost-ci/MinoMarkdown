@@ -53,13 +53,15 @@ pub(crate) fn is_system_family_name(name: &str) -> bool {
 /// The token roles of `syntaxRoleNames.ts`; a test there compares the two lists.
 const SYNTAX_ROLES: &[&str] = &["keyword", "operator", "atom", "number", "string", "definition", "function", "variable", "property", "type", "comment", "meta", "invalid", "heading"];
 /// The user's code colors (T111): the roles they changed, as `#rrggbb`, for day and for night styles.
+/// A plain `#rrggbb` color, the only form of a user's color that may reach CSS.
+fn is_hex_color(color: &str) -> bool { color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit()) }
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct CodeCustomColors { #[serde(default)] day: std::collections::BTreeMap<String, String>, #[serde(default)] night: std::collections::BTreeMap<String, String> }
 impl CodeCustomColors {
     /// These values reach CSS, so only known roles and plain hex colors pass.
     fn valid(&self) -> bool {
-        self.day.iter().chain(self.night.iter()).all(|(role, color)| SYNTAX_ROLES.contains(&role.as_str()) && color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit()))
+        self.day.iter().chain(self.night.iter()).all(|(role, color)| SYNTAX_ROLES.contains(&role.as_str()) && is_hex_color(color))
     }
 }
 /// The colors a user may set for diagrams (T117); `diagramColorRoles` in `looks.ts` lists the same roles.
@@ -69,7 +71,7 @@ const DIAGRAM_FONT_IDS: &[&str] = &["auto", "doc", "longcang", "mashan", "kai", 
 fn is_diagram_font(value: &str) -> bool { value.strip_prefix("sys:").map_or_else(|| DIAGRAM_FONT_IDS.contains(&value), is_system_family_name) }
 /// These values reach CSS, so only known roles and plain hex colors pass.
 fn valid_diagram_colors(colors: &std::collections::BTreeMap<String, String>) -> bool {
-    colors.iter().all(|(role, color)| DIAGRAM_COLOR_ROLES.contains(&role.as_str()) && color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit()))
+    colors.iter().all(|(role, color)| DIAGRAM_COLOR_ROLES.contains(&role.as_str()) && is_hex_color(color))
 }
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]

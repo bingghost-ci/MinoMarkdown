@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::{atomic::{AtomicU64, Ordering}, Mutex}, time::{Duration, Instant}};
 use tauri::{ipc::{InvokeBody, Request, Response}, State, WebviewWindow};
 
-const MAX_ITEM: usize = 20 * 1024 * 1024;
+const MAX_ITEM: usize = crate::file_kinds::MAX_IMAGE_BYTES as usize;
 const MAX_TOTAL: usize = 512 * 1024 * 1024;
 const MAX_AGE: Duration = Duration::from_secs(5 * 60);
 static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -15,6 +15,11 @@ pub struct StagingStore(Mutex<HashMap<String, (Vec<u8>, Instant)>>);
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StagedAsset { pub url: String, pub mime: String, pub staged: String }
+
+/// An image the document already has on disk, named by its address in the document and its path beside it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskAsset { pub url: String, pub relative: String }
 
 impl StagingStore {
     pub fn put(&self, bytes: Vec<u8>) -> Result<String, String> {

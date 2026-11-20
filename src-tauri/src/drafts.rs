@@ -1,5 +1,5 @@
 use crate::documents::{DocumentStore, asset_mime, draft_target, read_granted_asset};
-use crate::staging::{StagedAsset, StagingStore};
+use crate::staging::{DiskAsset, StagedAsset, StagingStore};
 use crate::fs::bounded_file::read_no_follow;
 use crate::fs::app_data::ensure_dir;
 use serde::{Deserialize, Serialize};
@@ -8,8 +8,8 @@ use std::fs::OpenOptions;
 use std::{fs::{self, File}, io::Write, path::{Path, PathBuf}, sync::{atomic::{AtomicU64, Ordering}, Mutex}};
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 
-const MAX_DOCUMENT: usize = 20 * 1024 * 1024;
-const MAX_IMAGE: usize = 20 * 1024 * 1024;
+const MAX_DOCUMENT: usize = crate::file_kinds::MAX_TEXT_BYTES as usize;
+const MAX_IMAGE: usize = crate::file_kinds::MAX_IMAGE_BYTES as usize;
 const MAX_ASSETS: usize = 64;
 const KEEP_SNAPSHOTS: usize = 3;
 static NEXT_SNAPSHOT: AtomicU64 = AtomicU64::new(1);
@@ -30,9 +30,6 @@ pub struct DraftSummary { draft_id: String, name: String, target_path: Option<St
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftContent { draft_id: String, name: String, markdown: String, assets: Vec<StagedAsset>, asset_count: usize, target_path: Option<String>, target_status: &'static str }
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiskAsset { url: String, relative: String }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftAssetOut { url: String, mime: String, bytes: Vec<u8> }
@@ -165,7 +162,7 @@ fn write_retaining(root: &Path, draft_id: &str, name: &str, target_path: Option<
 #[allow(clippy::too_many_arguments)]
 fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<String>, base_disk_revision: Option<String>, markdown: &str, assets: Vec<DraftAsset>, retained: &[String]) -> Result<(), String> {
     use std::{ffi::{CString, OsStr}, os::{fd::{AsRawFd, FromRawFd}, unix::fs::MetadataExt}};
-    use macos_tree::name as entry;
+    use macos_tree::{name as entry, same_entry as identity};
     fn make_dir(parent: &File, name: &CString) -> Result<File, String> {
         let made = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) };
         if made < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists { return Err("IO_ERROR".into()); }
@@ -176,13 +173,6 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
         if fd < 0 { return Err("IO_ERROR".into()); }
         let mut file = unsafe { File::from_raw_fd(fd) };
         file.write_all(bytes).and_then(|_| file.sync_all()).map_err(|_| "IO_ERROR".into())
-    }
-    fn identity(parent: &File, name: &CString, opened: &File) -> Result<(), String> {
-        let mut current: libc::stat = unsafe { std::mem::zeroed() };
-        if unsafe { libc::fstatat(parent.as_raw_fd(), name.as_ptr(), &mut current, libc::AT_SYMLINK_NOFOLLOW) } < 0 { return Err("COMMIT_UNCERTAIN".into()); }
-        let held = opened.metadata().map_err(|_| "COMMIT_UNCERTAIN")?;
-        if current.st_dev as u64 != held.dev() || current.st_ino as u64 != held.ino() { return Err("COMMIT_UNCERTAIN".into()); }
-        Ok(())
     }
     let mut records = Vec::with_capacity(assets.len() + retained.len());
     for (index, asset) in assets.iter().enumerate() {

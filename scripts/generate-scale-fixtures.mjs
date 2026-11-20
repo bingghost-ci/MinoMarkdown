@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { deflateSync } from 'node:zlib'
+import { pngChunk } from './generate-paper-textures.mjs'
 
 const target = process.argv[2]
 if (!target) {
@@ -31,20 +32,6 @@ function documentBytes(size, lines) {
   return Buffer.from(chunks.join(''))
 }
 
-function chunk(name, payload) {
-  const table = chunk.crcTable ??= Array.from({ length: 256 }, (_, n) => {
-    for (let i = 0; i < 8; i++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1
-    return n >>> 0
-  })
-  const length = Buffer.alloc(4)
-  length.writeUInt32BE(payload.length)
-  let crc = 0xffffffff
-  for (const byte of Buffer.concat([Buffer.from(name), payload])) crc = table[(crc ^ byte) & 255] ^ (crc >>> 8)
-  const trailer = Buffer.alloc(4)
-  trailer.writeUInt32BE((crc ^ 0xffffffff) >>> 0)
-  return Buffer.concat([length, Buffer.from(name), payload, trailer])
-}
-
 function imageBytes(seed) {
   const width = 512
   const height = 512
@@ -66,7 +53,7 @@ function imageBytes(seed) {
   header.writeUInt32BE(height, 4)
   header[8] = 8
   header[9] = 6
-  return Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), chunk('IHDR', header), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
+  return Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), pngChunk('IHDR', header), pngChunk('IDAT', deflateSync(raw)), pngChunk('IEND', Buffer.alloc(0))])
 }
 
 await mkdir(root, { recursive: true })

@@ -73,6 +73,12 @@ describe('self-contained HTML export', () => {
     expect(crlf).not.toContain('机密元数据')
   })
 
+  it('exports a paragraph between two rules, which the editor and the outline show as body text', async () => {
+    const html = await renderHtml('---\n开头的一段话\n---\n# 正文\n', '文档', async () => null)
+    expect(html).toContain('开头的一段话')
+    expect(html).toContain('<h1>正文</h1>')
+  })
+
   it('reports raw HTML it removes from a source-protected document, but not comments', async () => {
     const source = '# 技术方案\n\n<div onclick="alert(1)">内容</div>\n\n<!-- 备注 -->\n\n<script>alert(1)</script>\n\n:::note\n指令\n:::\n'
     const { html, omittedHtml } = await renderExport(source, '技术方案', async () => null)

@@ -1,4 +1,5 @@
 /** Matching in plain text. Nothing here depends on the editor, so the app shell can use it without loading ProseMirror (T94). */
+import { WORD_CHAR } from '../document/wordCount'
 
 export type FindOptions = { caseSensitive: boolean; wholeWord: boolean; regex: boolean }
 export const defaultFindOptions: FindOptions = { caseSensitive: false, wholeWord: false, regex: false }
@@ -22,8 +23,8 @@ export function isFindPatternValid(query: string, options: FindOptions): boolean
 }
 
 // CJK text has no spaces between words, so a CJK character never counts as part of a longer word.
-const wordEnd = /(?![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])[\p{L}\p{N}_]$/u
-const wordStart = /^(?![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])[\p{L}\p{N}_]/u
+const wordEnd = new RegExp(`${WORD_CHAR}$`, 'u')
+const wordStart = new RegExp(`^${WORD_CHAR}`, 'u')
 
 /** A post-filter rather than lookbehind, which the WebKit on the oldest supported macOS lacks. */
 function isWholeWord(text: string, start: number, end: number): boolean {

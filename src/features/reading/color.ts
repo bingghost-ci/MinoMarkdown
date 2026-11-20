@@ -1,6 +1,11 @@
 /** Small sRGB helpers shared by the style data, the CSS generator and the contrast tests. */
 export type Rgb = [number, number, number]
 
+/** A plain `#rrggbb` color: the only form of a user's color that is stored or written into CSS. */
+export function isHexColor(value: unknown): value is string {
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)
+}
+
 export function parseHex(hex: string): Rgb {
   const value = hex.replace('#', '')
   const full = value.length === 3 ? value.split('').map((c) => c + c).join('') : value

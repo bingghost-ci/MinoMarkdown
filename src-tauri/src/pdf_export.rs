@@ -19,7 +19,7 @@ use tauri::{AppHandle, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 
 /// The rendered page carries its fonts and images, like an HTML export, and may be as large.
-const MAX_PAGE_BYTES: usize = 100 * 1024 * 1024;
+pub(crate) const MAX_PAGE_BYTES: usize = 100 * 1024 * 1024;
 /// Loading the page and printing it to a file; a print panel waits for the user as long as it is open.
 /// These count from the moment printing starts; loading the page before it has its own, shorter limit.
 const EXPORT_TIMEOUT: Duration = Duration::from_secs(180);

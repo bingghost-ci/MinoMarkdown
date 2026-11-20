@@ -94,6 +94,17 @@ The frontend never supplies arbitrary paths for reading or writing. Rust stores 
 - HTML export, print, and preview must keep sanitizing untrusted markup and must not load remote images. Exports read immutable snapshots (`snapshots.rs`, `src/features/export/snapshot.ts`).
 - Export PDF and Print render the same page as HTML export and hand it to `src-tauri/src/pdf_export.rs`, which loads it into an offscreen `WKWebView` (JavaScript off) and prints it with `NSPrintOperation`; `window.print()` does nothing in the app's webview. An exported PDF is printed without a page background (`pdfFile` in `css.ts`) and PDFKit then paints the paper color under each whole page, because WebKit never paints the `@page` margins; this keeps text and links. AppKit may call back from its own thread when no panel is shown. Exports (PDF and HTML) write the file chosen in the save panel with `fs::write_chosen_file`, in place and with a timeout, not with `atomic_write`: opening a privacy-protected folder such as Downloads, which the save panel does not grant, blocks.
 
+## Reuse
+
+Search before writing a helper, and extract on the second use instead of copying. `doc/10-代码复用整改.md` holds the full rules, the table of shared code, and the duplicates that are still open (P-…) with what a merge must preserve.
+
+- One fact, one declaration: a limit, an extension list, a regular expression or a message lives in one place. Where TypeScript and Rust must each have a copy, a test compares them.
+- When two copies differ only by an error code, a limit, a delay or a class name, make that a parameter. Read both copies before merging: a difference is either a bug (fix it, add a test) or deliberate (keep it, say why in a comment).
+- Put a pure function in the layer with the fewest dependencies (`src/core`, or a module without imports) so the worker and the app shell can both use it, then run `npm run build` for the entry and worker checks.
+- Rust: hashing and hex are `fs::sha256_hex` and `fs::hex`; bounded reads are in `fs/bounded_file.rs`; the app's own records are written with `atomic_write::replace_record`; size limits are the constants in `file_kinds.rs`; a grant is looked up with `DocumentStore::grant` or `WorkspaceStore::grant`.
+- TypeScript: colors and `isHexColor` are in `reading/color.ts`; HAST types and `textOf` in `core/markdown/hast.ts`; front matter in `core/markdown/frontMatter.ts`; image paths in `core/markdown/htmlImages.ts` (`localAssetPath`) and `editor/assetUrl.ts`; `escapeHtml` in `text/textDocument.ts`; file kinds in `document/kinds.ts`.
+- Settings controls, dialog shells and `FocusTrap` come from `src/app/components/`; test stubs shared by two tests go in `tests/helpers/`.
+
 ## Tests
 
 Vitest tests are in `tests/`. Rust tests are inline `#[cfg(test)]` modules, and there is no `src-tauri/tests` directory. Fixtures in `tests/fixtures` are described by `manifest.json`, and the development build loads `tests/fixtures/markdown/F01`–`F05` through `import.meta.glob`; production builds don't include them.
