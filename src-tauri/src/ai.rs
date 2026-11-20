@@ -1,6 +1,6 @@
 //! OpenAI-compatible chat. Every request leaves from Rust, so the webview needs no network access.
 //! The API key lives in the macOS Keychain and never reaches `ai.json`, error codes or events.
-use crate::fs::{app_data::ensure_dir, atomic_write, bounded_file::read_canonical_parent};
+use crate::fs::app_data::{load_record, record_path, save_record};
 use serde::{Deserialize, Serialize};
 use std::{collections::{BTreeMap, BTreeSet, HashMap}, io::Read, path::{Path, PathBuf}, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, mpsc, Arc, Mutex}, time::{Duration, Instant}};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewWindow};
@@ -151,21 +151,16 @@ fn apply_patch(current: &AiConfig, patch: serde_json::Value) -> Result<AiConfig,
     if valid(&next) { Ok(next) } else { Err("AI_INVALID_CONFIG".into()) }
 }
 
-fn path(app: &AppHandle) -> Result<PathBuf, String> { Ok(ensure_dir(&app.path().app_data_dir().map_err(|_| "IO_ERROR")?)?.join("ai.json")) }
+fn path(app: &AppHandle) -> Result<PathBuf, String> { record_path(app, "ai.json") }
 
 /// A missing, oversized, linked, corrupt or invalid file reads as the defaults, which keep AI off.
 fn read_at(path: &Path) -> AiConfig {
-    let Ok(bytes) = read_canonical_parent(path, CONFIG_LIMIT_BYTES) else { return AiConfig::default() };
-    match serde_json::from_slice::<AiConfig>(&bytes) {
-        Ok(config) if valid(&config) => config,
-        _ => AiConfig::default(),
-    }
+    load_record::<AiConfig>(path, CONFIG_LIMIT_BYTES).filter(valid).unwrap_or_default()
 }
 
 fn write_at(path: &Path, config: &AiConfig) -> Result<(), String> {
     if !valid(config) { return Err("AI_INVALID_CONFIG".into()); }
-    let bytes = serde_json::to_vec(config).map_err(|_| "IO_ERROR")?;
-    atomic_write::replace_record(path, &bytes, CONFIG_LIMIT_BYTES)
+    save_record(path, config, CONFIG_LIMIT_BYTES)
 }
 
 fn update_at(path: &Path, patch: serde_json::Value) -> Result<AiConfig, String> {

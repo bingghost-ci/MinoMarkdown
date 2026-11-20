@@ -1,4 +1,5 @@
 import type { IconifyJSON } from '@iconify/types'
+import { SVG_NS } from './svg'
 
 /**
  * Icons in diagrams (T116), drawn from the Lucide set that ships with the app, so nothing is fetched.
@@ -17,7 +18,6 @@ const TOKEN = /:([a-z][a-z0-9-]{0,40}):/g
 /** The first of the private-use characters that stand for icons; the n-th icon of a diagram is `PLACE + n`. */
 const PLACE = 0xe000
 const MAX_ICONS = 400
-const SVG_NS = 'http://www.w3.org/2000/svg'
 
 /** A cheap check that spares most diagrams from loading the icon set. */
 export function mayHoldIconTokens(source: string): boolean { TOKEN.lastIndex = 0; return TOKEN.test(source) }

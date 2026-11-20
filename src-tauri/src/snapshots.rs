@@ -1,5 +1,5 @@
-use crate::{documents::{DocumentStore, asset_mime, display_mime, put_unique, read_granted_asset, validate_image}, staging::{DiskAsset, StagedAsset, StagingStore}, fs::asset_directory::AssetDirectory, markdown_images};
-use serde::{Deserialize, Serialize};
+use crate::{documents::{DocumentStore, asset_mime, display_mime, put_unique, read_granted_asset, validate_image}, staging::{DiskAsset, HeldAsset as SnapshotAsset, StagedAsset, StagingStore}, fs::asset_directory::AssetDirectory, markdown_images};
+use serde::Serialize;
 use std::{collections::HashMap, fs, path::Path, sync::{atomic::{AtomicU64, Ordering}, Arc, Mutex}, time::{Duration, Instant}};
 use tauri::{AppHandle, State, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
@@ -11,9 +11,6 @@ const MAX_ASSETS: usize = 64;
 const MAX_SNAPSHOTS: usize = 8;
 static NEXT_SNAPSHOT: AtomicU64 = AtomicU64::new(1);
 
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SnapshotAsset { url: String, mime: String, bytes: Vec<u8> }
 #[derive(Clone)]
 struct Snapshot { markdown: String, title: String, assets: Vec<SnapshotAsset>, /** The file extension of each asset, found when it was checked on the way in, so writing it out does not decode the image again (T100). */ extensions: Vec<&'static str>, /** Images only an exported page shows: those of raw HTML `<img>` and SVG files. A Markdown export never writes them. */ page_images: Vec<SnapshotAsset>, generation: u64, revision: u64, created: Instant }
 #[derive(Default)]
@@ -102,7 +99,7 @@ fn export_at(snapshot: &Snapshot, target: &Path, text_only: bool) -> Result<Expo
 #[allow(clippy::too_many_arguments)]
 pub fn create_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, documents: State<'_, DocumentStore>, staging: State<'_, StagingStore>, markdown: String, title: String, assets: Vec<StagedAsset>, disk_assets: Vec<DiskAsset>, page_images: Option<Vec<DiskAsset>>, token: Option<String>, generation: u64, revision: u64) -> Result<String, String> {
     crate::require_workspace_window(&window)?;
-    let mut assets = assets.into_iter().map(|asset| Ok(SnapshotAsset { bytes: staging.take(&asset.staged)?, url: asset.url, mime: asset.mime })).collect::<Result<Vec<_>, String>>()?;
+    let mut assets = staging.take_all(assets)?;
     for asset in disk_assets {
         let token = token.as_deref().ok_or("EXPORT_RESOURCE_MISSING")?;
         let mime = asset_mime(&asset.relative).ok_or("EXPORT_RESOURCE_MISSING")?;
@@ -129,7 +126,7 @@ pub fn release_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, 
 pub fn read_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, staging: State<'_, StagingStore>, snapshot_id: String) -> Result<SnapshotOut, String> {
     crate::require_workspace_window(&window)?;
     let item = snapshot(&store, &snapshot_id)?;
-    let assets = item.assets.iter().chain(&item.page_images).map(|asset| Ok(StagedAsset { staged: staging.put(asset.bytes.clone())?, url: asset.url.clone(), mime: asset.mime.clone() })).collect::<Result<Vec<_>, String>>()?;
+    let assets = staging.put_all(item.assets.iter().chain(&item.page_images).cloned())?;
     Ok(SnapshotOut { markdown: item.markdown.clone(), title: item.title.clone(), assets, generation: item.generation, revision: item.revision })
 }
 #[tauri::command]

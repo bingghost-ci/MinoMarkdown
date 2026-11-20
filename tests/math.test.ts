@@ -1,8 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import { Editor, parserCtx, remarkStringifyOptionsCtx, SerializerReady, serializerCtx } from '@milkdown/kit/core'
-import type { MilkdownPlugin } from '@milkdown/kit/ctx'
-import { commonmark } from '@milkdown/kit/preset/commonmark'
-import { gfm } from '@milkdown/kit/preset/gfm'
+import { describe, expect, it } from 'vitest'
+import { remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import { blockLatexSchema } from '../node_modules/@milkdown/crepe/src/feature/latex/block-latex'
 import { mathInlineSchema } from '../node_modules/@milkdown/crepe/src/feature/latex/inline-latex'
 import { remarkMathBlockPlugin, remarkMathPlugin } from '../node_modules/@milkdown/crepe/src/feature/latex/remark'
@@ -15,27 +12,15 @@ import { safeTextHandler } from '../src/features/editor/markdownStringify'
 import { embedMathStyles } from '../src/features/export/katexStyles'
 import { renderExport } from '../src/features/export/renderHtml'
 import { renderMarkdownPreview } from '../src/features/preview/renderMarkdownPreview'
+import { bootMilkdown } from './helpers/milkdownPipeline'
 
 const mode = (source: string) => analyzeMarkdown(new TextEncoder().encode(source)).mode
 
 async function editorPipeline() {
-  const events = new EventTarget()
-  vi.stubGlobal('document', { body: {} })
-  vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
-  vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
-  vi.stubGlobal('dispatchEvent', events.dispatchEvent.bind(events))
-  return new Promise<(markdown: string) => string>((resolve) => {
-    const capture: MilkdownPlugin = (ctx) => async () => {
-      await ctx.wait(SerializerReady)
-      const parse = ctx.get(parserCtx)
-      const serialize = ctx.get(serializerCtx)
-      resolve((markdown) => serialize(parse(markdown)))
-    }
-    void Editor.make()
-      .config((ctx) => ctx.update(remarkStringifyOptionsCtx, (options) => ({ ...options, handlers: { ...options.handlers, text: safeTextHandler } })))
-      .use(commonmark).use(gfm).use(remarkMathPlugin).use(remarkMathBlockPlugin).use(remarkDemoteCurrencyPlugin).use(mathInlineSchema).use(blockLatexSchema).use(capture)
-      .create().catch(() => undefined)
-  })
+  return (await bootMilkdown({
+    configure: (ctx) => ctx.update(remarkStringifyOptionsCtx, (options) => ({ ...options, handlers: { ...options.handlers, text: safeTextHandler } })),
+    plugins: [remarkMathPlugin, remarkMathBlockPlugin, remarkDemoteCurrencyPlugin, mathInlineSchema, blockLatexSchema],
+  })).roundTrip
 }
 
 describe('which formulas stay visual', () => {

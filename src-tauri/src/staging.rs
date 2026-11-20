@@ -16,6 +16,10 @@ pub struct StagingStore(Mutex<HashMap<String, (Vec<u8>, Instant)>>);
 #[serde(rename_all = "camelCase")]
 pub struct StagedAsset { pub url: String, pub mime: String, pub staged: String }
 
+/// An image with its bytes in hand: taken out of staging, read from disk, or kept in a draft or a snapshot.
+#[derive(Clone)]
+pub struct HeldAsset { pub url: String, pub mime: String, pub bytes: Vec<u8> }
+
 /// An image the document already has on disk, named by its address in the document and its path beside it.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,6 +34,14 @@ impl StagingStore {
         let id = format!("staged-{}", NEXT.fetch_add(1, Ordering::Relaxed));
         items.insert(id.clone(), (bytes, Instant::now()));
         Ok(id)
+    }
+    /// The bytes behind each staged reference, in the same order; fails when one is gone.
+    pub fn take_all(&self, assets: Vec<StagedAsset>) -> Result<Vec<HeldAsset>, String> {
+        assets.into_iter().map(|asset| Ok(HeldAsset { bytes: self.take(&asset.staged)?, url: asset.url, mime: asset.mime })).collect()
+    }
+    /// Stages each image for the webview to fetch, and returns the references to send in its place.
+    pub fn put_all(&self, assets: impl IntoIterator<Item = HeldAsset>) -> Result<Vec<StagedAsset>, String> {
+        assets.into_iter().map(|asset| Ok(StagedAsset { staged: self.put(asset.bytes)?, url: asset.url, mime: asset.mime })).collect()
     }
     pub fn take(&self, id: &str) -> Result<Vec<u8>, String> {
         self.0.lock().map_err(|_| "IO_ERROR")?.remove(id).map(|(bytes, _)| bytes).ok_or("STAGED_NOT_FOUND".into())

@@ -2,9 +2,7 @@
  * Prompt building for the optional AI assistant (T71–T73). Everything here is pure: the workspace hook
  * sends the resulting messages to Rust, which is the only place that talks to the network.
  */
-import remarkGfm from 'remark-gfm'
-import remarkParse from 'remark-parse'
-import { unified } from 'unified'
+import { parseGfm } from '../../core/markdown/gfm'
 
 export type ChatRole = 'system' | 'user' | 'assistant'
 export type ChatMessage = { role: ChatRole; content: string }
@@ -220,7 +218,7 @@ function htmlText(html: string): string {
 
 /** One pass over the parsed answer: images and image references become their alt text, raw HTML its text. */
 function insertablePass(markdown: string): string {
-  const tree = unified().use(remarkParse).use(remarkGfm).parse(markdown) as unknown as MdNode
+  const tree = parseGfm(markdown) as unknown as MdNode
   const edits: { start: number; end: number; value: string }[] = []
   const imageReferences = new Set<string>()
   const linkReferences = new Set<string>()

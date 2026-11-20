@@ -1,6 +1,6 @@
 #[cfg(not(target_os = "macos"))]
 use std::fs::OpenOptions;
-use std::{ffi::OsStr, fs::{self, File}, io::{Read, Write}, path::{Path, PathBuf}};
+use std::{ffi::OsStr, fs::{self, File}, io::Write, path::{Path, PathBuf}};
 
 const MAX_ASSET: u64 = crate::file_kinds::MAX_IMAGE_BYTES;
 #[cfg(target_os = "macos")]
@@ -98,13 +98,7 @@ impl AssetDirectory {
             if !meta.is_file() || meta.file_type().is_symlink() { return Err("OUT_OF_SCOPE".into()); }
             File::open(path).map_err(|_| "IO_ERROR")?
         };
-        let meta = file.metadata().map_err(|_| "IO_ERROR")?;
-        if !meta.is_file() { return Err("OUT_OF_SCOPE".into()); }
-        if meta.len() > MAX_ASSET { return Err("IMAGE_TOO_LARGE".into()); }
-        let mut bytes = Vec::new();
-        file.take(MAX_ASSET + 1).read_to_end(&mut bytes).map_err(|_| "IO_ERROR")?;
-        if bytes.len() as u64 > MAX_ASSET { return Err("IMAGE_TOO_LARGE".into()); }
-        Ok(Some(bytes))
+        super::bounded_file::read_open(file, MAX_ASSET, "IMAGE_TOO_LARGE").map(Some)
     }
 
     pub fn put(&self, name: &OsStr, bytes: &[u8]) -> Result<PutResult, String> {

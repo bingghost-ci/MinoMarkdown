@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type PointerEvent } from 'react'
 import type { DocumentWorkspace } from '../useDocumentWorkspace'
+import { Segmented } from './settingsControls'
 import { choiceFamily, cjkFonts, codeFonts, latinFonts, styleFontOption, systemFontId, systemFontName, type FontScript } from '../../features/reading/fonts'
 
 type Tab = 'cjk' | 'latin' | 'code' | 'system'
@@ -64,9 +65,7 @@ export function FontPicker({ workspace: w, documentKind }: { workspace: Pick<Doc
     {tab === 'code' && <>{grid('code', '默认', codeFonts[0].family)}<p className="panel-note">{t('用于代码块、代码与配置文件和源码编辑器。本机里其他的等宽字体可以在“本机”里选。')}</p></>}
     {tab === 'system' && <>
       <div className="font-system-bar">
-        <div className="panel-segmented" role="group" aria-label={t('用于')}>
-          {([['cjk', '用于中文'], ['latin', '用于西文'], ['code', '用于代码']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={target === id} onClick={() => setTarget(id)}>{t(label)}</button>)}
-        </div>
+        <Segmented className="panel-segmented" label={t('用于')} t={t} value={target} onChange={setTarget} options={[['cjk', '用于中文'], ['latin', '用于西文'], ['code', '用于代码']]} />
         <input type="search" value={query} placeholder={t('搜索本机字体')} aria-label={t('搜索本机字体')} onChange={(event) => setQuery(event.target.value)} />
       </div>
       {systemFonts === null

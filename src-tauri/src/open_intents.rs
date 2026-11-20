@@ -24,7 +24,7 @@ pub struct ImageIntent { name: String, mime: &'static str, staged: String }
 fn kind_for(path: &Path) -> Option<Kind> {
     match path.extension().and_then(|e| e.to_str())?.to_ascii_lowercase().as_str() {
         _ if crate::file_kinds::DocumentKind::of(path).is_some() => Some(Kind::Document),
-        "png" | "jpg" | "jpeg" | "gif" | "webp" => Some(Kind::Image),
+        _ if mime_for(path).is_some() => Some(Kind::Image),
         _ => None,
     }
 }

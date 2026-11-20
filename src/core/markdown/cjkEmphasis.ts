@@ -1,7 +1,4 @@
-import type { Root } from 'mdast'
-import remarkGfm from 'remark-gfm'
-import remarkParse from 'remark-parse'
-import { unified } from 'unified'
+import { parseGfm } from './gfm'
 
 type PositionedNode = {
   type: string
@@ -23,7 +20,7 @@ export function normalizeAdjacentStrong(markdown: string): string {
   // The pattern is rare. Whatever matches inside a text node also matches this looser form in the whole text,
   // so a document without it needs no parse (T92).
   if (!/\*\*[^*\n]+\p{P}\*\*(?=[\p{L}\p{N}])/u.test(markdown)) return markdown
-  const tree = unified().use(remarkParse).use(remarkGfm).parse(markdown) as Root
+  const tree = parseGfm(markdown)
   const insertions: number[] = []
   const marker = /\*\*[^*\n]+\p{P}\*\*(?=[\p{L}\p{N}])/gu
 

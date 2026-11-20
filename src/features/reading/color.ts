@@ -57,3 +57,18 @@ export function contrast(a: string, b: string): number {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
   return (hi + 0.05) / (lo + 0.05)
 }
+
+/**
+ * Moves a color's lightness, keeping its hue and saturation, until it stands out from `ground` by `least`:
+ * lighter or darker in `steps` steps of `step`, never past `floor` and `ceiling`. A color that already has the
+ * contrast is returned as it is; one that never reaches it becomes white or black.
+ */
+export function towardContrast(color: string, ground: string, least: number, { lighter, step, steps, floor = 0, ceiling = 1 }: { lighter: boolean; step: number; steps: number; floor?: number; ceiling?: number }): string {
+  if (contrast(color, ground) >= least) return color
+  const [hue, saturation, lightness] = toHsl(color)
+  for (let count = 1; count <= steps; count++) {
+    const next = fromHsl(hue, saturation, Math.max(floor, Math.min(ceiling, lightness + (lighter ? step : -step) * count)))
+    if (contrast(next, ground) >= least) return next
+  }
+  return lighter ? '#ffffff' : '#000000'
+}

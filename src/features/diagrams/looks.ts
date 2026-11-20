@@ -1,4 +1,4 @@
-import { contrast, fromHsl, isHexColor, luminance, mix, toHsl } from '../reading/color'
+import { contrast, fromHsl, isHexColor, luminance, mix, toHsl, towardContrast } from '../reading/color'
 import { CAVEAT_FAMILY, INTER_FAMILY, KAI_FAMILY, LONG_CANG_FAMILY, MA_SHAN_FAMILY, MONO_FAMILY, OXANIUM_FAMILY, systemFontName } from '../reading/fonts'
 import { readingStyle, type ReadingStyle } from '../reading/styles'
 import { customColorsKey, diagramColorRoles, noDiagramColors, type DiagramColorRole, type DiagramCustomColors } from './colorKey'
@@ -141,14 +141,7 @@ const schemeAccents: Record<Exclude<DiagramColorScheme, 'auto' | 'custom'>, stri
 
 /** Moves a color's lightness until it stands out from the ground by `ratio`, keeping its hue. */
 export function fitColor(color: string, ground: string, ratio: number): string {
-  if (contrast(color, ground) >= ratio) return color
-  const [hue, saturation, lightness] = toHsl(color)
-  const up = luminance(ground) < 0.3
-  for (let step = 1; step <= 24; step++) {
-    const fitted = fromHsl(hue, saturation, Math.max(0.04, Math.min(0.96, lightness + (up ? 0.03 : -0.03) * step)))
-    if (contrast(fitted, ground) >= ratio) return fitted
-  }
-  return up ? '#ffffff' : '#000000'
+  return towardContrast(color, ground, ratio, { lighter: luminance(ground) < 0.3, step: 0.03, steps: 24, floor: 0.04, ceiling: 0.96 })
 }
 
 /**

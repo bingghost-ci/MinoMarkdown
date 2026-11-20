@@ -1,6 +1,7 @@
 import type { Drawable, Options } from 'roughjs/bin/core'
 import type { RoughGenerator } from 'roughjs/bin/generator'
 import type { SketchHand } from './looks'
+import { SVG_NS } from './svg'
 
 const MARKER: SketchHand = { roughness: 1, twice: false, fill: 'hatch', coloredOutline: false, grain: 'none', hatchGap: 5, hatchWeight: 0.8, inner: false, solidArrows: false, wobble: 1.4, overshoot: 0 }
 
@@ -31,7 +32,6 @@ export type SketchPalette = {
 
 const SHAPES = 'rect, circle, ellipse, line, polygon, polyline, path'
 const NOT_DRAWN = 'defs, marker, clipPath, mask, pattern, symbol, foreignObject'
-const SVG_NS = 'http://www.w3.org/2000/svg'
 /** Shapes smaller than this are filled solid: hatching a dot or a legend square leaves two stray lines. */
 const SOLID_BELOW = 24
 

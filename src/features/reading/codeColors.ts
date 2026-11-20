@@ -1,4 +1,4 @@
-import { contrast, fromHsl, isHexColor, toHsl } from './color'
+import { isHexColor, towardContrast } from './color'
 import type { SyntaxRole } from '../../core/markdown/syntaxRoleNames'
 import type { CodeTheme, ReadingStyle } from './styles'
 
@@ -76,13 +76,7 @@ export const COMMENT_CONTRAST = 3.2
 
 /** Moves a color's lightness away from the background, keeping its hue, until it reaches the contrast. */
 function fitted(color: string, background: string, dark: boolean, least: number): string {
-  if (contrast(color, background) >= least) return color
-  const [h, s, l] = toHsl(color)
-  for (let step = 1; step <= 50; step += 1) {
-    const next = fromHsl(h, s, dark ? Math.min(1, l + step * 0.02) : Math.max(0, l - step * 0.02))
-    if (contrast(next, background) >= least) return next
-  }
-  return dark ? '#ffffff' : '#000000'
+  return towardContrast(color, background, least, { lighter: dark, step: 0.02, steps: 50 })
 }
 
 /** The user's colors: only the roles they changed, for day and for night styles. */

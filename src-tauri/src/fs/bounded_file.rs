@@ -2,6 +2,19 @@ use std::{fs::{self, OpenOptions}, io::Read, path::Path};
 #[cfg(not(target_os = "macos"))]
 use std::fs::File;
 
+/// The content of a file that is already open, refused with `too_large` when it holds more than `limit` bytes
+/// (checked before reading and again after, since a file can grow) and with `OUT_OF_SCOPE` when it is not a
+/// regular file.
+pub fn read_open(file: fs::File, limit: u64, too_large: &str) -> Result<Vec<u8>, String> {
+    let metadata = file.metadata().map_err(|_| "IO_ERROR")?;
+    if !metadata.is_file() { return Err("OUT_OF_SCOPE".into()); }
+    if metadata.len() > limit { return Err(too_large.into()); }
+    let mut bytes = Vec::new();
+    file.take(limit + 1).read_to_end(&mut bytes).map_err(|_| "IO_ERROR")?;
+    if bytes.len() as u64 > limit { return Err(too_large.into()); }
+    Ok(bytes)
+}
+
 pub fn read_no_follow(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
     let initial = fs::symlink_metadata(path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound { "NOT_FOUND" } else { "IO_ERROR" }.to_owned()
@@ -16,13 +29,7 @@ pub fn read_no_follow(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
     #[cfg(not(target_os = "macos"))]
     let file = File::open(path);
     let file = file.map_err(|_| "OUT_OF_SCOPE")?;
-    let metadata = file.metadata().map_err(|_| "IO_ERROR")?;
-    if !metadata.is_file() { return Err("OUT_OF_SCOPE".into()); }
-    if metadata.len() > limit { return Err("FILE_TOO_LARGE".into()); }
-    let mut bytes = Vec::new();
-    file.take(limit + 1).read_to_end(&mut bytes).map_err(|_| "IO_ERROR")?;
-    if bytes.len() as u64 > limit { return Err("FILE_TOO_LARGE".into()); }
-    Ok(bytes)
+    read_open(file, limit, "FILE_TOO_LARGE")
 }
 
 // App-owned records use a canonical parent. Open the entry through that directory
@@ -41,12 +48,7 @@ pub fn read_canonical_parent(path: &Path, limit: u64) -> Result<Vec<u8>, String>
         return Err(if error.kind() == std::io::ErrorKind::NotFound { "NOT_FOUND" } else { "OUT_OF_SCOPE" }.into());
     }
     let file = unsafe { File::from_raw_fd(fd) };
-    let metadata = file.metadata().map_err(|_| "IO_ERROR")?;
-    if !metadata.is_file() { return Err("OUT_OF_SCOPE".into()); }
-    if metadata.len() > limit { return Err("FILE_TOO_LARGE".into()); }
-    let mut bytes = Vec::new();
-    file.take(limit + 1).read_to_end(&mut bytes).map_err(|_| "IO_ERROR")?;
-    if bytes.len() as u64 > limit { return Err("FILE_TOO_LARGE".into()); }
+    let bytes = read_open(file, limit, "FILE_TOO_LARGE")?;
     let current = fs::symlink_metadata(parent).map_err(|_| "COMMIT_UNCERTAIN")?;
     if !current.is_dir() || current.dev() != directory_meta.dev() || current.ino() != directory_meta.ino() { return Err("COMMIT_UNCERTAIN".into()); }
     Ok(bytes)

@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use image::{ImageFormat, ImageReader};
 use std::{
@@ -13,7 +13,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogResult};
 use crate::fs::atomic_write;
 use crate::fs::asset_directory::{AssetDirectory, PutResult};
 use crate::markdown_images;
-use crate::staging::{StagedAsset, StagingStore};
+use crate::staging::{HeldAsset, StagedAsset, StagingStore};
 use crate::file_kinds::{self, DocumentKind};
 use crate::text_encoding::{self, TextEncoding};
 
@@ -165,14 +165,6 @@ pub struct OpenDocument {
     size: u64,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AssetUpload {
-    url: String,
-    bytes: Vec<u8>,
-    mime: String,
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveResult {
@@ -188,10 +180,6 @@ pub struct SaveResult {
     asset_key: String,
     kind: &'static str,
     encoding: String,
-}
-
-fn staged_uploads(staging: &StagingStore, assets: Vec<StagedAsset>) -> Result<Vec<AssetUpload>, String> {
-    assets.into_iter().map(|asset| Ok(AssetUpload { bytes: staging.take(&asset.staged)?, url: asset.url, mime: asset.mime })).collect()
 }
 
 #[derive(Serialize)]
@@ -404,7 +392,7 @@ fn text_file_name(name: &str) -> bool {
 #[tauri::command]
 pub async fn choose_unsaved_action(app: AppHandle, window: WebviewWindow) -> Result<&'static str, String> {
     crate::require_workspace_window(&window)?;
-    let english = crate::settings::initial_language(&app) == "en-US";
+    let english = crate::native_menu::english();
     let result = app.dialog().message(if english { "This document has unsaved changes." } else { "当前文档有未保存修改。" })
         .title(if english { "Close or Switch Document" } else { "关闭或切换文档" })
         .buttons(MessageDialogButtons::YesNoCancelCustom(
@@ -429,7 +417,7 @@ pub async fn open_document(app: AppHandle, window: WebviewWindow, store: State<'
     crate::require_workspace_window(&window)?;
     // Every supported kind first, so the panel shows them all at once; the narrower filters follow.
     let all: Vec<&str> = [file_kinds::MARKDOWN_EXTENSIONS, file_kinds::TEXT_EXTENSIONS, file_kinds::CODE_EXTENSIONS, file_kinds::PDF_EXTENSIONS].concat();
-    let english = crate::settings::initial_language(&app) == "en-US";
+    let english = crate::native_menu::english();
     let selected = app.dialog().file()
         .add_filter(if english { "All Supported Documents" } else { "所有支持的文档" }, &all)
         .add_filter("Markdown", file_kinds::MARKDOWN_EXTENSIONS)
@@ -698,7 +686,7 @@ fn copy_encoding(grant: &Grant, kind: DocumentKind, force_utf8: Option<bool>) ->
 #[tauri::command]
 pub async fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, token: String, markdown: String, assets: Vec<StagedAsset>, force_utf8: Option<bool>) -> Result<Option<String>, String> {
     crate::require_workspace_window(&window)?;
-    let assets = staged_uploads(&staging, assets)?;
+    let assets = staging.take_all(assets)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let grant = store.grant(&token)?;
     if !grant.kind.is_text() { return Err("READ_ONLY".into()); }
@@ -722,7 +710,7 @@ pub async fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: St
 #[tauri::command]
 pub async fn save_as_document(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, token: String, markdown: String, assets: Vec<StagedAsset>, force_utf8: Option<bool>) -> Result<Option<SaveResult>, String> {
     crate::require_workspace_window(&window)?;
-    let assets = staged_uploads(&staging, assets)?;
+    let assets = staging.take_all(assets)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let grant = store.grant(&token)?;
     if !grant.kind.is_text() { return Err("READ_ONLY".into()); }
@@ -770,7 +758,7 @@ pub(crate) fn validate_image(bytes: &[u8], mime: &str) -> Result<&'static str, S
     Ok(extension)
 }
 
-fn save_assets(kind: DocumentKind, parent: &Path, markdown: &str, assets: Vec<AssetUpload>) -> Result<(String, HashMap<String, String>), String> {
+fn save_assets(kind: DocumentKind, parent: &Path, markdown: &str, assets: Vec<HeldAsset>) -> Result<(String, HashMap<String, String>), String> {
     let mut paths = HashMap::new();
     // Only Markdown has images; a text or source file is written exactly as given.
     if kind != DocumentKind::Markdown { return if assets.is_empty() { Ok((markdown.to_owned(), paths)) } else { Err("INVALID_ASSET".into()) }; }
@@ -808,7 +796,7 @@ pub async fn save_document(
     suggested_name: Option<String>,
 ) -> Result<Option<SaveResult>, String> {
     crate::require_workspace_window(&window)?;
-    let assets = staged_uploads(&staging, assets)?;
+    let assets = staging.take_all(assets)?;
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     // A rename, move or removal in the sidebar waits for this save, and this save waits for it, so the file is
     // never written back to the place it just left (T109). Saving a new file shows a panel first and takes no lock.
@@ -1024,7 +1012,7 @@ mod tests {
     fn image_is_written_as_separate_asset_and_reference_is_replaced() {
         let dir = sample_dir();
         let png = include_bytes!("../../tests/fixtures/assets/synthetic-2x2.png").to_vec();
-        let (markdown, paths) = save_assets(DocumentKind::Markdown, &dir, "before ![shot](blob:temporary) after", vec![AssetUpload {
+        let (markdown, paths) = save_assets(DocumentKind::Markdown, &dir, "before ![shot](blob:temporary) after", vec![HeldAsset {
             url: "blob:temporary".into(), mime: "image/png".into(), bytes: png.clone(),
         }]).unwrap();
         assert!(!markdown.contains("blob:"));
@@ -1036,7 +1024,7 @@ mod tests {
     #[test]
     fn invalid_image_never_produces_a_reference() {
         let dir = sample_dir();
-        let result = save_assets(DocumentKind::Markdown, &dir, "![shot](blob:temporary)", vec![AssetUpload {
+        let result = save_assets(DocumentKind::Markdown, &dir, "![shot](blob:temporary)", vec![HeldAsset {
             url: "blob:temporary".into(), mime: "image/png".into(), bytes: b"not a PNG".to_vec(),
         }]);
         assert!(result.is_err());
@@ -1328,7 +1316,7 @@ mod tests {
     #[test]
     fn text_files_are_never_given_image_attachments() {
         let dir = sample_dir();
-        let upload = || vec![AssetUpload { url: "blob:temporary".into(), bytes: vec![1, 2, 3], mime: "image/png".into() }];
+        let upload = || vec![HeldAsset { url: "blob:temporary".into(), bytes: vec![1, 2, 3], mime: "image/png".into() }];
         assert_eq!(save_assets(DocumentKind::Text, &dir, "![shot](blob:temporary)", upload()).err().as_deref(), Some("INVALID_ASSET"));
         let (text, paths) = save_assets(DocumentKind::Code, &dir, "![shot](assets/x.png) stays as typed", Vec::new()).unwrap();
         assert_eq!(text, "![shot](assets/x.png) stays as typed");
@@ -1428,7 +1416,7 @@ mod tests {
         let taken = format!("image-{}.png", &digest(&png)[..24]);
         fs::create_dir(dir.join("assets")).unwrap();
         fs::write(dir.join("assets").join(&taken), b"truncated or the user's own").unwrap();
-        let (markdown, paths) = save_assets(DocumentKind::Markdown, &dir, "![shot](blob:one)", vec![AssetUpload { url: "blob:one".into(), mime: "image/png".into(), bytes: png.clone() }]).unwrap();
+        let (markdown, paths) = save_assets(DocumentKind::Markdown, &dir, "![shot](blob:one)", vec![HeldAsset { url: "blob:one".into(), mime: "image/png".into(), bytes: png.clone() }]).unwrap();
         let relative = paths.get("blob:one").unwrap();
         assert_eq!(relative, &format!("assets/image-{}-1.png", &digest(&png)[..24]));
         assert_eq!(markdown, format!("![shot]({relative})"));

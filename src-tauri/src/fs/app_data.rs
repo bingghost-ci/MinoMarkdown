@@ -28,6 +28,23 @@ pub fn ensure_dir(path: &Path) -> Result<PathBuf, String> {
     }
 }
 
+/// Where one of the app's own records is kept: `name` in the app data directory, which is made when missing.
+pub fn record_path(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    Ok(ensure_dir(&app.path().app_data_dir().map_err(|_| "IO_ERROR")?)?.join(name))
+}
+
+/// One of the app's own records, or `None` when it is missing, over `limit`, behind a link or not this JSON.
+/// What a record means (its version, its valid values) is checked by the caller.
+pub fn load_record<T: serde::de::DeserializeOwned>(path: &Path, limit: u64) -> Option<T> {
+    super::bounded_file::read_canonical_parent(path, limit).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok())
+}
+
+/// Writes a record over whatever is there, as `replace_record` does.
+pub fn save_record<T: serde::Serialize>(path: &Path, record: &T, limit: u64) -> Result<(), String> {
+    super::atomic_write::replace_record(path, &serde_json::to_vec(record).map_err(|_| "IO_ERROR")?, limit)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

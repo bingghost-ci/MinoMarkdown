@@ -1,3 +1,4 @@
+import { fenceAfterLine, type OpenFence } from '../../core/markdown/fences'
 import { looksLikeFrontMatter } from '../../core/markdown/frontMatter'
 import type { Node as ProseNode } from '@milkdown/kit/prose/model'
 
@@ -14,7 +15,6 @@ export function outlineFromDoc(doc: ProseNode): OutlineItem[] {
 }
 
 const atxHeading = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/
-const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/
 const setextUnderline = /^ {0,3}(=+|-+)[ \t]*$/
 
 /** A line scan rather than a Markdown parse, so it stays cheap on multi-megabyte source documents. */
@@ -27,18 +27,16 @@ export function outlineFromSource(source: string): OutlineItem[] {
     const close = lines.findIndex((line, at) => at > 0 && /^(?:---|\.\.\.)\r?$/.test(line))
     if (close > 0 && looksLikeFrontMatter(lines.slice(1, close).map((line) => line.replace(/\r$/, '')))) { for (; index <= close; index++) offset += lines[index].length + 1 }
   }
-  let open: { marker: string; length: number } | null = null
+  let open: OpenFence | null = null
   let previous: { text: string; offset: number } | null = null
   for (; index < lines.length; index++) {
     const line = lines[index].replace(/\r$/, '')
     const start = offset
     offset += lines[index].length + 1
-    const fenceMatch = fence.exec(line)
-    if (open) {
-      if (fenceMatch && fenceMatch[1][0] === open.marker && fenceMatch[1].length >= open.length && !fenceMatch[2].trim()) open = null
-      continue
-    }
-    if (fenceMatch && !(fenceMatch[1][0] === '`' && fenceMatch[2].includes('`'))) { open = { marker: fenceMatch[1][0], length: fenceMatch[1].length }; previous = null; continue }
+    const inside = open !== null
+    open = fenceAfterLine(open, line)
+    if (inside) continue
+    if (open) { previous = null; continue }
     const heading = atxHeading.exec(line)
     if (heading) {
       const text = (heading[2] ?? '').trim()

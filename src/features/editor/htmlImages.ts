@@ -1,4 +1,4 @@
-import { parseHtmlImages, type HtmlPiece } from '../../core/markdown/htmlImages'
+import { missingImageText, parseHtmlImages, type HtmlPiece } from '../../core/markdown/htmlImages'
 import { htmlImageSource } from './assetUrl'
 
 // Raw HTML stays raw text in the document; the editor only draws a picture of it (see core/markdown/htmlImages.ts).
@@ -14,7 +14,7 @@ function append(pieces: readonly HtmlPiece[], assetKey: string, out: HTMLElement
       if (src === null) {
         const missing = document.createElement('span')
         missing.className = 'mino-html-missing'
-        missing.textContent = `[图片: ${piece.alt || '未命名'}]`
+        missing.textContent = missingImageText(piece.alt)
         out.append(missing)
         continue
       }

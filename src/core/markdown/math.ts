@@ -3,10 +3,10 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
+import { parseGfm } from './gfm'
 
 type MathTreeNode = { type: string; value?: string; children?: MathTreeNode[]; position?: { start?: { offset?: number }; end?: { offset?: number } } }
 
-const plainMarkdown = unified().use(remarkParse).use(remarkGfm)
 
 /** Pandoc's rule: `$` opens before non-space, closes after non-space, and a closer is never followed by a digit. */
 function isInlineMathSource(source: string, start: number, end: number): boolean {
@@ -17,7 +17,7 @@ function isInlineMathSource(source: string, start: number, end: number): boolean
 }
 
 function plainChildren(markdown: string): MathTreeNode[] {
-  const first = (plainMarkdown.parse(markdown) as unknown as MathTreeNode).children?.[0]
+  const first = (parseGfm(markdown) as unknown as MathTreeNode).children?.[0]
   return first?.type === 'paragraph' && first.children ? first.children : [{ type: 'text', value: markdown }]
 }
 

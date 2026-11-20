@@ -163,8 +163,13 @@ function makeDocument(markdown: string, name = '未命名', sampleId?: string, p
   return { id: nextDocumentId++, draftId: crypto.randomUUID(), name, kind: 'markdown', token: '', assetKey: '', revision: '', markdown: prepared.editorMarkdown, originalMarkdown: markdown, imageUrls: new Map(), recoveredAssets: new Map(), pendingFiles: new Map(), retiredTokens: [], sampleId, prepared, sourceText: markdown, mode: prepared.analysis.mode }
 }
 
+/** The bare error code a command failed with: Rust sends a string, the editor throws an Error. */
+function errorCode(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 export function errorText(error: unknown): string {
-  const code = error instanceof Error ? error.message : String(error)
+  const code = errorCode(error)
   const messages: Record<string, string> = {
     CONFLICT: '磁盘文件已被其他程序修改，请先保留当前内容并重新打开检查。',
     READING_MODE: '阅读模式下不能修改文档，按 ⌘⇧R 开始编辑。',
@@ -883,10 +888,10 @@ export function useDocumentWorkspace() {
           if (!document.token && !documentRef.current.reading) instance.focus()
         }
       }).catch((error: unknown) => {
-        if (!disposed) setStatus(`编辑器启动失败：${error instanceof Error ? error.message : String(error)}`)
+        if (!disposed) setStatus(`编辑器启动失败：${errorCode(error)}`)
       })
     }).catch((error: unknown) => {
-      if (!disposed) setStatus(`编辑器启动失败：${error instanceof Error ? error.message : String(error)}`)
+      if (!disposed) setStatus(`编辑器启动失败：${errorCode(error)}`)
     })
     return () => {
       disposed = true
@@ -1697,7 +1702,7 @@ export function useDocumentWorkspace() {
       await Promise.all([loadChildren(entry.parentToken), loadChildren(targetToken)])
       setStatus(`已移动：${entry.name}`)
     } catch (error) {
-      const code = error instanceof Error ? error.message : String(error)
+      const code = errorCode(error)
       setStatus(code === 'TARGET_EXISTS' ? `目标文件夹里已有同名项目：${entry.name}` : code === 'ASSET_CONFLICT' ? `目标文件夹的 assets 里已有同名但内容不同的图片，未移动：${entry.name}` : errorText(error))
     }
   }

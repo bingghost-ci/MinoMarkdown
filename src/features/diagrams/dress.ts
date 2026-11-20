@@ -1,6 +1,7 @@
 import { fitColor, type DiagramTone } from './looks'
 import { fromHsl, mix, toHsl } from '../reading/color'
 import { colorHex, straightPoints } from './sketch'
+import { make } from './svg'
 
 /**
  * Finishes the looks Mermaid's variables and CSS cannot reach (T117). Like the sketch pass, these work on the
@@ -14,13 +15,7 @@ import { colorHex, straightPoints } from './sketch'
  * - `dressConsole` makes a ship's console: panels with cut corners, brackets on the frames, a dot where each
  *   data line starts.
  */
-const SVG_NS = 'http://www.w3.org/2000/svg'
 const BOARD_MARGIN = 20
-const make = (svg: Element, tag: string, attributes: Record<string, string | number>): Element => {
-  const element = svg.ownerDocument.createElementNS(SVG_NS, tag)
-  for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, String(value))
-  return element
-}
 const number = (value: number) => Number(value.toFixed(2))
 const inlineStyle = (element: Element, css: string) => element.setAttribute('style', `${element.getAttribute('style') ?? ''};${css}`.replace(/^;+/, ''))
 const ownShapes = (group: Element, kind: string) => Array.from(group.querySelectorAll<SVGGraphicsElement>('rect, polygon, circle, ellipse, path')).filter((shape) => shape.closest(kind) === group && !shape.closest('g.label, g.cluster-label, marker, defs, .mino-label-icon, svg svg'))

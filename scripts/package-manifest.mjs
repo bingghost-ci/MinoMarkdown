@@ -1,18 +1,14 @@
 #!/usr/bin/env node
-import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { readFile, readdir, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { project, releaseApp as app, sha256 } from './common.mjs'
 
-const project = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const app = 'src-tauri/target/release/bundle/macos/Mino.app'
 const { version: expectedVersion } = JSON.parse(await readFile(resolve(project, 'src-tauri/tauri.conf.json'), 'utf8'))
 const zip = `dist-package/Mino-${expectedVersion}-macos-arm64-unsigned.zip`
 const manifest = 'dist-package/manifest.json'
 const appFile = (relative) => resolve(project, app, relative)
 const zipFile = resolve(project, zip)
-const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
 const command = (program, args, options = {}) => execFileSync(program, args, { encoding: 'utf8', ...options }).trim()
 
 async function appFiles(directory, prefix = '') {

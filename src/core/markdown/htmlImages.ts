@@ -105,6 +105,11 @@ export function htmlImageSources(pieces: readonly HtmlPiece[]): string[] {
   return found
 }
 
+/** What stands in for an image that may not be loaded or was not found: its alternative text in brackets. */
+export function missingImageText(alt: string | null | undefined): string {
+  return `[图片: ${alt || '未命名'}]`
+}
+
 /** A relative address of a file beside the document (`images/a.svg`, `./a.png`), or null for anything else. */
 export function localHtmlImagePath(src: string): string | null {
   if (/^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith('//') || src.startsWith('/') || src.startsWith('#') || /[?#]/.test(src)) return null
@@ -143,7 +148,7 @@ export function htmlImagesToHast(pieces: readonly HtmlPiece[], resolve: (src: st
     if (piece.type === 'br') return { type: 'element', tagName: 'br', properties: {}, children: [] }
     if (piece.type === 'img') {
       const src = resolve(piece.src)
-      if (src === null) return { type: 'element', tagName: 'span', properties: { className: ['mino-html-missing'] }, children: [{ type: 'text', value: `[图片: ${piece.alt || '未命名'}]` }] }
+      if (src === null) return { type: 'element', tagName: 'span', properties: { className: ['mino-html-missing'] }, children: [{ type: 'text', value: missingImageText(piece.alt) }] }
       const properties: Record<string, string> = { src, alt: piece.alt }
       if (piece.title) properties.title = piece.title
       if (piece.width) properties.width = piece.width

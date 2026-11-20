@@ -1,7 +1,4 @@
-import type { Root } from 'mdast'
-import remarkGfm from 'remark-gfm'
-import remarkParse from 'remark-parse'
-import { unified } from 'unified'
+import { parseGfm } from '../../core/markdown/gfm'
 import { localAssetPath } from '../../core/markdown/htmlImages'
 
 type ImageNode = { type: string; url?: string; identifier?: string; position?: { start: { offset?: number }; end: { offset?: number } }; children?: unknown[] }
@@ -9,7 +6,7 @@ type ImageNode = { type: string; url?: string; identifier?: string; position?: {
 type Parsed = { images: ImageNode[]; imageReferences: ImageNode[]; linkReferences: Set<string>; definitions: Map<string, ImageNode> }
 
 function parse(markdown: string): Parsed {
-  const tree = unified().use(remarkParse).use(remarkGfm).parse(markdown) as Root
+  const tree = parseGfm(markdown)
   const images: ImageNode[] = []
   const imageReferences: ImageNode[] = []
   const linkReferences = new Set<string>()

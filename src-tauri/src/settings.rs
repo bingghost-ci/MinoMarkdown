@@ -1,6 +1,4 @@
-use crate::fs::atomic_write;
-use crate::fs::bounded_file::read_canonical_parent;
-use crate::fs::app_data::ensure_dir;
+use crate::fs::app_data::{load_record, record_path, save_record};
 use serde::{Deserialize, Serialize};
 use std::{path::{Path, PathBuf}, sync::Mutex};
 #[cfg(test)]
@@ -115,11 +113,12 @@ fn migrate(value: &mut serde_json::Value) {
     fields.insert("cjkFont".into(), cjk.into());
     fields.insert("latinFont".into(), latin.into());
 }
-fn path(app: &AppHandle) -> Result<PathBuf, String> { Ok(ensure_dir(&app.path().app_data_dir().map_err(|_| "IO_ERROR")?)?.join("settings.json")) }
+/// The most the settings record may hold on disk.
+const RECORD_LIMIT: u64 = 64 * 1024;
+fn path(app: &AppHandle) -> Result<PathBuf, String> { record_path(app, "settings.json") }
 pub fn initial_language(app: &AppHandle) -> String { path(app).map(|file| read_at(&file).language).unwrap_or_else(|_| default_language()) }
 fn read_at(path: &Path) -> Settings {
-    let Ok(bytes) = read_canonical_parent(path, 64 * 1024) else { return Settings::default() };
-    let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) else { return Settings::default() };
+    let Some(mut value) = load_record::<serde_json::Value>(path, RECORD_LIMIT) else { return Settings::default() };
     migrate(&mut value);
     if let Ok(settings) = serde_json::from_value::<Settings>(value.clone()) {
         if valid(&settings) { return settings }
@@ -156,8 +155,7 @@ fn field_by_field(file: &serde_json::Map<String, serde_json::Value>) -> Settings
 fn write_at(path: &Path, settings: &Settings) -> Result<(), String> {
     if !valid(settings) { return Err("INVALID_SETTINGS".into()); }
     let _lock = SETTINGS_LOCK.lock().map_err(|_| "IO_ERROR")?;
-    let bytes = serde_json::to_vec(settings).map_err(|_| "IO_ERROR")?;
-    atomic_write::replace_record(path, &bytes, 64 * 1024)
+    save_record(path, settings, RECORD_LIMIT)
 }
 #[tauri::command(async)]
 pub fn get_settings(app: AppHandle, window: WebviewWindow) -> Result<Settings, String> {

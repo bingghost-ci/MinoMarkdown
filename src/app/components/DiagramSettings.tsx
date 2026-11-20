@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Settings, SettingsHost } from '../useDocumentWorkspace'
+import { Row } from './settingsControls'
 import { isHexColor, parseHex, toHex } from '../../features/reading/color'
 import { systemFontName } from '../../features/reading/fonts'
 import {
@@ -178,8 +179,8 @@ export function DiagramSettings({ workspace: w }: { workspace: SettingsHost }) {
     </select>}
 
     <div className="settings-section-heading"><strong>{t('线条')}</strong></div>
-    <div className="settings-row"><span>{t('连线样式')}<small>{t('普通连线的线型；图里本来写成虚线的连线不变')}</small></span><Chips t={t} label="连线样式" value={options.line} onChange={(diagramLine) => update({ diagramLine })} options={diagramLines.map((id) => [id, diagramLineLabels[id]] as const)} /></div>
-    <div className="settings-row"><span>{t('连线走向')}<small>{t('流程图和状态图的连线怎样绕到下一个节点')}</small></span><Chips t={t} label="连线走向" value={options.curve} onChange={(diagramCurve) => update({ diagramCurve })} options={diagramCurves.map((id) => [id, diagramCurveLabels[id]] as const)} /></div>
-    {isSketchLook(look) && <div className="settings-row"><span>{t('填充')}<small>{t('手绘风格怎样给节点上色：错开的水彩色块、排线、平涂，或者不填')}</small></span><Chips t={t} label="填充" value={options.fill} onChange={(diagramFill) => update({ diagramFill })} options={diagramFills.map((id) => [id, diagramFillLabels[id]] as const)} /></div>}
+    <Row title={t('连线样式')} note={t('普通连线的线型；图里本来写成虚线的连线不变')}><Chips t={t} label="连线样式" value={options.line} onChange={(diagramLine) => update({ diagramLine })} options={diagramLines.map((id) => [id, diagramLineLabels[id]] as const)} /></Row>
+    <Row title={t('连线走向')} note={t('流程图和状态图的连线怎样绕到下一个节点')}><Chips t={t} label="连线走向" value={options.curve} onChange={(diagramCurve) => update({ diagramCurve })} options={diagramCurves.map((id) => [id, diagramCurveLabels[id]] as const)} /></Row>
+    {isSketchLook(look) && <Row title={t('填充')} note={t('手绘风格怎样给节点上色：错开的水彩色块、排线、平涂，或者不填')}><Chips t={t} label="填充" value={options.fill} onChange={(diagramFill) => update({ diagramFill })} options={diagramFills.map((id) => [id, diagramFillLabels[id]] as const)} /></Row>}
   </>
 }

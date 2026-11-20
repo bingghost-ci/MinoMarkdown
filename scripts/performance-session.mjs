@@ -1,12 +1,10 @@
 #!/usr/bin/env node
-import { createHash } from 'node:crypto'
 import { readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { arch, platform, release } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { project, releaseApp, sha256 } from './common.mjs'
 
-const project = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const app = resolve(project, 'src-tauri/target/release/bundle/macos/Mino.app/Contents/MacOS/mino-markdown')
+const app = resolve(project, releaseApp, 'Contents/MacOS/mino-markdown')
 const fixture = resolve(project, 'dist-package/performance-fixtures/manifest.json')
 const metrics = {
   'startup-ms': { unit: 'ms', minimum: 20 },
@@ -27,7 +25,6 @@ function usage() {
   process.exit(2)
 }
 
-const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
 async function currentInputs(verifyFiles = false) {
   const [binary, manifestBytes] = await Promise.all([readFile(app), readFile(fixture)])
   const manifest = JSON.parse(manifestBytes.toString('utf8'))

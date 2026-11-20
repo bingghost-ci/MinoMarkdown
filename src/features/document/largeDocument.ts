@@ -1,4 +1,5 @@
 import type { PreparedAnalysis } from '../../core/markdown/codec'
+import { fenceAfterLine, type OpenFence } from '../../core/markdown/fences'
 
 /**
  * Opening a large document (T77). Reading the file is quick; analyzing it for visual editing and building
@@ -22,8 +23,6 @@ export function quickReadAnalysis(source: string): PreparedAnalysis {
   return { mode: 'source-protected', issues: [], frontMatter: '', bom: false, newline: 'LF', trailingNewline: source.endsWith('\n') }
 }
 
-const FENCE = /^ {0,3}(`{3,}|~{3,})/
-
 /**
  * The opening part of a long document, for a first preview while the whole is rendered: cut before the last
  * heading within `limit` characters that is outside a code fence, or at the last blank line outside one.
@@ -31,7 +30,7 @@ const FENCE = /^ {0,3}(`{3,}|~{3,})/
  */
 export function previewHead(source: string, limit = HEAD_CHARS): string | null {
   if (source.length < limit * 2) return null
-  let fence: { mark: string; length: number } | null = null
+  let fence: OpenFence | null = null
   let heading = -1
   let blank = -1
   let start = 0
@@ -39,11 +38,10 @@ export function previewHead(source: string, limit = HEAD_CHARS): string | null {
     let end = source.indexOf('\n', start)
     if (end === -1) end = source.length
     const line = source.slice(start, source.charCodeAt(end - 1) === 13 ? end - 1 : end)
-    const marker = FENCE.exec(line)
-    if (fence) {
-      if (marker && marker[1][0] === fence.mark && marker[1].length >= fence.length && line.trim() === marker[1]) fence = null
-    } else if (marker) {
-      fence = { mark: marker[1][0], length: marker[1].length }
+    const inside = fence !== null
+    fence = fenceAfterLine(fence, line)
+    if (inside || fence) {
+      // A line of a code block, or the line that opens or closes one: never a place to cut.
     } else if (start > 0 && /^#{1,6}(\s|$)/.test(line)) {
       heading = start
     } else if (start > 0 && line.trim() === '') {

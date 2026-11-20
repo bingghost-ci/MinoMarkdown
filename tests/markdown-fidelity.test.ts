@@ -1,10 +1,8 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Editor, parserCtx, remarkStringifyOptionsCtx, SerializerReady, serializerCtx } from '@milkdown/kit/core'
-import type { MilkdownPlugin } from '@milkdown/kit/ctx'
-import { commonmark, linkSchema } from '@milkdown/kit/preset/commonmark'
-import { gfm } from '@milkdown/kit/preset/gfm'
+import { remarkStringifyOptionsCtx } from '@milkdown/kit/core'
+import { linkSchema } from '@milkdown/kit/preset/commonmark'
 import { Schema } from '@milkdown/kit/prose/model'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { composeVisualMarkdown, prepareMarkdown } from '../src/core/markdown/codec'
@@ -17,26 +15,14 @@ import { findInDoc } from '../src/features/editor/find'
 import { literalLinkHandler, withLiteralLinks } from '../src/features/editor/literalLinks'
 import { safeTextHandler } from '../src/features/editor/markdownStringify'
 import { outlineFromSource } from '../src/features/outline/outline'
+import { bootMilkdown } from './helpers/milkdownPipeline'
 
 /** The real Milkdown parser and serializer with the app's handlers, as `EditorAdapter` configures them. */
 async function milkdownPipeline(): Promise<(markdown: string) => string> {
-  const events = new EventTarget()
-  vi.stubGlobal('document', { body: {} })
-  vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
-  vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
-  vi.stubGlobal('dispatchEvent', events.dispatchEvent.bind(events))
-  return new Promise((resolve) => {
-    const capture: MilkdownPlugin = (ctx) => async () => {
-      await ctx.wait(SerializerReady)
-      resolve((markdown) => ctx.get(serializerCtx)(ctx.get(parserCtx)(markdown)))
-    }
-    void Editor.make()
-      .config((ctx) => {
-        ctx.update(linkSchema.key, withLiteralLinks)
-        ctx.update(remarkStringifyOptionsCtx, (options) => ({ ...options, handlers: { ...options.handlers, text: safeTextHandler, link: literalLinkHandler } }))
-      })
-      .use(commonmark).use(gfm).use(capture).create().catch(() => undefined)
-  })
+  return (await bootMilkdown({ configure: (ctx) => {
+    ctx.update(linkSchema.key, withLiteralLinks)
+    ctx.update(remarkStringifyOptionsCtx, (options) => ({ ...options, handlers: { ...options.handlers, text: safeTextHandler, link: literalLinkHandler } }))
+  } })).roundTrip
 }
 
 afterEach(() => { vi.unstubAllGlobals() })

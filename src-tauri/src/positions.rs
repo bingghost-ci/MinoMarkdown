@@ -1,7 +1,7 @@
-use crate::{documents::{document_identity, DocumentStore}, file_kinds::DocumentKind, fs::{app_data::ensure_dir, atomic_write, bounded_file::read_canonical_parent}};
+use crate::{documents::{document_identity, DocumentStore}, file_kinds::DocumentKind, fs::app_data::{load_record, record_path, save_record}};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::{Path, PathBuf}, sync::Mutex, time::{SystemTime, UNIX_EPOCH}};
-use tauri::{AppHandle, Manager, State, WebviewWindow};
+use tauri::{AppHandle, State, WebviewWindow};
 
 /// Where the reader stopped in a text file or a PDF, kept across restarts (T83, T87). The file is keyed by a
 /// hash of the path, so the record names no file; only a live document token can read or write an entry.
@@ -44,16 +44,16 @@ fn remember(record: &mut Record, key: String, position: Position, at: u64) {
     record.entries.truncate(MAX_ENTRIES);
 }
 
-fn storage(app: &AppHandle) -> Result<PathBuf, String> { Ok(ensure_dir(&app.path().app_data_dir().map_err(|_| "IO_ERROR")?)?.join("reading-positions.json")) }
+fn storage(app: &AppHandle) -> Result<PathBuf, String> { record_path(app, "reading-positions.json") }
 
 /// A record that cannot be read (missing, damaged, grown past the limit) starts empty; `replace_record` then
 /// writes over it, as it does for the app's other records. Writers hold `WRITE_LOCK`.
 fn load(path: &Path) -> Record {
-    read_canonical_parent(path, MAX_FILE).ok().and_then(|bytes| serde_json::from_slice::<Record>(&bytes).ok()).filter(|record| record.schema_version == 1).unwrap_or_default()
+    load_record::<Record>(path, MAX_FILE).filter(|record| record.schema_version == 1).unwrap_or_default()
 }
 
 fn save(path: &Path, record: &Record) -> Result<(), String> {
-    atomic_write::replace_record(path, &serde_json::to_vec(record).map_err(|_| "IO_ERROR")?, MAX_FILE)
+    save_record(path, record, MAX_FILE)
 }
 
 /// Markdown keeps its place for the session only, as before; these records are for the kinds that are read like a book.

@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { deflateSync } from 'node:zlib'
+import { sha256 } from './common.mjs'
 import { pngChunk } from './generate-paper-textures.mjs'
 
 const target = process.argv[2]
@@ -11,7 +11,6 @@ if (!target) {
 }
 const root = resolve(target)
 const records = []
-const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
 
 async function record(relative, bytes) {
   const destination = join(root, relative)

@@ -13,16 +13,10 @@ import type { SyntaxRole } from '../../core/markdown/syntaxRoleNames'
 import { parseHex, toHex } from '../../features/reading/color'
 import { StyleSwatches } from './AppearancePanel'
 import { FontPicker } from './FontPicker'
+import { Row, Segmented, ToggleRow } from './settingsControls'
+import { editorWidthOptions, lineHeightOptions } from '../readingSettings'
 
 type Update = (patch: Partial<Settings>) => void
-
-function Segmented<T extends string | boolean>({ value, options, onChange, t }: { value: T; options: readonly (readonly [T, string])[]; onChange: (value: T) => void; t: (text: string) => string }) {
-  return <div className="settings-segmented">{options.map(([option, label]) => <button key={String(option)} type="button" aria-pressed={value === option} onClick={() => onChange(option)}>{t(label)}</button>)}</div>
-}
-
-function Row({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
-  return <div className="settings-row"><span>{title}{note && <small>{note}</small>}</span>{children}</div>
-}
 
 const codeSample: readonly (readonly (readonly [SyntaxRole | null, string])[])[] = [
   [['keyword', 'const '], ['definition', 'total'], ['operator', ' = '], ['function', 'sum'], [null, '('], ['variable', 'items'], [null, ') '], ['comment', '// 合计']],
@@ -178,7 +172,7 @@ function AiSettings({ workspace: w }: { workspace: SettingsHost }) {
   const blocked = !config.enabled || !config.consented ? t('开启 AI 功能后才能获取') : !config.hasKey && !isLoopback(config.baseUrl) ? t('请先保存当前服务商的密钥') : null
   const modelsStatus = blocked ?? (ai.modelsBusy ? t('正在获取…') : ai.modelsError ? translateStatus(ai.modelsError, settings.language) : ai.fetchedModels ? `${t('已获取模型：')}${ai.fetchedModels.length}` : t('向当前服务商查询可用的模型，只发送密钥，不发送文档'))
   return <>
-    <label className="settings-row settings-toggle"><span>{t('开启 AI 功能')}<small>{t('默认关闭。关闭时 Mino 不发出任何网络请求。')}</small></span><input type="checkbox" checked={config.enabled} onChange={(event) => ai.setEnabled(event.target.checked)} /></label>
+    <ToggleRow title={t('开启 AI 功能')} note={t('默认关闭。关闭时 Mino 不发出任何网络请求。')} checked={config.enabled} onChange={(checked) => ai.setEnabled(checked)} />
     <Row title={t('服务商')} note={t('提问时使用的服务；各服务商的模型和密钥分别记住')}><Segmented t={t} value={config.provider} onChange={(value: AiProvider) => void ai.saveConfig({ provider: value })} options={providerIds.map((id) => [id, providerLabels[id]] as const)} /></Row>
     <label className="settings-row"><span>{t('接口地址')}<small>{t('须以 https:// 开头；本机地址可用 http://')}</small></span><input type="url" value={baseUrl} spellCheck={false} disabled={config.provider !== 'custom'} onChange={(event) => setBaseUrl(event.target.value)} /></label>
     <div className="settings-row"><span>{t('模型')}<small>{t('从列表选择，或输入任意模型名后按回车')}</small></span>
@@ -261,7 +255,7 @@ export function SettingsDialog({ workspace: w, windowed = false, documentKind }:
       <div className="settings-content">
         {settingsTab === 'appearance' && <>
           <label className="settings-row"><span>{t('界面语言')}<small>{t('菜单、按钮和提示使用的语言')}</small></span><select value={settings.language} onChange={(event) => update({ language: event.target.value as Language })}><option value="zh-CN">中文</option><option value="en-US">English</option></select></label>
-          <label className="settings-row settings-toggle"><span>{t('跟随系统外观')}<small>{t('白天和夜间各用一种风格，随 macOS 外观切换')}</small></span><input type="checkbox" checked={following} onChange={(event) => update(event.target.checked ? { theme: 'system' } : { theme: active.id })} /></label>
+          <ToggleRow title={t('跟随系统外观')} note={t('白天和夜间各用一种风格，随 macOS 外观切换')} checked={following} onChange={(checked) => update(checked ? { theme: 'system' } : { theme: active.id })} />
           {following && <div className="settings-pair">
             <label>{t('白天')}<select value={settings.dayTheme} onChange={(event) => update({ dayTheme: event.target.value as Settings['dayTheme'] })}>{readingStyles.filter((style) => !style.dark).map((style) => <option key={style.id} value={style.id}>{t(style.name)}</option>)}</select></label>
             <label>{t('夜间')}<select value={settings.nightTheme} onChange={(event) => update({ nightTheme: event.target.value as Settings['nightTheme'] })}>{readingStyles.filter((style) => style.dark).map((style) => <option key={style.id} value={style.id}>{t(style.name)}</option>)}</select></label>
@@ -289,7 +283,7 @@ export function SettingsDialog({ workspace: w, windowed = false, documentKind }:
           <div className="settings-section-heading"><strong>{t('字体')}</strong><small>{t('中文和西文分开选择；随应用提供的字体离线可用')}</small></div>
           <FontPicker workspace={w} documentKind={documentKind} />
           <Row title={t('字号')} note={t('正文大小，标题按比例调整')}><div className="settings-stepper"><button type="button" aria-label={t('缩小字号')} disabled={settings.editorFontSize <= MIN_EDITOR_FONT_SIZE} onClick={() => update({ editorFontSize: zoomedFontSize(settings.editorFontSize, 'zoom-out') })}>−</button><output>{settings.editorFontSize} px</output><button type="button" aria-label={t('增大字号')} disabled={settings.editorFontSize >= MAX_EDITOR_FONT_SIZE} onClick={() => update({ editorFontSize: zoomedFontSize(settings.editorFontSize, 'zoom-in') })}>+</button></div></Row>
-          <Row title={t('行距')}><Segmented t={t} value={settings.editorLineHeight} onChange={(value) => update({ editorLineHeight: value })} options={[['compact', '紧凑'], ['comfortable', '舒适'], ['relaxed', '宽松']]} /></Row>
+          <Row title={t('行距')}><Segmented t={t} value={settings.editorLineHeight} onChange={(value) => update({ editorLineHeight: value })} options={lineHeightOptions} /></Row>
           <Row title={t('段间距')}><Segmented t={t} value={settings.paragraphSpacing} onChange={(value) => update({ paragraphSpacing: value })} options={[['compact', '紧凑'], ['standard', '标准'], ['relaxed', '宽松']]} /></Row>
           <Row title={t('行宽')} note={t('页面视图中每行大约容纳的汉字数')}><Segmented t={t} value={settings.measure} onChange={(value) => update({ measure: value })} options={[['30', '30 字'], ['36', '36 字'], ['42', '42 字'], ['unlimited', '不限']]} /></Row>
           <Row title={t('西文排版')} note={t('以西文为主的文档自动两端对齐、按音节断词，并使用较小的行高和行宽')}><Segmented t={t} value={settings.latinLayout} onChange={(value) => update({ latinLayout: value })} options={[['auto', '自动'], ['off', '关闭']]} /></Row>
@@ -300,10 +294,10 @@ export function SettingsDialog({ workspace: w, windowed = false, documentKind }:
         </>}
         {settingsTab === 'reading' && <>
           <div className="settings-section-heading"><strong>{t('阅读')}</strong></div>
-          <label className="settings-row settings-toggle"><span>{t('打开文件时进入阅读模式')}<small>{t('新建、从草稿恢复和有未保存修改的文档直接编辑；⌘⇧R 切换')}</small></span><input type="checkbox" checked={settings.openInReadingMode} onChange={(event) => update({ openInReadingMode: event.target.checked })} /></label>
-          <Row title={t('正文显示模式')} note={t('页面像一张纸，宽屏铺满窗口')}><Segmented t={t} value={settings.editorWidth} onChange={(value) => update({ editorWidth: value })} options={[['centered', '页面'], ['wide', '宽屏']]} /></Row>
-          <label className="settings-row settings-toggle"><span>{t('显示图注')}<small>{t('在图片下方显示标题或替代文本，不改动文档')}</small></span><input type="checkbox" checked={settings.imageCaptions} onChange={(event) => update({ imageCaptions: event.target.checked })} /></label>
-          <label className="settings-row settings-toggle"><span>{t('夜间降低图片亮度')}<small>{t('夜间风格下图片亮度降到 90%')}</small></span><input type="checkbox" checked={settings.imageDimming} onChange={(event) => update({ imageDimming: event.target.checked })} /></label>
+          <ToggleRow title={t('打开文件时进入阅读模式')} note={t('新建、从草稿恢复和有未保存修改的文档直接编辑；⌘⇧R 切换')} checked={settings.openInReadingMode} onChange={(checked) => update({ openInReadingMode: checked })} />
+          <Row title={t('正文显示模式')} note={t('页面像一张纸，宽屏铺满窗口')}><Segmented t={t} value={settings.editorWidth} onChange={(value) => update({ editorWidth: value })} options={editorWidthOptions} /></Row>
+          <ToggleRow title={t('显示图注')} note={t('在图片下方显示标题或替代文本，不改动文档')} checked={settings.imageCaptions} onChange={(checked) => update({ imageCaptions: checked })} />
+          <ToggleRow title={t('夜间降低图片亮度')} note={t('夜间风格下图片亮度降到 90%')} checked={settings.imageDimming} onChange={(checked) => update({ imageDimming: checked })} />
           <div className="settings-section-heading"><strong>{t('导出 HTML 与 PDF')}</strong></div>
           <Row title={t('导出风格')}><Segmented t={t} value={settings.exportStyle} onChange={(value) => update({ exportStyle: value })} options={[['current', '当前风格'], ['plain', '简洁白底']]} /></Row>
           <Row title={t('打印底色')} note={t('只影响打印；导出 PDF 总是整页铺满导出风格的底色')}><Segmented t={t} value={settings.pdfMode} onChange={(value) => update({ pdfMode: value })} options={[['print', '打印友好'], ['screen', '与屏幕一致']]} /></Row>
@@ -313,9 +307,9 @@ export function SettingsDialog({ workspace: w, windowed = false, documentKind }:
         {settingsTab === 'ai' && <AiSettings workspace={w} />}
         {settingsTab === 'workspace' && <>
           <Row title={t('自动保存')} note={t('定时把已有文件的修改写回磁盘，新建文档仍需手动保存')}><div className="settings-segmented"><button type="button" aria-pressed={!settings.autoSave} onClick={() => update({ autoSave: false })}>{t('不自动保存')}</button>{[15, 30, 60, 120, 300].map((seconds) => <button key={seconds} type="button" aria-pressed={settings.autoSave && settings.autoSaveSeconds === seconds} onClick={() => update({ autoSave: true, autoSaveSeconds: seconds })}>{seconds < 60 ? `${seconds} ${t('秒')}` : `${seconds / 60} ${t('分钟')}`}</button>)}</div></Row>
-          <label className="settings-row settings-toggle"><span>{t('恢复上次打开的文档')}<small>{t('启动时重新打开主窗口上次的标签；未保存的新文档仍从恢复草稿找回')}</small></span><input type="checkbox" checked={settings.restoreSession} onChange={(event) => update({ restoreSession: event.target.checked })} /></label>
-          <label className="settings-row settings-toggle"><span>{t('显示文件栏')}<small>{t('在左侧显示文件夹目录')}</small></span><input type="checkbox" checked={settings.showSidebar} onChange={(event) => update({ showSidebar: event.target.checked })} /></label>
-          <label className="settings-row settings-toggle"><span>{t('显示文件操作栏')}<small>{t('打开、新建、保存等按钮；也可从菜单栏使用这些功能')}</small></span><input type="checkbox" checked={settings.showFileToolbar} onChange={(event) => update({ showFileToolbar: event.target.checked })} /></label>
+          <ToggleRow title={t('恢复上次打开的文档')} note={t('启动时重新打开主窗口上次的标签；未保存的新文档仍从恢复草稿找回')} checked={settings.restoreSession} onChange={(checked) => update({ restoreSession: checked })} />
+          <ToggleRow title={t('显示文件栏')} note={t('在左侧显示文件夹目录')} checked={settings.showSidebar} onChange={(checked) => update({ showSidebar: checked })} />
+          <ToggleRow title={t('显示文件操作栏')} note={t('打开、新建、保存等按钮；也可从菜单栏使用这些功能')} checked={settings.showFileToolbar} onChange={(checked) => update({ showFileToolbar: checked })} />
         </>}
       </div>
   </>)

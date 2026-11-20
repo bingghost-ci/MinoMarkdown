@@ -1,4 +1,4 @@
-use crate::{documents::{DocumentStore, OpenDocument, draft_target, open_granted_path, validate_selected_file}, fs::{app_data::ensure_dir, atomic_write, bounded_file::read_canonical_parent}, workspace::{WorkspaceStore, WorkspaceRoot, workspace_path, register_workspace}};
+use crate::{documents::{DocumentStore, OpenDocument, draft_target, open_granted_path, validate_selected_file}, fs::app_data::{load_record, record_path, save_record}, workspace::{WorkspaceStore, WorkspaceRoot, workspace_path, register_workspace}};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fs, path::{Path, PathBuf}, sync::Mutex, time::{SystemTime, UNIX_EPOCH}};
 use tauri::{AppHandle, Manager, State, WebviewWindow};
@@ -14,7 +14,10 @@ struct RecentFile { schema_version: u32, entries: Vec<RecentEntry> }
 #[serde(rename_all = "camelCase")]
 pub struct RecentSummary { id: String, name: String, kind: String, available: bool, last_opened: u64 }
 
-fn storage(app: &AppHandle) -> Result<PathBuf, String> { Ok(ensure_dir(&app.path().app_data_dir().map_err(|_| "IO_ERROR")?)?.join("recent.json")) }
+/// The most each record may hold on disk.
+const RECENT_LIMIT: u64 = 64 * 1024;
+const SESSION_LIMIT: u64 = 256 * 1024;
+fn storage(app: &AppHandle) -> Result<PathBuf, String> { record_path(app, "recent.json") }
 #[cfg(target_os = "macos")]
 fn note_system_recent(app: &AppHandle, path: PathBuf) {
     let _ = app.run_on_main_thread(move || {
@@ -50,7 +53,7 @@ pub fn refresh_menu(app: &AppHandle) {
 fn hash(bytes: &[u8]) -> String { crate::fs::sha256_hex(bytes) }
 fn id_for(entry: &RecentEntry) -> String { hash(format!("{}:{}", entry.kind, entry.path).as_bytes())[..24].into() }
 fn load(path: &Path) -> RecentFile {
-    read_canonical_parent(path, 64 * 1024).ok().and_then(|bytes| serde_json::from_slice::<RecentFile>(&bytes).ok()).filter(|record| record.schema_version == 1).unwrap_or(RecentFile { schema_version: 1, entries: vec![] })
+    load_record::<RecentFile>(path, RECENT_LIMIT).filter(|record| record.schema_version == 1).unwrap_or(RecentFile { schema_version: 1, entries: vec![] })
 }
 fn remember_at(path: &Path, target: &Path, kind: &str) -> Result<(), String> {
     let Some(target) = target.to_str() else { return Ok(()); };
@@ -63,8 +66,7 @@ fn remember_at(path: &Path, target: &Path, kind: &str) -> Result<(), String> {
         record.entries.insert(0, RecentEntry { path: target.into(), kind: kind.into(), last_opened });
     }
     record.entries.truncate(20);
-    let bytes = serde_json::to_vec(&record).map_err(|_| "IO_ERROR")?;
-    atomic_write::replace_record(path, &bytes, 64 * 1024)
+    save_record(path, &record, RECENT_LIMIT)
 }
 fn summaries(record: RecentFile) -> Vec<RecentSummary> {
     record.entries.into_iter().filter(|entry| entry.kind == "file" || entry.kind == "folder").map(|entry| {
@@ -118,14 +120,13 @@ struct SessionRecord { schema_version: u32, paths: Vec<String>, active: Option<u
 #[serde(rename_all = "camelCase")]
 pub struct RestoredSession { documents: Vec<OpenDocument>, active: Option<usize>, missing: usize }
 
-fn session_storage(app: &AppHandle) -> Result<PathBuf, String> { Ok(ensure_dir(&app.path().app_data_dir().map_err(|_| "IO_ERROR")?)?.join("session.json")) }
+fn session_storage(app: &AppHandle) -> Result<PathBuf, String> { record_path(app, "session.json") }
 fn load_session(path: &Path) -> SessionRecord {
-    read_canonical_parent(path, 256 * 1024).ok().and_then(|bytes| serde_json::from_slice::<SessionRecord>(&bytes).ok()).filter(|record| record.schema_version == 1).unwrap_or_default()
+    load_record::<SessionRecord>(path, SESSION_LIMIT).filter(|record| record.schema_version == 1).unwrap_or_default()
 }
 fn write_session(path: &Path, record: &SessionRecord) -> Result<(), String> {
     let _lock = RECENT_LOCK.lock().map_err(|_| "IO_ERROR")?;
-    let bytes = serde_json::to_vec(record).map_err(|_| "IO_ERROR")?;
-    atomic_write::replace_record(path, &bytes, 256 * 1024)
+    save_record(path, record, SESSION_LIMIT)
 }
 /// Keeps only tabs that can reopen, with `active` still pointing at the same tab. Open or repeated paths don't count as missing.
 fn session_plan(record: SessionRecord, open: &HashSet<PathBuf>) -> (Vec<PathBuf>, Option<usize>, usize) {

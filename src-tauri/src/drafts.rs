@@ -1,5 +1,5 @@
 use crate::documents::{DocumentStore, asset_mime, draft_target, read_granted_asset};
-use crate::staging::{DiskAsset, StagedAsset, StagingStore};
+use crate::staging::{DiskAsset, HeldAsset as DraftAsset, StagedAsset, StagingStore};
 use crate::fs::bounded_file::read_no_follow;
 use crate::fs::app_data::ensure_dir;
 use serde::{Deserialize, Serialize};
@@ -15,9 +15,6 @@ const KEEP_SNAPSHOTS: usize = 3;
 static NEXT_SNAPSHOT: AtomicU64 = AtomicU64::new(1);
 static DRAFT_LOCK: Mutex<()> = Mutex::new(());
 
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DraftAsset { pub url: String, pub mime: String, pub bytes: Vec<u8> }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AssetRecord { url: String, mime: String, filename: String, sha256: String }
@@ -30,10 +27,14 @@ pub struct DraftSummary { draft_id: String, name: String, target_path: Option<St
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftContent { draft_id: String, name: String, markdown: String, assets: Vec<StagedAsset>, asset_count: usize, target_path: Option<String>, target_status: &'static str }
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DraftAssetOut { url: String, mime: String, bytes: Vec<u8> }
 
+/// The most a snapshot's manifest may hold.
+const MANIFEST_LIMIT: u64 = 64 * 1024;
+/// Whether a draft keeps this image: the text refers to it, and it is a raster image within the size limit.
+fn storable(asset: &DraftAsset, markdown: &str) -> bool {
+    !asset.url.is_empty() && asset.url.len() <= 1024 && markdown.contains(&asset.url) && !asset.bytes.is_empty() && asset.bytes.len() <= MAX_IMAGE
+        && matches!(asset.mime.as_str(), "image/png" | "image/jpeg" | "image/gif" | "image/webp")
+}
 fn hash(bytes: &[u8]) -> String { crate::fs::sha256_hex(bytes) }
 fn valid_id(id: &str) -> bool { id.len() >= 8 && id.len() <= 80 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') }
 fn root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -81,8 +82,8 @@ fn target_status(path: Option<&str>, base: Option<&str>) -> &'static str {
     }
 }
 #[cfg(any(test, not(target_os = "macos")))]
-fn read_snapshot(path: &Path) -> Result<(Manifest, String, Vec<DraftAssetOut>), String> {
-    let manifest_bytes = read_no_follow(&path.join("manifest.json"), 64 * 1024).map_err(|_| "CORRUPT_DRAFT")?;
+fn read_snapshot(path: &Path) -> Result<(Manifest, String, Vec<DraftAsset>), String> {
+    let manifest_bytes = read_no_follow(&path.join("manifest.json"), MANIFEST_LIMIT).map_err(|_| "CORRUPT_DRAFT")?;
     let manifest: Manifest = serde_json::from_slice(&manifest_bytes).map_err(|_| "CORRUPT_DRAFT")?;
     if manifest.schema_version != 1 || !valid_id(&manifest.draft_id) || manifest.assets.len() > MAX_ASSETS { return Err("CORRUPT_DRAFT".into()); }
     let body = read_no_follow(&path.join("document.md"), MAX_DOCUMENT as u64).map_err(|_| "CORRUPT_DRAFT")?;
@@ -93,12 +94,12 @@ fn read_snapshot(path: &Path) -> Result<(Manifest, String, Vec<DraftAssetOut>), 
         if !asset.filename.starts_with("asset-") || asset.filename.contains('/') || asset.filename.contains('\\') || !markdown.contains(&asset.url) { return Err("CORRUPT_DRAFT".into()); }
         let bytes = read_no_follow(&path.join("assets").join(&asset.filename), MAX_IMAGE as u64).map_err(|_| "CORRUPT_DRAFT")?;
         if hash(&bytes) != asset.sha256 { return Err("CORRUPT_DRAFT".into()); }
-        assets.push(DraftAssetOut { url: asset.url.clone(), mime: asset.mime.clone(), bytes });
+        assets.push(DraftAsset { url: asset.url.clone(), mime: asset.mime.clone(), bytes });
     }
     Ok((manifest, markdown, assets))
 }
 #[cfg(any(test, not(target_os = "macos")))]
-fn latest(folder: &Path) -> Result<(Manifest, String, Vec<DraftAssetOut>), String> {
+fn latest(folder: &Path) -> Result<(Manifest, String, Vec<DraftAsset>), String> {
     for snapshot in snapshots(folder) { if let Ok(record) = read_snapshot(&snapshot) { return Ok(record); } }
     Err("CORRUPT_DRAFT".into())
 }
@@ -137,7 +138,7 @@ fn write_retaining(root: &Path, draft_id: &str, name: &str, target_path: Option<
         fs::create_dir(&assets_dir).map_err(|_| "IO_ERROR")?;
         let mut records = Vec::new();
         for (index, asset) in assets.iter().enumerate() {
-            if asset.url.len() > 1024 || asset.url.is_empty() || !markdown.contains(&asset.url) || asset.bytes.is_empty() || asset.bytes.len() > MAX_IMAGE || !matches!(asset.mime.as_str(), "image/png" | "image/jpeg" | "image/gif" | "image/webp") { return Err("INVALID_ASSET".into()); }
+            if !storable(asset, markdown) { return Err("INVALID_ASSET".into()); }
             let sha256 = hash(&asset.bytes);
             let filename = format!("asset-{index:03}-{}.bin", &sha256[..24]);
             write_sync(&assets_dir.join(&filename), &asset.bytes)?;
@@ -176,7 +177,7 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
     }
     let mut records = Vec::with_capacity(assets.len() + retained.len());
     for (index, asset) in assets.iter().enumerate() {
-        if asset.url.len() > 1024 || asset.url.is_empty() || !markdown.contains(&asset.url) || asset.bytes.is_empty() || asset.bytes.len() > MAX_IMAGE || !matches!(asset.mime.as_str(), "image/png" | "image/jpeg" | "image/gif" | "image/webp") { return Err("INVALID_ASSET".into()); }
+        if !storable(asset, markdown) { return Err("INVALID_ASSET".into()); }
         let sha256 = hash(&asset.bytes);
         records.push(AssetRecord { url: asset.url.clone(), mime: asset.mime.clone(), filename: format!("asset-{index:03}-{}.bin", &sha256[..24]), sha256 });
     }
@@ -241,7 +242,7 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
 #[tauri::command(async)]
 pub fn write_draft(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, draft_id: String, name: String, token: Option<String>, base_disk_revision: Option<String>, markdown: String, assets: Vec<StagedAsset>, disk_assets: Vec<DiskAsset>, retained: Vec<String>) -> Result<Vec<String>, String> {
     crate::require_workspace_window(&window)?;
-    let mut uploads = assets.into_iter().map(|asset| Ok(DraftAsset { bytes: staging.take(&asset.staged)?, url: asset.url, mime: asset.mime })).collect::<Result<Vec<_>, String>>()?;
+    let mut uploads = staging.take_all(assets)?;
     if let Some(token) = &token {
         for asset in disk_assets {
             // A missing attachment must not stop the text from being protected.
@@ -268,7 +269,7 @@ pub fn list_drafts(app: AppHandle, window: WebviewWindow) -> Result<Vec<DraftSum
         let folder = entry.path();
         let id = entry.file_name().to_string_lossy().into_owned();
         if !valid_id(&id) || !fs::symlink_metadata(&folder).is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink()) { continue; }
-        if let Some(manifest) = snapshots(&folder).iter().find_map(|path| read_no_follow(&path.join("manifest.json"), 64 * 1024).ok().and_then(|bytes| serde_json::from_slice::<Manifest>(&bytes).ok())) {
+        if let Some(manifest) = snapshots(&folder).iter().find_map(|path| read_no_follow(&path.join("manifest.json"), MANIFEST_LIMIT).ok().and_then(|bytes| serde_json::from_slice::<Manifest>(&bytes).ok())) {
             if manifest.draft_id != id { continue; }
             output.push(DraftSummary { draft_id: id, name: manifest.name, target_status: target_status(manifest.target_path.as_deref(), manifest.base_disk_revision.as_deref()), target_path: manifest.target_path, snapshots: snapshots(&folder).len() });
         }
@@ -288,7 +289,7 @@ pub fn read_draft(app: AppHandle, window: WebviewWindow, staging: State<'_, Stag
     if manifest.draft_id != draft_id { return Err("CORRUPT_DRAFT".into()); }
     // A preview shows the text and how many images there are; it does not read them (T100).
     let asset_count = manifest.assets.len();
-    let assets = if include_assets { assets.into_iter().map(|asset| Ok(StagedAsset { staged: staging.put(asset.bytes)?, url: asset.url, mime: asset.mime })).collect::<Result<Vec<_>, String>>()? } else { vec![] };
+    let assets = if include_assets { staging.put_all(assets)? } else { vec![] };
     Ok(DraftContent { draft_id, name: manifest.name, target_status: target_status(manifest.target_path.as_deref(), manifest.base_disk_revision.as_deref()), target_path: manifest.target_path, markdown, assets, asset_count })
 }
 
@@ -340,10 +341,8 @@ mod macos_read {
     }
     /// `with_assets` false reads and checks the text only: the caller wants a preview, and a restore reads the
     /// images, and checks each against its hash, when it happens.
-    fn snapshot(snapshot: &File, with_assets: bool) -> Result<(Manifest, String, Vec<DraftAssetOut>), String> {
-        let manifest_bytes = read_file(snapshot, &name(OsStr::new("manifest.json"))?, 64 * 1024)?;
-        let manifest: Manifest = serde_json::from_slice(&manifest_bytes).map_err(|_| "CORRUPT_DRAFT")?;
-        if manifest.schema_version != 1 || !valid_id(&manifest.draft_id) || manifest.assets.len() > MAX_ASSETS { return Err("CORRUPT_DRAFT".into()); }
+    fn snapshot(snapshot: &File, with_assets: bool) -> Result<(Manifest, String, Vec<DraftAsset>), String> {
+        let manifest = manifest_of(snapshot)?;
         let body = read_file(snapshot, &name(OsStr::new("document.md"))?, MAX_DOCUMENT as u64)?;
         if hash(&body) != manifest.body_revision { return Err("CORRUPT_DRAFT".into()); }
         let markdown = String::from_utf8(body).map_err(|_| "CORRUPT_DRAFT")?;
@@ -354,20 +353,19 @@ mod macos_read {
                 if !asset.filename.starts_with("asset-") || asset.filename.contains('/') || asset.filename.contains('\\') || !markdown.contains(&asset.url) { return Err("CORRUPT_DRAFT".into()); }
                 let bytes = read_file(&asset_dir, &name(OsStr::new(&asset.filename))?, MAX_IMAGE as u64)?;
                 if hash(&bytes) != asset.sha256 { return Err("CORRUPT_DRAFT".into()); }
-                assets.push(DraftAssetOut { url: asset.url.clone(), mime: asset.mime.clone(), bytes });
+                assets.push(DraftAsset { url: asset.url.clone(), mime: asset.mime.clone(), bytes });
             }
         }
         Ok((manifest, markdown, assets))
     }
-    fn latest_in(folder: &File, with_assets: bool) -> Result<(Manifest, String, Vec<DraftAssetOut>, usize), String> {
-        let mut names: Vec<_> = entries(folder)?.into_iter().filter(|name| name.to_str().is_some_and(|s| s.starts_with("snapshot-"))).collect();
-        names.sort_by(|a,b| b.cmp(a));
+    fn latest_in(folder: &File, with_assets: bool) -> Result<(Manifest, String, Vec<DraftAsset>, usize), String> {
+        let names = snapshot_names(folder)?;
         let count = names.len();
         for entry in names { if let Ok(dir) = open_dir(folder, &name(&entry)?) { if let Ok(record) = snapshot(&dir, with_assets) { return Ok((record.0, record.1, record.2, count)); } } }
         Err("CORRUPT_DRAFT".into())
     }
     fn manifest_of(snapshot: &File) -> Result<Manifest, String> {
-        let bytes = read_file(snapshot, &name(OsStr::new("manifest.json"))?, 64 * 1024)?;
+        let bytes = read_file(snapshot, &name(OsStr::new("manifest.json"))?, MANIFEST_LIMIT)?;
         let manifest: Manifest = serde_json::from_slice(&bytes).map_err(|_| "CORRUPT_DRAFT")?;
         if manifest.schema_version != 1 || !valid_id(&manifest.draft_id) || manifest.assets.len() > MAX_ASSETS { return Err("CORRUPT_DRAFT".into()); }
         Ok(manifest)
@@ -385,7 +383,7 @@ mod macos_read {
         Err("CORRUPT_DRAFT".into())
     }
     pub(super) fn assets_dir(snapshot: &File) -> Result<File, String> { open_dir(snapshot, &name(OsStr::new("assets"))?) }
-    pub(super) fn latest(root: &Path, id: &str, with_assets: bool) -> Result<(Manifest, String, Vec<DraftAssetOut>), String> {
+    pub(super) fn latest(root: &Path, id: &str, with_assets: bool) -> Result<(Manifest, String, Vec<DraftAsset>), String> {
         let root = root_dir(root)?;
         let folder = open_dir(&root, &name(OsStr::new(id))?)?;
         let (manifest, markdown, assets, _) = latest_in(&folder, with_assets)?;

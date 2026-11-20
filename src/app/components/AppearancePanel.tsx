@@ -3,6 +3,8 @@ import type { DocumentWorkspace } from '../useDocumentWorkspace'
 import { MAX_EDITOR_FONT_SIZE, MIN_EDITOR_FONT_SIZE } from '../textZoom'
 import { readingStyles, type ReadingStyle } from '../../features/reading/styles'
 import { FontPicker } from './FontPicker'
+import { Segmented } from './settingsControls'
+import { editorWidthOptions, lineHeightOptions } from '../readingSettings'
 
 /** Round color chips, one per reading style: the page color with the accent as a dot of ink. */
 export function StyleSwatches({ workspace: w }: { workspace: Pick<DocumentWorkspace, 'pickStyle' | 'style' | 't'> }) {
@@ -36,8 +38,8 @@ export function AppearancePanel({ workspace: w }: { workspace: DocumentWorkspace
         <Slider label={t('纸张纹理')} value={settings.textureStrength} min={0} max={100} step={10} onChange={(value) => update({ textureStrength: value })} small={t('平')} large={t('糙')} /></>}
     </section>
     <section><h3>{t('版面')}</h3>
-      <div className="panel-row"><span>{t('行距')}</span><div className="panel-segmented">{([['compact', '紧凑'], ['comfortable', '舒适'], ['relaxed', '宽松']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={settings.editorLineHeight === id} onClick={() => update({ editorLineHeight: id })}>{t(label)}</button>)}</div></div>
-      <div className="panel-row"><span>{t('显示')}</span><div className="panel-segmented">{([['centered', '页面'], ['wide', '宽屏']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={settings.editorWidth === id} onClick={() => update({ editorWidth: id })}>{t(label)}</button>)}</div></div>
+      <div className="panel-row"><span>{t('行距')}</span><Segmented className="panel-segmented" t={t} value={settings.editorLineHeight} onChange={(value) => update({ editorLineHeight: value })} options={lineHeightOptions} /></div>
+      <div className="panel-row"><span>{t('显示')}</span><Segmented className="panel-segmented" t={t} value={settings.editorWidth} onChange={(value) => update({ editorWidth: value })} options={editorWidthOptions} /></div>
     </section>
     <section><h3>{t('字体')}</h3>
       <h4 className="panel-font-size">{t('字号')}<output>{settings.editorFontSize}</output></h4>

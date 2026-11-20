@@ -131,3 +131,7 @@ export const PANE_MIN = 180
 export const PANE_MAX = 520
 export const AI_MIN = 300
 export const AI_MAX = 640
+
+/** The choices of line height and of page width, with their labels, as the settings page and the appearance panel both offer them. */
+export const lineHeightOptions = [['compact', '紧凑'], ['comfortable', '舒适'], ['relaxed', '宽松']] as const
+export const editorWidthOptions = [['centered', '页面'], ['wide', '宽屏']] as const

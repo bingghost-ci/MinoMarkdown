@@ -1,7 +1,4 @@
-import type { Root } from 'mdast'
-import remarkGfm from 'remark-gfm'
-import remarkParse from 'remark-parse'
-import { unified } from 'unified'
+import { parseGfm } from './gfm'
 import { htmlImageSources, localHtmlImagePath, parseHtmlImages } from './htmlImages'
 
 export type HtmlImageFile = { url: string; relative: string }
@@ -22,6 +19,6 @@ export function htmlImageFilesIn(markdown: string): HtmlImageFile[] {
     }
     for (const child of node.children ?? []) walk(child as typeof node)
   }
-  walk(unified().use(remarkParse).use(remarkGfm).parse(markdown) as Root as never)
+  walk(parseGfm(markdown) as never)
   return Array.from(found, ([url, relative]) => ({ url, relative }))
 }

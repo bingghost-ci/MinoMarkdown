@@ -1,29 +1,12 @@
-import { describe, expect, it, vi } from 'vitest'
-import { Editor, SchemaReady, schemaCtx, SerializerReady, serializerCtx } from '@milkdown/kit/core'
-import type { MilkdownPlugin } from '@milkdown/kit/ctx'
+import { describe, expect, it } from 'vitest'
 import type { Node as ProseNode, Schema } from '@milkdown/kit/prose/model'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
-import { commonmark } from '@milkdown/kit/preset/commonmark'
-import { gfm } from '@milkdown/kit/preset/gfm'
 import { linkPasteTransaction, MAX_PASTED_TABLE_COLUMNS, MAX_PASTED_TABLE_ROWS, parseTabularText, pastedLinkHref, tablePasteTransaction } from '../src/features/editor/smartPaste'
+import { bootMilkdown } from './helpers/milkdownPipeline'
 
 type Pipeline = { schema: Schema; serialize: (doc: ProseNode) => string }
 
-async function milkdown(): Promise<Pipeline> {
-  const events = new EventTarget()
-  vi.stubGlobal('document', { body: {} })
-  vi.stubGlobal('addEventListener', events.addEventListener.bind(events))
-  vi.stubGlobal('removeEventListener', events.removeEventListener.bind(events))
-  vi.stubGlobal('dispatchEvent', events.dispatchEvent.bind(events))
-  return new Promise((resolve) => {
-    const capture: MilkdownPlugin = (ctx) => async () => {
-      await ctx.wait(SchemaReady)
-      await ctx.wait(SerializerReady)
-      resolve({ schema: ctx.get(schemaCtx), serialize: ctx.get(serializerCtx) })
-    }
-    void Editor.make().use(commonmark).use(gfm).use(capture).create().catch(() => undefined)
-  })
-}
+const milkdown = (): Promise<Pipeline> => bootMilkdown()
 
 describe('tab-separated clipboard text', () => {
   it('accepts a rectangular block with any newline style', () => {

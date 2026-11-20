@@ -13,7 +13,7 @@ import { localAssetPath } from '../export/snapshot'
 import { rehypeFigures } from '../../core/markdown/figures'
 import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
 import { rehypeHighlightCode, type CodeParsers } from '../../core/markdown/highlight'
-import { remarkHtmlImages } from '../../core/markdown/htmlImages'
+import { missingImageText, remarkHtmlImages } from '../../core/markdown/htmlImages'
 
 // Only a standalone, empty anchor immediately before a heading is promoted to
 // a preview heading id. The source document is never changed by this renderer.
@@ -41,7 +41,7 @@ function blockImages(assetKey?: string) {
         const item = child as { type: string; alt?: string; url?: string; children?: unknown[] }
         const local = item.type === 'image' && assetKey && item.url ? localAssetPath(item.url) : null
         if (local !== null && local !== undefined && assetKey) return { ...item, url: assetUrl(assetKey, local) }
-        if (item.type === 'image' || item.type === 'imageReference') return { type: 'text', value: `[图片: ${item.alt || '未命名'}]` }
+        if (item.type === 'image' || item.type === 'imageReference') return { type: 'text', value: missingImageText(item.alt) }
         walk(item)
         return item
       })
