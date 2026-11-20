@@ -515,7 +515,7 @@ export const fontFaceRows: readonly (readonly [family: string, file: string, wei
   ["Mino LXGW WenKai","lxgw-wenkai-latin-500-normal.woff2","100 599",0,null],
   ["Mino LXGW WenKai","lxgw-wenkai-latin-700-normal.woff2","600 900",0,null],
   ["Mino Zhuque Fangsong","zhuque-fangsong-400.woff2","100 900",0,null],
-  ["Mino Chill HuoSong","chill-huosong-400.woff2","100 900",0,null],
+  ["Mino Chill Kai","chill-kai-400.woff2","100 900",0,null],
   ["Mino Long Cang","long-cang-5-400-normal.woff2","100 900",0,1],
   ["Mino Long Cang","long-cang-6-400-normal.woff2","100 900",0,2],
   ["Mino Long Cang","long-cang-21-400-normal.woff2","100 900",0,3],

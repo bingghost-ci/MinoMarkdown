@@ -724,6 +724,18 @@ G01–G29 分别对应 T01–T29，每项命令可独立复制到支持 Goals �
 /goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T119 图表看得清，阅读可缩放」实现图表的宽度规则（整张缩到页面内、不横向滚动）、查看器和阅读页的捏合缩放。先读 CLAUDE.md、doc/01-产品方案.md §3.28、doc/02-技术设计.md §39、doc/05-验收与发布.md §8T 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
 ```
 
+## G120 换掉寒蝉活宋与苹方，加入寒蝉正楷
+
+2026-11-20 按用户“寒蝉活宋和苹方不好看，去掉，换成好看一点的楷书”的要求建立，对应 T120，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G120 | T120 | T118 | 中文字体列表去掉寒蝉活宋和苹方，加入随包的寒蝉正楷；黑体风格默认用思源黑体，旧设置自动替换 |
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T120 换掉寒蝉活宋与苹方，加入寒蝉正楷」调整中文字体列表。先读 CLAUDE.md、doc/01-产品方案.md §3.29、doc/02-技术设计.md §40、doc/05-验收与发布.md §8U 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 node scripts/generate-font-table.mjs --check、npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
 ## 连续开发总 Goal（逐项读取列表）
 
 此命令只负责开发阶段。每轮读取 G01–G29 的当前任务，依据代码依赖推进；已实现的任务先复核，不重复开发。最终原生验收层级与 Gate 留待集中测试，不能虚报 PASS。单项命令和本总 Goal 共用进度表，不创建嵌套 Goal。

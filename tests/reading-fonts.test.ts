@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   bundledFamilies, choiceFamily, cjkFonts, codeFonts, codeFontStack, CODE_FONT_STACK, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, familiesIn, fontStack, isFontChoice, isSystemFontName, latinFonts, systemFontId, systemFontName, withoutBundledFonts,
-  LONG_CANG_FAMILY, MA_SHAN_FAMILY, CAVEAT_FAMILY, OXANIUM_FAMILY, FANGSONG_FAMILY, GARAMOND_FAMILY, HUOSONG_FAMILY, INTER_FAMILY, KAI_FAMILY, LITERATA_FAMILY, MONO_FAMILY, SANS_FAMILY, SERIF_FAMILY, SOURCE_SERIF_FAMILY,
+  LONG_CANG_FAMILY, MA_SHAN_FAMILY, CAVEAT_FAMILY, OXANIUM_FAMILY, FANGSONG_FAMILY, GARAMOND_FAMILY, ZHENGKAI_FAMILY, INTER_FAMILY, KAI_FAMILY, LITERATA_FAMILY, MONO_FAMILY, SANS_FAMILY, SERIF_FAMILY, SOURCE_SERIF_FAMILY,
 } from '../src/features/reading/fonts'
 import { bundledFaces, facesForText, fontFaceCss, type FontFace } from '../src/features/reading/fontFaces'
 import { FONT_BUDGET_BYTES } from '../vite.config'
@@ -14,7 +14,7 @@ const directories: Record<string, string> = {
   [SANS_FAMILY]: 'node_modules/@fontsource/noto-sans-sc/files',
   [KAI_FAMILY]: 'node_modules/@fontsource/lxgw-wenkai/files',
   [FANGSONG_FAMILY]: 'src/assets/fonts/zhuque-fangsong',
-  [HUOSONG_FAMILY]: 'src/assets/fonts/chill-huosong',
+  [ZHENGKAI_FAMILY]: 'src/assets/fonts/chill-kai',
   [LONG_CANG_FAMILY]: 'node_modules/@fontsource/long-cang/files',
   [MA_SHAN_FAMILY]: 'node_modules/@fontsource/ma-shan-zheng/files',
   [CAVEAT_FAMILY]: 'node_modules/@fontsource-variable/caveat/files',
@@ -43,7 +43,7 @@ describe('bundled fonts', () => {
       expect(face.url.length).toBeGreaterThan(0)
     }
     expect(readFileSync(fileOnDisk(facesOf(FANGSONG_FAMILY)[0])).subarray(0, 4).toString('latin1')).toBe('wOF2')
-    expect(readFileSync(fileOnDisk(facesOf(HUOSONG_FAMILY)[0])).subarray(0, 4).toString('latin1')).toBe('wOF2')
+    expect(readFileSync(fileOnDisk(facesOf(ZHENGKAI_FAMILY)[0])).subarray(0, 4).toString('latin1')).toBe('wOF2')
     expect(new Set(bundledFaces.map((face) => `${face.family}/${face.file}`)).size, 'no face listed twice').toBe(bundledFaces.length)
   })
 
@@ -58,11 +58,11 @@ describe('bundled fonts', () => {
     expect(facesOf(SERIF_FAMILY).length).toBe(202)
   })
 
-  it('bundles LXGW WenKai, Zhuque Fangsong and ChillHuoSong as whole files with weight ranges', () => {
+  it('bundles LXGW WenKai, Zhuque Fangsong and ChillKai as whole files with weight ranges', () => {
     expect(facesOf(KAI_FAMILY).map((face) => [face.file, face.weight])).toEqual([['lxgw-wenkai-latin-500-normal.woff2', '100 599'], ['lxgw-wenkai-latin-700-normal.woff2', '600 900']])
     expect(facesOf(FANGSONG_FAMILY).map((face) => [face.file, face.weight])).toEqual([['zhuque-fangsong-400.woff2', '100 900']])
-    expect(facesOf(HUOSONG_FAMILY).map((face) => [face.file, face.weight])).toEqual([['chill-huosong-400.woff2', '100 900']])
-    for (const family of [KAI_FAMILY, FANGSONG_FAMILY, HUOSONG_FAMILY]) expect(facesOf(family).every((face) => face.ranges === null && face.unicodeRange === null && face.style === 'normal'), family).toBe(true)
+    expect(facesOf(ZHENGKAI_FAMILY).map((face) => [face.file, face.weight])).toEqual([['chill-kai-400.woff2', '100 900']])
+    for (const family of [KAI_FAMILY, FANGSONG_FAMILY, ZHENGKAI_FAMILY]) expect(facesOf(family).every((face) => face.ranges === null && face.unicodeRange === null && face.style === 'normal'), family).toBe(true)
   })
 
   it('bundles the five Western families as variable fonts, upright and italic, in the Latin subsets only', () => {
@@ -124,8 +124,8 @@ describe('bundled fonts', () => {
     expect(fontFaceCss([])).toBe('')
   })
 
-  it('offers eight Chinese and five Western fonts with unique IDs and families that exist', () => {
-    expect(cjkFonts.map((font) => font.id)).toEqual(['song', 'kai', 'sans', 'fangsong', 'huosong', 'xingshu', 'kaishu', 'hei'])
+  it('offers seven Chinese and five Western fonts with unique IDs and families that exist', () => {
+    expect(cjkFonts.map((font) => font.id)).toEqual(['song', 'kai', 'sans', 'fangsong', 'zhengkai', 'xingshu', 'kaishu'])
     expect(latinFonts.map((font) => font.id)).toEqual(['source-serif', 'literata', 'garamond', 'inter', 'mono'])
     for (const font of [...cjkFonts, ...latinFonts]) {
       expect(font.label.length, font.id).toBeGreaterThan(0)
@@ -137,7 +137,9 @@ describe('bundled fonts', () => {
       expect(isFontChoice(font.id, font.script)).toBe(true)
       expect(choiceFamily(font.id, font.script)).toBe(font.family)
     }
-    expect(cjkFonts.filter((font) => !font.bundled).map((font) => font.id)).toEqual(['hei'])
+    expect(cjkFonts.every((font) => font.bundled)).toBe(true)
+    // Fonts of earlier versions (ChillHuoSong, PingFang) are no longer choices; settings.rs replaces them when it reads the file.
+    for (const retired of ['huosong', 'hei']) expect(isFontChoice(retired, 'cjk')).toBe(false)
     expect(CODE_FONT_STACK.startsWith(`'${MONO_FAMILY}', ui-monospace`)).toBe(true)
   })
 })
@@ -152,21 +154,20 @@ describe('font stacks', () => {
     const kai = fontStack('auto', 'auto', 'kai')
     expect(kai.startsWith(`'${KAI_FAMILY}', 'Kaiti SC', 'STKaiti'`)).toBe(true)
     expect(kai).not.toContain(SOURCE_SERIF_FAMILY)
-    // PingFang: the system font first, so Western text stays in SF.
+    // A sans style reads in Noto Sans SC, with the system's sans behind it.
     const hei = fontStack('auto', 'auto', 'hei')
-    expect(hei.startsWith("-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB'")).toBe(true)
+    expect(hei.startsWith(`'${SANS_FAMILY}', 'PingFang SC', -apple-system`)).toBe(true)
     expect(hei.endsWith(', sans-serif')).toBe(true)
-    expect(hei).not.toContain('Mino ')
-    expect(withoutBundledFonts(hei)).toBe(hei)
+    expect(hei).toBe(fontStack('sans', 'auto', 'song'))
+    expect(withoutBundledFonts(hei)).not.toContain('Mino ')
   })
 
   it('puts a chosen Western font first and a chosen Chinese font behind it', () => {
     expect(fontStack('auto', 'inter', 'song').startsWith(`'${INTER_FAMILY}', '${SERIF_FAMILY}'`)).toBe(true)
     expect(fontStack('kai', 'garamond', 'hei').startsWith(`'${GARAMOND_FAMILY}', '${KAI_FAMILY}'`)).toBe(true)
-    expect(fontStack('hei', 'literata', 'song').startsWith(`'${LITERATA_FAMILY}', 'PingFang SC'`)).toBe(true)
     expect(fontStack('sans', 'auto', 'song').startsWith(`'${SANS_FAMILY}', 'PingFang SC'`)).toBe(true)
     expect(fontStack('fangsong', 'auto', 'hei').startsWith(`'${SOURCE_SERIF_FAMILY}', '${FANGSONG_FAMILY}', 'STFangsong'`)).toBe(true)
-    expect(fontStack('huosong', 'auto', 'hei').startsWith(`'${SOURCE_SERIF_FAMILY}', '${HUOSONG_FAMILY}'`)).toBe(true)
+    expect(fontStack('zhengkai', 'auto', 'hei').startsWith(`'${ZHENGKAI_FAMILY}', 'Kaiti SC'`)).toBe(true)
     expect(fontStack('song', 'mono', 'hei').startsWith(`'${MONO_FAMILY}', '${SERIF_FAMILY}'`)).toBe(true)
     // An explicit choice does not depend on the style.
     expect(fontStack('song', 'inter', 'kai')).toBe(fontStack('song', 'inter', 'hei'))
@@ -324,14 +325,14 @@ describe('font subsets for a text', () => {
     expect(facesForText('', new Set([KAI_FAMILY])).length).toBe(2)
     expect(facesForText('楷', new Set([KAI_FAMILY]), bundledFaces, false).length).toBe(2)
     expect(facesForText('仿宋 text', new Set([FANGSONG_FAMILY])).map((face) => face.file)).toEqual(['zhuque-fangsong-400.woff2'])
-    expect(facesForText('x', new Set([HUOSONG_FAMILY]), bundledFaces, false).map((face) => face.file)).toEqual(['chill-huosong-400.woff2'])
+    expect(facesForText('x', new Set([ZHENGKAI_FAMILY]), bundledFaces, false).map((face) => face.file)).toEqual(['chill-kai-400.woff2'])
   })
 })
 
 describe('fonts that ship as one large file', () => {
   it('marks exactly the families without subsets, so the picker does not load them to draw a name', () => {
     const heavy = [...cjkFonts, ...latinFonts, ...codeFonts].filter((font) => font.heavy)
-    expect(heavy.map((font) => font.id)).toEqual(['kai', 'fangsong', 'huosong'])
+    expect(heavy.map((font) => font.id)).toEqual(['kai', 'fangsong', 'zhengkai'])
     // A family is heavy when none of its faces is limited to a range of characters.
     for (const font of [...cjkFonts, ...latinFonts, ...codeFonts].filter((item) => item.bundled)) {
       const family = [...familiesIn(font.family)][0]

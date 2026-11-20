@@ -32,7 +32,7 @@ export const SERIF_FAMILY = 'Mino Noto Serif SC'
 export const SANS_FAMILY = 'Mino Noto Sans SC'
 export const KAI_FAMILY = 'Mino LXGW WenKai'
 export const FANGSONG_FAMILY = 'Mino Zhuque Fangsong'
-export const HUOSONG_FAMILY = 'Mino Chill HuoSong'
+export const ZHENGKAI_FAMILY = 'Mino Chill Kai'
 export const SOURCE_SERIF_FAMILY = 'Mino Source Serif 4'
 export const LITERATA_FAMILY = 'Mino Literata'
 export const GARAMOND_FAMILY = 'Mino EB Garamond'
@@ -53,18 +53,17 @@ const CODE_FALLBACK = "ui-monospace, SFMono-Regular, Menlo, 'PingFang SC', monos
 export const CODE_FONT_STACK = `'${MONO_FAMILY}', ${CODE_FALLBACK}`
 
 /** The private families the app ships. Their faces are registered by `bundledFonts.css`; `fontFaces.ts` lists them for exports. */
-export const bundledFamilies: ReadonlySet<string> = new Set([SERIF_FAMILY, SANS_FAMILY, KAI_FAMILY, FANGSONG_FAMILY, HUOSONG_FAMILY, SOURCE_SERIF_FAMILY, LITERATA_FAMILY, GARAMOND_FAMILY, INTER_FAMILY, MONO_FAMILY, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, LONG_CANG_FAMILY, MA_SHAN_FAMILY, CAVEAT_FAMILY, OXANIUM_FAMILY])
+export const bundledFamilies: ReadonlySet<string> = new Set([SERIF_FAMILY, SANS_FAMILY, KAI_FAMILY, FANGSONG_FAMILY, ZHENGKAI_FAMILY, SOURCE_SERIF_FAMILY, LITERATA_FAMILY, GARAMOND_FAMILY, INTER_FAMILY, MONO_FAMILY, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, LONG_CANG_FAMILY, MA_SHAN_FAMILY, CAVEAT_FAMILY, OXANIUM_FAMILY])
 
-/** Chinese fonts offered by name. `hei` is the system's PingFang; the rest ship with the app. */
+/** Chinese fonts offered by name; all ship with the app. */
 export const cjkFonts: readonly FontOption[] = [
   { id: 'song', label: '思源宋体', note: '书宋，适合长文与书稿', script: 'cjk', kind: 'serif', family: `'${SERIF_FAMILY}', 'Songti SC', 'STSong'`, bundled: true },
   { id: 'kai', label: '霞鹜文楷', note: '楷体，适合笔记与随笔', script: 'cjk', kind: 'kai', family: `'${KAI_FAMILY}', 'Kaiti SC', 'STKaiti'`, bundled: true, heavy: true },
   { id: 'sans', label: '思源黑体', note: '黑体，各字重均匀清晰', script: 'cjk', kind: 'sans', family: `'${SANS_FAMILY}', 'PingFang SC'`, bundled: true },
   { id: 'fangsong', label: '朱雀仿宋', note: '仿宋，清秀，适合公文与随笔', script: 'cjk', kind: 'fangsong', family: `'${FANGSONG_FAMILY}', 'STFangsong'`, bundled: true, heavy: true },
-  { id: 'huosong', label: '寒蝉活宋', note: '活字印刷质感的宋体', script: 'cjk', kind: 'serif', family: `'${HUOSONG_FAMILY}', 'Songti SC'`, bundled: true, heavy: true },
+  { id: 'zhengkai', label: '寒蝉正楷', note: '端正的印刷楷体，适合长文、诗文与书信', script: 'cjk', kind: 'kai', family: `'${ZHENGKAI_FAMILY}', 'Kaiti SC', 'STKaiti'`, bundled: true, heavy: true },
   { id: 'xingshu', label: '龙藏行书', note: '手写的行书，适合便签、书信与随笔', script: 'cjk', kind: 'kai', family: `'${LONG_CANG_FAMILY}', 'Xingkai SC', 'Kaiti SC'`, bundled: true },
   { id: 'kaishu', label: '马善政楷书', note: '毛笔手写的楷书，适合诗文与标题感强的短文', script: 'cjk', kind: 'kai', family: `'${MA_SHAN_FAMILY}', 'Kaiti SC', 'STKaiti'`, bundled: true },
-  { id: 'hei', label: '苹方', note: '系统黑体，适合技术文档', script: 'cjk', kind: 'sans', family: "'PingFang SC', 'Hiragino Sans GB'", bundled: false },
 ]
 
 /** Western fonts offered by name; all ship with the app. */
@@ -91,8 +90,8 @@ export const codeFonts: readonly FontOption[] = [
 
 const optionById = new Map([...cjkFonts, ...latinFonts, ...codeFonts].map((option) => [`${option.script}:${option.id}`, option]))
 
-/** The Chinese font a style recommends when the choice is `auto`. */
-const styleCjk: Record<StyleFont, string> = { song: 'song', kai: 'kai', hei: 'hei' }
+/** The Chinese font a style recommends when the choice is `auto`. A `hei` style reads in Noto Sans SC. */
+const styleCjk: Record<StyleFont, string> = { song: 'song', kai: 'kai', hei: 'sans' }
 /** The Western font that goes with a Chinese font when the choice is `auto`; null keeps the Chinese font's own Latin. */
 const pairedLatin: Record<FontKind, string | null> = { serif: 'source-serif', fangsong: 'source-serif', kai: null, sans: null, mono: null }
 
@@ -122,6 +121,11 @@ function fontOption(choice: string, script: FontScript): FontOption | null {
   return optionById.get(`${script}:${choice}`) ?? null
 }
 
+/** The font a style recommends for Chinese, which `auto` uses. */
+export function styleFontOption(styleFont: StyleFont): FontOption {
+  return fontOption(styleCjk[styleFont], 'cjk')!
+}
+
 /** A known choice: `auto`, a listed font of that script, or a safe `sys:` name. */
 export function isFontChoice(choice: string, script: FontScript): boolean {
   return choice === 'auto' || fontOption(choice, script) !== null || systemFontName(choice) !== null
@@ -139,15 +143,13 @@ export function choiceFamily(choice: string, script: FontScript): string | null 
  * fallbacks. Unknown choices, such as a font from a newer version, fall back to `auto`.
  */
 export function fontStack(cjkChoice: string, latinChoice: string, styleFont: StyleFont): string {
-  const cjkOption = fontOption(cjkChoice, 'cjk') ?? (systemFontName(cjkChoice) ? null : fontOption(styleCjk[styleFont], 'cjk'))
+  const cjkOption = fontOption(cjkChoice, 'cjk') ?? (systemFontName(cjkChoice) ? null : styleFontOption(styleFont))
   const cjk = choiceFamily(cjkChoice, 'cjk') ?? cjkOption!.family
   const kind: FontKind = cjkOption?.kind ?? 'sans'
   const paired = pairedLatin[kind]
   const latin = choiceFamily(latinChoice, 'latin') ?? (paired ? fontOption(paired, 'latin')!.family : null)
-  // PingFang's own Latin is the system UI font; naming that first keeps SF for Western text.
-  const lead = latin ?? (cjkOption?.id === 'hei' ? "-apple-system, BlinkMacSystemFont, 'SF Pro Text'" : null)
   const generic = kind === 'sans' || kind === 'mono' ? SYSTEM_SANS : "'Songti SC', 'STSong', serif"
-  return [lead, cjk, generic].filter(Boolean).join(', ')
+  return [latin, cjk, generic].filter(Boolean).join(', ')
 }
 
 /** The font stack of code. `auto` and unknown choices use JetBrains Mono; system fallbacks follow every choice. */

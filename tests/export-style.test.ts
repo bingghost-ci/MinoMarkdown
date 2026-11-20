@@ -158,14 +158,15 @@ describe('export style', () => {
     expect(docFont(chosen.stylesheet)).toBe("'Georgia', 'Kaiti SC', 'STKaiti', 'Songti SC', 'STSong', serif")
   })
 
-  it('needs only the monospace Latin subset for the system sans font, and no files without Latin text', async () => {
+  it('needs only the monospace Latin subset for a system sans font, and no files without Latin text', async () => {
     const style = readingStyle('white')
-    const { read, value } = input({ style, typography: documentTypography(defaultReadingSettings, style) })
+    const system = { ...defaultReadingSettings, cjkFont: 'sys:PingFang SC' }
+    const { read, value } = input({ style, typography: documentTypography(system, style) })
     const result = await buildExportStyle(value)
     expect(read).toEqual(['/assets/mono.woff2'])
     expect(result.fontsEmbedded).toBe(true)
     expect(docFont(result.stylesheet)).not.toContain('Mino ')
-    const chinese = input({ style, typography: documentTypography(defaultReadingSettings, style), text: '读书' })
+    const chinese = input({ style, typography: documentTypography(system, style), text: '读书' })
     const none = await buildExportStyle(chinese.value)
     expect(chinese.read).toEqual([])
     expect(none.fontsEmbedded).toBe(false)

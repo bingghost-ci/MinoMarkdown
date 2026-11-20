@@ -35,9 +35,9 @@ const families = [
   noto('Mino Noto Serif SC', 'noto-serif-sc'),
   noto('Mino Noto Sans SC', 'noto-sans-sc'),
   whole('Mino LXGW WenKai', [['node_modules/@fontsource/lxgw-wenkai/files/lxgw-wenkai-latin-500-normal.woff2', '100 599'], ['node_modules/@fontsource/lxgw-wenkai/files/lxgw-wenkai-latin-700-normal.woff2', '600 900']]),
-  // Zhuque Fangsong and ChillHuoSong ship one regular weight; bold is synthesized (`font-synthesis: weight`).
+  // Zhuque Fangsong and ChillKai ship one regular weight; bold is synthesized (`font-synthesis: weight`).
   whole('Mino Zhuque Fangsong', [['src/assets/fonts/zhuque-fangsong/zhuque-fangsong-400.woff2', '100 900']]),
-  whole('Mino Chill HuoSong', [['src/assets/fonts/chill-huosong/chill-huosong-400.woff2', '100 900']]),
+  whole('Mino Chill Kai', [['src/assets/fonts/chill-kai/chill-kai-400.woff2', '100 900']]),
   // Hands for diagrams and for reading (T117, T118), as Google's unicode-range subsets: a running script and a brush-written regular script.
   { family: 'Mino Long Cang', directory: 'node_modules/@fontsource/long-cang', sheets: ['400.css'], keep: /-(?:\d+|latin)-400-normal\.woff2$/, weight: '100 900' },
   { family: 'Mino Ma Shan Zheng', directory: 'node_modules/@fontsource/ma-shan-zheng', sheets: ['400.css'], keep: /-(?:\d+|latin)-400-normal\.woff2$/, weight: '100 900' },

@@ -95,16 +95,19 @@ fn migrate(value: &mut serde_json::Value) {
         let replacement = fields.get(key).and_then(|v| v.as_str()).and_then(|id| LEGACY_STYLE_IDS.iter().find(|(old, _)| *old == id)).map(|(_, new)| *new);
         if let Some(new) = replacement { fields.insert(key.into(), new.into()); }
     }
+    // Fonts that are no longer offered: ChillHuoSong becomes Noto Serif SC, PingFang becomes Noto Sans SC.
+    let retired = match fields.get("cjkFont").and_then(|v| v.as_str()) { Some("huosong") => Some("song"), Some("hei") => Some("sans"), _ => None };
+    if let Some(new) = retired { fields.insert("cjkFont".into(), new.into()); }
     if fields.contains_key("cjkFont") || fields.contains_key("latinFont") { return; }
     let preset = fields.get("fontPreset").and_then(|v| v.as_str()).map(str::to_owned);
     let font = fields.get("editorFont").and_then(|v| v.as_str()).unwrap_or("system").to_owned();
     // `editorFont` predates presets: a font someone picked stayed in use until they chose a preset.
     let (cjk, latin) = match preset.as_deref() {
-        Some("song") => ("song", "auto"), Some("kai") => ("kai", "auto"), Some("hei") => ("hei", "auto"), Some("auto") => ("auto", "auto"),
+        Some("song") => ("song", "auto"), Some("kai") => ("kai", "auto"), Some("hei") => ("sans", "auto"), Some("auto") => ("auto", "auto"),
         _ => match font.as_str() {
-            "pingfang" => ("hei", "auto"), "songti" => ("sys:Songti SC", "auto"), "kaiti" => ("sys:Kaiti SC", "auto"), "yahei" => ("sys:Microsoft YaHei", "auto"),
-            "georgia" | "serif" => ("sys:Songti SC", "sys:Georgia"), "avenir" => ("hei", "sys:Avenir Next"), "mono" => ("hei", "mono"),
-            _ => if preset.is_some() { ("hei", "auto") } else { ("auto", "auto") },
+            "pingfang" => ("sans", "auto"), "songti" => ("sys:Songti SC", "auto"), "kaiti" => ("sys:Kaiti SC", "auto"), "yahei" => ("sys:Microsoft YaHei", "auto"),
+            "georgia" | "serif" => ("sys:Songti SC", "sys:Georgia"), "avenir" => ("sans", "sys:Avenir Next"), "mono" => ("sans", "mono"),
+            _ => if preset.is_some() { ("sans", "auto") } else { ("auto", "auto") },
         },
     };
     fields.insert("cjkFont".into(), cjk.into());
@@ -353,7 +356,9 @@ mod tests {
             (r#""theme":"paper","editorFont":"kaiti""#, "sys:Kaiti SC", "auto"),
             (r#""theme":"paper","editorFont":"kaiti","fontPreset":"song""#, "song", "auto"),
             (r#""theme":"paper","editorFont":"georgia","fontPreset":"system""#, "sys:Songti SC", "sys:Georgia"),
-            (r#""theme":"paper","editorFont":"system","fontPreset":"system""#, "hei", "auto"),
+            (r#""theme":"paper","editorFont":"system","fontPreset":"system""#, "sans", "auto"),
+            (r#""theme":"paper","cjkFont":"hei","latinFont":"inter""#, "sans", "inter"),
+            (r#""theme":"paper","cjkFont":"huosong""#, "song", "auto"),
             (r#""theme":"paper","fontPreset":"auto""#, "auto", "auto"),
             (r#""theme":"paper","fontPreset":"kai","cjkFont":"sans""#, "sans", "auto"),
         ] {

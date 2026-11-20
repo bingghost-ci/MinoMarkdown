@@ -304,8 +304,7 @@ describe('reading styles', () => {
     const paper = readingStyle('paper')
     expect(documentFontFamily({ cjkFont: 'auto', latinFont: 'auto' }, paper)).toContain('Mino Noto Serif SC')
     expect(documentFontFamily({ cjkFont: 'auto', latinFont: 'auto' }, readingStyle('xuan'))).toContain('Mino LXGW WenKai')
-    expect(documentFontFamily({ cjkFont: 'auto', latinFont: 'auto' }, readingStyle('white'))).toContain('PingFang SC')
-    expect(documentFontFamily({ cjkFont: 'hei', latinFont: 'auto' }, paper)).not.toContain('Mino ')
+    expect(documentFontFamily({ cjkFont: 'auto', latinFont: 'auto' }, readingStyle('white'))).toMatch(/^'Mino Noto Sans SC'/)
     expect(documentFontFamily({ cjkFont: 'sys:Kaiti SC', latinFont: 'auto' }, paper)).toMatch(/^'Kaiti SC'/)
   })
 

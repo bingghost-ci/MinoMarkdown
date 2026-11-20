@@ -23,7 +23,7 @@
 **阅读**
 - 从 Finder 或文件栏打开的文档默认进入阅读模式：隐藏编辑控件，显示阅读进度，空格翻页，点图放大。
 - 12 种阅读风格：白、灰白、书页、宣纸、羊皮卷、牛皮纸、豆沙绿，以及淡黑、深灰、中灰、青灰、暖灰五种夜间风格；可跟随系统外观自动切换。
-- 中文、西文和代码字体分开选。随应用附带思源宋体、霞鹜文楷、思源黑体、朱雀仿宋、寒蝉活宋，以及 Source Serif、Literata、EB Garamond、Inter 等西文字体和 JetBrains Mono、Fira Code、Source Code Pro 等代码字体，离线可用；也可以用本机已装的字体。
+- 中文、西文和代码字体分开选。随应用附带思源宋体、霞鹜文楷、思源黑体、朱雀仿宋、寒蝉正楷，以及 Source Serif、Literata、EB Garamond、Inter 等西文字体和 JetBrains Mono、Fira Code、Source Code Pro 等代码字体，离线可用；也可以用本机已装的字体。
 - 行宽、段间距、首行缩进、表格样式可调；代码高亮、Mermaid 图表、数字列自动右对齐、中英文混排自动调整版式。
 
 ![12 种阅读风格](doc/images/readme-styles.jpg)

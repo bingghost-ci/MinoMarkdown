@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type PointerEvent } from 'react'
 import type { DocumentWorkspace } from '../useDocumentWorkspace'
-import { choiceFamily, cjkFonts, codeFonts, latinFonts, systemFontId, systemFontName, type FontScript } from '../../features/reading/fonts'
+import { choiceFamily, cjkFonts, codeFonts, latinFonts, styleFontOption, systemFontId, systemFontName, type FontScript } from '../../features/reading/fonts'
 
 type Tab = 'cjk' | 'latin' | 'code' | 'system'
 const settingOf = { cjk: 'cjkFont', latin: 'latinFont', code: 'codeFont' } as const
@@ -45,8 +45,8 @@ export function FontPicker({ workspace: w, documentKind }: { workspace: Pick<Doc
     const needle = query.trim().toLowerCase()
     return (systemFonts ?? []).filter((name) => !needle || name.toLowerCase().includes(needle))
   }, [systemFonts, query])
-  const styleFont = cjkFonts.find((font) => font.id === style.font)
-  const autoCjkFamily = styleFont && (!styleFont.heavy || settings.cjkFont === 'auto') ? styleFont.family : undefined
+  const styleFont = styleFontOption(style.font)
+  const autoCjkFamily = !styleFont.heavy || settings.cjkFont === 'auto' ? styleFont.family : undefined
   const grid = (script: FontScript, autoLabel: string, autoFamily: string | undefined) => <div className="font-grid" role="listbox" aria-label={t(listLabel[script])}>
     <button type="button" role="option" className="font-chip" aria-selected={selected(script) === 'auto'} onClick={() => pick(script, 'auto')} style={{ fontFamily: autoFamily }}>{t(autoLabel)}</button>
     {fontsOf[script].map((font) => {
