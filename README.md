@@ -4,11 +4,17 @@
 
 <p align="center"><b>简体中文</b> · <a href="README.en.md">English</a></p>
 
-**一个安静的本地 Markdown 编辑器与阅读器，专为 Apple Silicon 上的 macOS 设计。**
+**AI 时代，Markdown 文档越写越多，也该有一个读起来舒服的地方。**
 
-打开文档就像翻开一本排好版的书：有纸张质感、中文书宋和舒服的行距；想改的时候，按 `⌘⇧R` 就能直接在排版好的页面上编辑。它也能阅读纯文本、代码文件和 PDF。默认完全离线，你的文档只留在你的 Mac 上。
+方案、报告、读书笔记、技术文档——AI 生成的内容几乎都是 Markdown。它们越来越多、越来越长，可大多数时候我们只能在编辑器里看带符号的源码，或者在预览窗口里读一页朴素的网页。Mino 是一个本地的 Markdown 阅读器和编辑器，它把功夫下在“读”上，让这些文档像一本排好版的书：
 
-适合用 Markdown 写笔记、书稿和技术文档，又想把它们当作书来读的人，尤其是写中文的人。
+- **为阅读排版**：12 种阅读风格（白、灰白、书页、宣纸、羊皮卷、牛皮纸、豆沙绿，以及 5 种夜间风格），带纸张纹理；中文、西文、代码字体分开选，内置思源宋体、霞鹜文楷等 14 款字体，离线可用；行宽、段距、首行缩进可调，以西文为主的文档自动换成西文排版。
+- **图表和代码同样讲究**：Mermaid 图表有 8 种画风，包括马克笔、铅笔、粉笔、钢笔几种手绘风格；代码高亮有 7 套配色，也可以自己逐项配色。
+- **读到哪里，改到哪里**：按 `⌘⇧R` 就在排好版的页面上直接编辑，所见即所得；粘贴的图片保存时自动放进文档旁的 `assets/`。
+- **不只是 Markdown**：共支持 55 种扩展名——Markdown；纯文本，自动识别 UTF-8、UTF-16、GB18030、Big5 编码；JSON、YAML、Python、Rust、Swift 等 50 种源码和配置文件，带高亮和行号，CSV/TSV 可显示成表格；以及只读的 PDF。
+- **默认离线**：AI 助手是唯一会联网的功能，默认关闭；你的文档只留在你自己的电脑上。
+
+> **平台**：Mino 基于 Tauri 2，前端和大部分 Rust 代码本身是跨平台的，Rust 部分也为非 macOS 平台写了替代实现，理论上可以在 Windows 和 Linux 上构建。但目前**只在 Apple Silicon（M4）的 macOS 上编译和使用过**，Windows 与 Linux 从未编译过，构建脚本也只接受 arm64 的 Mac。导出 PDF 与打印、用钥匙串保存 API 密钥、列出系统字体、Finder 集成等是 macOS 专用实现，换到其他平台会缺失或降级。
 
 ![用羊皮卷风格阅读一篇文档：左侧是文件栏，上方是标签页，右侧是大纲、字体、AI、日夜和编辑按钮](doc/images/readme-reading.jpg)
 
@@ -144,3 +150,7 @@ npm run dev                                             # 只在浏览器里预�
 ## 许可
 
 项目自身的许可尚未确定。第三方依赖的许可清单见 [npm 依赖](doc/licenses/dependency-licenses.tsv)、[Rust 依赖](doc/licenses/rust-dependency-licenses.tsv)和[随附字体](doc/licenses/bundled-font-licenses.tsv)；许可原文的核对情况见 [许可原文审查](doc/licenses/license-text-audit.md)。
+
+## 开发中使用的 AI 模型
+
+本项目的代码在 AI 编程助手的协助下完成，使用过的模型：Claude Fable 5.2、Claude Opus 5.5、GPT SOL 6.1、Astra 6.2。

@@ -4,11 +4,17 @@
 
 <p align="center"><a href="README.md">简体中文</a> · <b>English</b></p>
 
-**A quiet local Markdown editor and reader for macOS on Apple Silicon.**
+**In the age of AI there is more Markdown than ever. It deserves a good place to be read.**
 
-Opening a document is like opening a typeset book: paper texture, a proper text face and comfortable line spacing. When you want to change something, press `⌘⇧R` and edit on the typeset page itself. Mino also reads plain text, source files and PDFs. It is offline by default; your documents stay on your Mac.
+Plans, reports, reading notes, technical documents: nearly everything an AI writes is Markdown. There is more of it every day, and it keeps getting longer, yet most of the time we read it as source full of symbols in an editor, or as a plain web page in a preview pane. Mino is a local Markdown reader and editor that puts its effort into reading, so these documents read like a typeset book:
 
-It is for people who write notes, manuscripts and technical documents in Markdown and want to read them as books, and it takes particular care with Chinese text.
+- **Typeset for reading**: twelve reading styles (White, Off-white, Book Page, Xuan Paper, Parchment, Kraft, Soft Green, and five night styles) with paper texture; Chinese, Western and code fonts chosen separately, with fourteen bundled fonts such as Source Han Serif and LXGW WenKai that work offline; adjustable line width, paragraph spacing and first-line indent, and Western layout for a mostly-Western document.
+- **Diagrams and code get the same care**: Mermaid diagrams in eight looks, including the hand-drawn Marker, Pencil, Chalk and Fountain Pen; code highlighting in seven color schemes, or colors you set role by role.
+- **Edit where you read**: press `⌘⇧R` to edit the typeset page itself, WYSIWYG; pasted images go into an `assets/` folder beside the document when you save.
+- **More than Markdown**: 55 file extensions in all. Markdown; plain text, with UTF-8, UTF-16, GB18030 and Big5 recognized; 50 kinds of source and configuration files such as JSON, YAML, Python, Rust and Swift, with highlighting and line numbers, and CSV/TSV shown as tables; and read-only PDF.
+- **Offline by default**: the AI assistant is the only feature that goes online, and it is off until you turn it on. Your documents stay on your own computer.
+
+> **Platforms**: Mino is built on Tauri 2. The interface and most of the Rust code are cross-platform, and the Rust side has fallbacks for platforms other than macOS, so in principle it can be built for Windows and Linux. So far, however, it has **only been compiled and used on macOS on Apple Silicon (M4)**: it has never been compiled for Windows or Linux, and the build scripts accept only an arm64 Mac. PDF export and printing, keeping the API key in the Keychain, listing system fonts and the Finder integration are macOS implementations, and would be missing or reduced elsewhere.
 
 ![A document read in the Parchment style: the file sidebar on the left, tabs above, and the outline, font, AI, day/night and edit buttons on the right](doc/images/readme-reading.jpg)
 
@@ -146,3 +152,7 @@ Built with Tauri 2 (Rust), React 19, TypeScript, Milkdown/Crepe, CodeMirror, PDF
 ## License
 
 The project's own license has not been decided. The licenses of third-party dependencies are listed for [npm packages](doc/licenses/dependency-licenses.tsv), [Rust crates](doc/licenses/rust-dependency-licenses.tsv) and the [bundled fonts](doc/licenses/bundled-font-licenses.tsv); the check of the license texts is recorded in the [license text audit](doc/licenses/license-text-audit.md).
+
+## AI models used in development
+
+The code was written with the help of AI coding assistants, using these models: Claude Fable 5.2, Claude Opus 5.5, GPT SOL 6.1 and Astra 6.2.
