@@ -85,8 +85,7 @@ verify_fresh_build() {
 log_step 'Checking prerequisites'
 require_commands ditto plutil lipo osascript open pgrep node
 [ -w "$install_dir" ] || die "No write permission for $install_dir."
-version=$(version_of src-tauri/tauri.conf.json)
-[ -n "$version" ] || die 'Could not read the version from src-tauri/tauri.conf.json.'
+require_version
 log_ok "Installing Mino $version"
 
 trap cleanup EXIT

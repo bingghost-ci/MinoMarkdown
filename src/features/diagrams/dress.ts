@@ -1,7 +1,7 @@
 import { fitColor, type DiagramTone } from './looks'
 import { fromHsl, mix, toHsl } from '../reading/color'
 import { colorHex, straightPoints } from './sketch'
-import { make } from './svg'
+import { edgeEnds, flowNodeName, make, ownMarkers } from './svg'
 
 /**
  * Finishes the looks Mermaid's variables and CSS cannot reach (T117). Like the sketch pass, these work on the
@@ -16,6 +16,8 @@ import { make } from './svg'
  *   data line starts.
  */
 const BOARD_MARGIN = 20
+/** Whether the author of the diagram gave this element a fill of its own, which no look paints over. */
+const hasOwnFill = (element: Element) => /fill\s*:/.test(element.getAttribute('style') ?? '')
 const number = (value: number) => Number(value.toFixed(2))
 const inlineStyle = (element: Element, css: string) => element.setAttribute('style', `${element.getAttribute('style') ?? ''};${css}`.replace(/^;+/, ''))
 const ownShapes = (group: Element, kind: string) => Array.from(group.querySelectorAll<SVGGraphicsElement>('rect, polygon, circle, ellipse, path')).filter((shape) => shape.closest(kind) === group && !shape.closest('g.label, g.cluster-label, marker, defs, .mino-label-icon, svg svg'))
@@ -62,26 +64,12 @@ export function layBoard(svg: Element, tone: DiagramTone, ruling = 0, screen = f
   svg.prepend(board)
 }
 
-/** The markers of this diagram by id; `querySelector` cannot be trusted with the dots in Mermaid's ids. */
-const markerById = (svg: Element, id: string) => Array.from(svg.querySelectorAll('marker')).find((marker) => marker.getAttribute('id') === id)
-
 /** Draws one edge in a color of its own. Arrowheads are shared between edges, so the edge gets a copy of each of its own. */
 export function recolorEdge(svg: Element, edge: Element, color: string, width?: number): void {
   inlineStyle(edge, `stroke:${color}!important${width ? `;stroke-width:${width}px!important` : ''}`)
-  const tag = color.replace(/[^0-9a-z]/gi, '')
-  for (const name of ['marker-start', 'marker-end']) {
-    const id = /#([^)"']+)/.exec(edge.getAttribute(name) ?? '')?.[1]
-    const original = id ? markerById(svg, id) : undefined
-    if (!id || !original) continue
-    const copyId = `${id}-c${tag}`
-    if (!markerById(svg, copyId)) {
-      const copy = original.cloneNode(true) as Element
-      copy.setAttribute('id', copyId)
-      for (const shape of Array.from(copy.querySelectorAll('path, polygon, circle'))) inlineStyle(shape, `${colorHex(getComputedStyle(original.querySelector('path, polygon, circle') ?? original).fill) ? `fill:${color}!important;` : ''}stroke:${color}!important`)
-      original.after(copy)
-    }
-    edge.setAttribute(name, `url(#${copyId})`)
-  }
+  ownMarkers(svg, edge, `-c${color.replace(/[^0-9a-z]/gi, '')}`, (copy, original) => {
+    for (const shape of Array.from(copy.querySelectorAll('path, polygon, circle'))) inlineStyle(shape, `${colorHex(getComputedStyle(original.querySelector('path, polygon, circle') ?? original).fill) ? `fill:${color}!important;` : ''}stroke:${color}!important`)
+  })
 }
 
 /** The path of an edge and the group of its label, paired by the id Mermaid gives both. */
@@ -167,7 +155,7 @@ export function dressCards(svg: Element, tone: DiagramTone): void {
     const texts = Array.from(node.querySelectorAll('g.label text'))
     const special = isPill(shape) || node.classList.contains('accent') || !['rect'].includes(shape.tagName.toLowerCase())
     // A color the document gave the node itself is the document's business.
-    if (/fill\s*:/.test(node.getAttribute('style') ?? '') || /fill\s*:/.test(shape.getAttribute('style') ?? '')) continue
+    if (hasOwnFill(node) || hasOwnFill(shape)) continue
     if (marked) {
       for (const one of shapes) inlineStyle(one, `fill:${block}!important;stroke:${tone.accent}!important;stroke-width:1.8px!important`)
       for (const text of texts) inlineStyle(text, `fill:${blockText}!important;font-weight:600`)
@@ -211,7 +199,7 @@ export function dressConsole(svg: Element, tone: DiagramTone): void {
     const shapes = node.tagName.toLowerCase() === 'rect' ? [node as SVGGraphicsElement] : ownShapes(node, 'g.node')
     for (const shape of shapes) {
       const tag = shape.tagName.toLowerCase()
-      if (/fill\s*:/.test(shape.getAttribute('style') ?? '')) continue
+      if (hasOwnFill(shape)) continue
       if (tag !== 'rect' || isPill(shape)) {
         // Decisions and the other odd shapes are alerts on the console: the second color.
         inlineStyle(shape, `fill:url(#${base}-alert)!important;stroke:${tone.second}!important;stroke-width:1.5px!important;${lit(tone.second)}`)
@@ -281,7 +269,7 @@ export function dressColors(svg: Element, tone: DiagramTone): void {
   const paint = (shapes: Element[], fill: string) => {
     const edge = darker(fill)
     for (const shape of shapes) {
-      if (/fill\s*:/.test(shape.getAttribute('style') ?? '')) continue
+      if (hasOwnFill(shape)) continue
       const shadow = shape.cloneNode(false) as Element
       shadow.removeAttribute('id')
       shadow.setAttribute('class', 'mino-shadow')
@@ -293,9 +281,9 @@ export function dressColors(svg: Element, tone: DiagramTone): void {
     return edge
   }
   Array.from(svg.querySelectorAll('g.node')).forEach((node, index) => {
-    if (/fill\s*:/.test(node.getAttribute('style') ?? '')) return
+    if (hasOwnFill(node)) return
     const edge = paint(ownShapes(node, 'g.node'), tone.pens[index % tone.pens.length])
-    const id = /flowchart-(.+)-\d+$/.exec(node.getAttribute('id') ?? '')?.[1]
+    const id = flowNodeName(node)
     if (id) byId.set(id, edge)
   })
   const actors = new Map<string, number>()
@@ -314,7 +302,7 @@ export function dressColors(svg: Element, tone: DiagramTone): void {
   // An edge is the color of the node it leaves: `L_<from>_<to>_<n>`, with the longest id that fits.
   const ids = [...byId.keys()].sort((a, b) => b.length - a.length)
   for (const edge of Array.from(svg.querySelectorAll('path.flowchart-link'))) {
-    const ends = /(?:^|[-_])L_(.+)_\d+$/.exec(edge.getAttribute('id') ?? '')?.[1]
+    const ends = edgeEnds(edge)
     const from = ends ? ids.find((id) => ends.startsWith(`${id}_`)) : undefined
     if (from) recolorEdge(svg, edge, byId.get(from)!)
   }

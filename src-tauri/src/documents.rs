@@ -229,19 +229,14 @@ pub(crate) fn read_selected_image_bytes(path: &Path) -> Result<Vec<u8>, String> 
 
 #[cfg(target_os = "macos")]
 fn open_parent_directory(parent: &Path) -> Result<fs::File, String> {
-    if fs::canonicalize(parent).map_err(|_| "NOT_FOUND")? != parent { return Err("OUT_OF_SCOPE".into()); }
-    crate::fs::open_directory(parent)
+    crate::fs::open_canonical_directory(parent, "NOT_FOUND")
 }
 
 #[cfg(target_os = "macos")]
 fn open_child(directory: &fs::File, name: &std::ffi::OsStr, flags: libc::c_int) -> Result<fs::File, String> {
-    use std::{ffi::CString, os::{fd::{AsRawFd, FromRawFd}, unix::ffi::OsStrExt}};
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
     let name = CString::new(name.as_bytes()).map_err(|_| "OUT_OF_SCOPE")?;
-    let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | flags) };
-    if fd < 0 {
-        return Err(if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound { "NOT_FOUND" } else { "OUT_OF_SCOPE" }.into());
-    }
-    Ok(unsafe { fs::File::from_raw_fd(fd) })
+    crate::fs::open_file_at(directory, &name, flags).map_err(|error| crate::fs::missing_or_refused(&error))
 }
 
 /// Opens a granted file for reading without following a link at its last component. `O_NONBLOCK` keeps a FIFO
@@ -303,7 +298,7 @@ fn read_markdown(path: &Path) -> Result<(String, String), String> {
 
 /// Reads a supported file as what its extension says it is, and checks that the content agrees (T81).
 fn read_document(path: &Path) -> Result<Loaded, String> {
-    use std::io::Read;
+    
     let kind = DocumentKind::of(path).ok_or("UNSUPPORTED_FILE_TYPE")?;
     let limit = kind.max_bytes();
     let file = open_no_follow(path)?;
@@ -315,9 +310,7 @@ fn read_document(path: &Path) -> Result<Loaded, String> {
         if !file_kinds::looks_like_pdf(&head) { return Err("UNSUPPORTED_FORMAT".into()); }
         return Ok(Loaded { text: String::new(), revision, stamp, kind, encoding: TextEncoding::UTF8, size });
     }
-    let mut bytes = Vec::new();
-    file.take(limit + 1).read_to_end(&mut bytes).map_err(|_| "IO_ERROR")?;
-    if bytes.len() as u64 > limit { return Err("DOCUMENT_TOO_LARGE".into()); }
+    let bytes = crate::fs::bounded_file::read_at_most(file, limit, "DOCUMENT_TOO_LARGE")?;
     let revision = digest(&bytes);
     let size = bytes.len() as u64;
     let decoded = text_encoding::decode(&bytes)?;
@@ -384,9 +377,14 @@ fn target_kind(path: &Path, source: DocumentKind) -> Result<DocumentKind, String
 }
 
 /// A file name the frontend may suggest for a first save: one supported text file name, no path.
+/// A single file name the app may suggest or accept for a new file: at most 120 characters, not hidden, and
+/// without a separator, a colon or a control character.
+fn plain_file_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().count() <= 120 && !name.starts_with('.') && !name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':'))
+}
+
 fn text_file_name(name: &str) -> bool {
-    !name.is_empty() && name.chars().count() <= 120 && !name.starts_with('.') && file_kinds::is_text_path(Path::new(name))
-        && !name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':'))
+    plain_file_name(name) && file_kinds::is_text_path(Path::new(name))
 }
 
 #[tauri::command]
@@ -683,6 +681,29 @@ fn copy_encoding(grant: &Grant, kind: DocumentKind, force_utf8: Option<bool>) ->
     if force_utf8 == Some(true) || kind != grant.kind { TextEncoding::UTF8 } else { grant.encoding }
 }
 
+/// A copy of a document as it was written beside the file chosen in the save panel.
+struct WrittenCopy { path: PathBuf, kind: DocumentKind, encoding: TextEncoding, revision: String, persisted: String, asset_paths: HashMap<String, String>, asset_relocations: HashMap<String, String> }
+
+/// Asks where a copy of the granted document goes and writes it there with its images: what "Save As" and
+/// "keep my version as a copy" share. `None` when the panel was cancelled. Writes are serialized with saves.
+fn choose_and_write_copy(app: &AppHandle, grant: &Grant, extensions: &[&str], markdown: String, assets: Vec<HeldAsset>, force_utf8: Option<bool>) -> Result<Option<WrittenCopy>, String> {
+    let Some(selected) = save_dialog(app, grant.kind, Some(&grant.path), extensions).blocking_save_file() else { return Ok(None); };
+    let selected = selected.into_path().map_err(|_| "INVALID_PATH")?;
+    let kind = target_kind(&selected, grant.kind)?;
+    let parent = fs::canonicalize(selected.parent().ok_or("INVALID_PATH")?).map_err(|_| "INVALID_PATH")?;
+    let path = parent.join(selected.file_name().ok_or("INVALID_PATH")?);
+    // Saving a copy over the document itself would be a save, not a copy.
+    if same_file(&path, &grant.path) { return Err("TARGET_EXISTS".into()); }
+    let encoding = copy_encoding(grant, kind, force_utf8);
+    // Checked before any attachment is copied, so a refused save leaves nothing behind.
+    text_encoding::encode(&markdown, encoding)?;
+    let _write_guard = SAVE_LOCK.lock().map_err(|_| "IO_ERROR")?;
+    let (copied_markdown, asset_relocations) = if grant.kind == DocumentKind::Markdown { copy_assets_for_copy(&grant.path, &path, &markdown)? } else { (markdown, HashMap::new()) };
+    let (persisted, asset_paths) = save_assets(kind, &parent, &copied_markdown, assets)?;
+    let revision = commit_chosen(&path, &text_encoding::encode(&persisted, encoding)?)?;
+    Ok(Some(WrittenCopy { path, kind, encoding, revision, persisted, asset_paths, asset_relocations }))
+}
+
 #[tauri::command]
 pub async fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, token: String, markdown: String, assets: Vec<StagedAsset>, force_utf8: Option<bool>) -> Result<Option<String>, String> {
     crate::require_workspace_window(&window)?;
@@ -690,21 +711,8 @@ pub async fn save_conflict_copy(app: AppHandle, window: WebviewWindow, store: St
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let grant = store.grant(&token)?;
     if !grant.kind.is_text() { return Err("READ_ONLY".into()); }
-    let selected = save_dialog(&app, grant.kind, Some(&grant.path), &["md"]).blocking_save_file();
-    let Some(selected) = selected else { return Ok(None); };
-    let path = selected.into_path().map_err(|_| "INVALID_PATH")?;
-    let kind = target_kind(&path, grant.kind)?;
-    let parent = fs::canonicalize(path.parent().ok_or("INVALID_PATH")?).map_err(|_| "INVALID_PATH")?;
-    let path = parent.join(path.file_name().ok_or("INVALID_PATH")?);
-    // Saving a copy over the document itself would be a save, not a copy.
-    if same_file(&path, &grant.path) { return Err("TARGET_EXISTS".into()); }
-    let encoding = copy_encoding(&grant, kind, force_utf8);
-    // Checked before any attachment is copied, so a refused save leaves nothing behind.
-    text_encoding::encode(&markdown, encoding)?;
-    let (copied_markdown, _) = if grant.kind == DocumentKind::Markdown { copy_assets_for_copy(&grant.path, &path, &markdown)? } else { (markdown, HashMap::new()) };
-    let (persisted, _) = save_assets(kind, &parent, &copied_markdown, assets)?;
-    commit_chosen(&path, &text_encoding::encode(&persisted, encoding)?)?;
-    Ok(Some(filename(&path)))
+    let Some(copy) = choose_and_write_copy(&app, &grant, &["md"], markdown, assets, force_utf8)? else { return Ok(None); };
+    Ok(Some(filename(&copy.path)))
 }
 
 #[tauri::command]
@@ -714,20 +722,7 @@ pub async fn save_as_document(app: AppHandle, window: WebviewWindow, store: Stat
     if markdown.len() as u64 > MAX_DOCUMENT { return Err("DOCUMENT_TOO_LARGE".into()); }
     let grant = store.grant(&token)?;
     if !grant.kind.is_text() { return Err("READ_ONLY".into()); }
-    let selected = save_dialog(&app, grant.kind, Some(&grant.path), &["md", "markdown"]).blocking_save_file();
-    let Some(selected) = selected else { return Ok(None); };
-    let selected = selected.into_path().map_err(|_| "INVALID_PATH")?;
-    let kind = target_kind(&selected, grant.kind)?;
-    let parent = fs::canonicalize(selected.parent().ok_or("INVALID_PATH")?).map_err(|_| "INVALID_PATH")?;
-    let path = parent.join(selected.file_name().ok_or("INVALID_PATH")?);
-    // Saving a copy over the document itself would be a save, not a copy.
-    if same_file(&path, &grant.path) { return Err("TARGET_EXISTS".into()); }
-    let encoding = copy_encoding(&grant, kind, force_utf8);
-    text_encoding::encode(&markdown, encoding)?;
-    let _write_guard = SAVE_LOCK.lock().map_err(|_| "IO_ERROR")?;
-    let (copied_markdown, asset_relocations) = if grant.kind == DocumentKind::Markdown { copy_assets_for_copy(&grant.path, &path, &markdown)? } else { (markdown, HashMap::new()) };
-    let (persisted, asset_paths) = save_assets(kind, &parent, &copied_markdown, assets)?;
-    let revision = commit_chosen(&path, &text_encoding::encode(&persisted, encoding)?)?;
+    let Some(WrittenCopy { path, kind, encoding, revision, persisted, asset_paths, asset_relocations }) = choose_and_write_copy(&app, &grant, &["md", "markdown"], markdown, assets, force_utf8)? else { return Ok(None); };
     let new_token = format!("doc-{}", NEXT_ID.fetch_add(1, Ordering::Relaxed));
     let asset_key = random_key()?;
     store.0.lock().map_err(|_| "IO_ERROR")?.insert(new_token.clone(), Grant { observed: None, stamp: stamp_of(&path), path: path.clone(), revision: revision.clone(), asset_key: asset_key.clone(), kind, encoding });
@@ -914,13 +909,10 @@ fn read_scoped_asset(grant: &Grant, relative: &str) -> Result<Vec<u8>, String> {
 /// The bytes of an image that is already open, refused when it is not a regular file or is over the image limit.
 #[cfg(target_os = "macos")]
 fn read_open_image(image: fs::File) -> Result<Vec<u8>, String> {
-    use std::io::Read;
+    
     let meta = image.metadata().map_err(|_| "NOT_FOUND")?;
     if !meta.is_file() || meta.len() > MAX_IMAGE as u64 { return Err("IMAGE_TOO_LARGE".into()); }
-    let mut bytes = Vec::new();
-    image.take(MAX_IMAGE as u64 + 1).read_to_end(&mut bytes).map_err(|_| "IO_ERROR")?;
-    if bytes.len() > MAX_IMAGE { return Err("IMAGE_TOO_LARGE".into()); }
-    Ok(bytes)
+    crate::fs::bounded_file::read_at_most(image, MAX_IMAGE as u64, "IMAGE_TOO_LARGE")
 }
 
 #[cfg(target_os = "macos")]
@@ -952,8 +944,7 @@ pub async fn export_html(app: AppHandle, window: WebviewWindow, html: String) ->
 
 /// A name the frontend may suggest for a note: one Markdown file name, no path.
 fn note_name(name: &str) -> bool {
-    !name.is_empty() && name.chars().count() <= 120 && !name.starts_with('.') && name.to_ascii_lowercase().ends_with(".md")
-        && !name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':'))
+    plain_file_name(name) && name.to_ascii_lowercase().ends_with(".md")
 }
 
 /// Saves a note (an AI answer) through a save dialog that starts in the folder of the document it is about,
@@ -1003,8 +994,7 @@ mod tests {
     }
 
     fn sample_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("mino-doc-test-{}-{}", std::process::id(), NEXT_ID.fetch_add(1, Ordering::Relaxed)));
-        fs::create_dir(&dir).unwrap();
+        let dir = crate::fs::test_dir("doc-test");
         fs::canonicalize(dir).unwrap()
     }
 

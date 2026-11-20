@@ -1,6 +1,6 @@
 #[cfg(not(target_os = "macos"))]
 use std::fs::OpenOptions;
-use std::{fs::{self, File}, io::{Read, Write}, path::Path, sync::atomic::{AtomicU64, Ordering}};
+use std::{fs::{self, File}, io::Write, path::Path, sync::atomic::{AtomicU64, Ordering}};
 #[cfg(any(test, not(target_os = "macos")))]
 use std::path::PathBuf;
 
@@ -16,6 +16,7 @@ fn open_existing(path: &Path) -> Result<File, String> {
 
 #[cfg(not(target_os = "macos"))]
 fn read_existing(path: &Path) -> Result<(File, fs::Metadata, Vec<u8>), String> {
+    use std::io::Read;
     let mut file = open_existing(path)?;
     let meta = file.metadata().map_err(|_| "IO_ERROR")?;
     let mut bytes = Vec::new();
@@ -168,35 +169,24 @@ fn commit_with_fault(path: &Path, bytes: &[u8], expected: Option<&str>, fault: F
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
-    use std::{ffi::{CString, OsStr}, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::MetadataExt}}};
+    use std::{ffi::{CString, OsStr}, os::{fd::AsRawFd, unix::{ffi::OsStrExt, fs::MetadataExt}}};
 
     fn name(value: &OsStr) -> Result<CString, String> {
         CString::new(value.as_bytes()).map_err(|_| "INVALID_PATH".into())
     }
 
     fn open_at(directory: &File, entry: &CString) -> Result<File, String> {
-        let fd = unsafe { libc::openat(directory.as_raw_fd(), entry.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW) };
-        if fd < 0 {
-            return Err(if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound { "NOT_FOUND" } else { "OUT_OF_SCOPE" }.into());
-        }
-        let file = unsafe { File::from_raw_fd(fd) };
+        let file = crate::fs::open_file_at(directory, entry, 0).map_err(|error| crate::fs::missing_or_refused(&error))?;
         if !file.metadata().map_err(|_| "IO_ERROR")?.is_file() { return Err("OUT_OF_SCOPE".into()); }
         Ok(file)
     }
 
     /// Opens an entry and hashes it in pieces: only its revision is compared, so a large file is never held whole.
     fn read_at(directory: &File, entry: &CString) -> Result<(File, fs::Metadata, String), String> {
-        use sha2::{Digest, Sha256};
         let mut file = open_at(directory, entry)?;
         let metadata = file.metadata().map_err(|_| "IO_ERROR")?;
-        let mut hasher = Sha256::new();
-        let mut buffer = vec![0u8; 256 * 1024];
-        loop {
-            let count = file.read(&mut buffer).map_err(|_| "IO_ERROR")?;
-            if count == 0 { break; }
-            hasher.update(&buffer[..count]);
-        }
-        Ok((file, metadata, crate::fs::hex(&hasher.finalize())))
+        let revision = crate::fs::sha256_of_reader(&mut file).map_err(|_| "IO_ERROR")?;
+        Ok((file, metadata, revision))
     }
 
     struct TemporaryAt<'a> { directory: &'a File, entry: CString, active: bool }
@@ -267,9 +257,7 @@ mod macos {
         let file_name = path.file_name().ok_or("INVALID_PATH")?;
         let temp_name = [b".mino-".as_slice(), &short_stem(file_name.as_bytes(), TEMP_STEM_MAX), format!("-{}-{}.tmp", std::process::id(), NEXT_TEMP.fetch_add(1, Ordering::Relaxed)).as_bytes()].concat();
         let temp = name(OsStr::from_bytes(&temp_name))?;
-        let fd = unsafe { libc::openat(directory.as_raw_fd(), temp.as_ptr(), libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW, 0o600) };
-        if fd < 0 { return Err("IO_ERROR".into()); }
-        let mut staging = unsafe { File::from_raw_fd(fd) };
+        let mut staging = crate::fs::create_file_at(&directory, &temp, libc::O_RDWR, 0o600).map_err(|_| "IO_ERROR")?;
         let mut cleanup = TemporaryAt { directory: &directory, entry: temp, active: true };
         if let Some((source, metadata)) = &original {
             staging.set_permissions(metadata.permissions()).map_err(|_| "PERMISSION_DENIED")?;
@@ -358,8 +346,7 @@ mod tests {
     use super::*;
 
     fn sample() -> (PathBuf, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("mino-atomic-test-{}-{}", std::process::id(), NEXT_TEMP.fetch_add(1, Ordering::Relaxed)));
-        fs::create_dir(&dir).unwrap();
+        let dir = crate::fs::test_dir("atomic-test");
         let path = dir.join("记录.md");
         (dir, path)
     }

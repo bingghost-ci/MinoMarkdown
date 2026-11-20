@@ -181,14 +181,7 @@ export class EditorAdapter {
     this.crepe.editor.action((ctx) => {
       for (const rule of ctx.get(inputRulesCtx) as unknown as { match: RegExp }[]) if (rule.match.source === CREPE_INLINE_MATH_RULE) rule.match = STRICT_INLINE_MATH_RULE
     })
-    this.root.addEventListener('error', this.onResourceError, true)
-    this.root.addEventListener('paste', this.onPaste, true)
-    this.root.addEventListener('drop', this.onDrop, true)
-    this.root.addEventListener('dragover', this.onDragOver, true)
-    this.root.addEventListener('click', this.onClick, true)
-    this.root.addEventListener('compositionstart', this.onCompositionStart, true)
-    this.root.addEventListener('compositionend', this.onCompositionEnd, true)
-    this.root.addEventListener('keydown', this.onBackslashShortcut, true)
+    for (const [type, handler] of this.rootListeners()) this.root.addEventListener(type, handler, true)
     this.crepe.editor.action((ctx) => { this.loadedDoc = ctx.get(editorViewCtx).state.doc })
     this.created = true
     this.emitToolbarState()
@@ -523,6 +516,14 @@ export class EditorAdapter {
   }
 
   // Load errors do not bubble, so this listens during capture. Attachments load lazily after the text.
+  /** The capture-phase listeners on the editor's root, in one list so that what is added is what is removed. */
+  private rootListeners(): [string, EventListener][] {
+    return ([
+      ['error', this.onResourceError], ['paste', this.onPaste], ['drop', this.onDrop], ['dragover', this.onDragOver], ['click', this.onClick],
+      ['compositionstart', this.onCompositionStart], ['compositionend', this.onCompositionEnd], ['keydown', this.onBackslashShortcut],
+    ] as [string, unknown][]).map(([type, handler]) => [type, handler as EventListener])
+  }
+
   private onResourceError = (event: Event): void => {
     const target = event.target
     if (!(target instanceof HTMLImageElement) || !isAssetUrl(target.src)) return
@@ -762,14 +763,7 @@ export class EditorAdapter {
   }
 
   async destroy(revokeUrls = true): Promise<void> {
-    this.root.removeEventListener('error', this.onResourceError, true)
-    this.root.removeEventListener('paste', this.onPaste, true)
-    this.root.removeEventListener('drop', this.onDrop, true)
-    this.root.removeEventListener('dragover', this.onDragOver, true)
-    this.root.removeEventListener('click', this.onClick, true)
-    this.root.removeEventListener('compositionstart', this.onCompositionStart, true)
-    this.root.removeEventListener('compositionend', this.onCompositionEnd, true)
-    this.root.removeEventListener('keydown', this.onBackslashShortcut, true)
+    for (const [type, handler] of this.rootListeners()) this.root.removeEventListener(type, handler, true)
     if (this.created) await this.crepe.destroy()
     if (revokeUrls) {
       for (const url of this.pending.keys()) URL.revokeObjectURL(url)

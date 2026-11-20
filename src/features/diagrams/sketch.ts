@@ -1,7 +1,7 @@
 import type { Drawable, Options } from 'roughjs/bin/core'
 import type { RoughGenerator } from 'roughjs/bin/generator'
 import type { SketchHand } from './looks'
-import { SVG_NS } from './svg'
+import { edgeEnds, flowNodeName, ownMarkers, SVG_NS } from './svg'
 
 const MARKER: SketchHand = { roughness: 1, twice: false, fill: 'hatch', coloredOutline: false, grain: 'none', hatchGap: 5, hatchWeight: 0.8, inner: false, solidArrows: false, wobble: 1.4, overshoot: 0 }
 
@@ -501,24 +501,13 @@ function remarkPens(svg: Element, palette: SketchPalette, strokes: Map<Element, 
     for (const text of Array.from(node.querySelectorAll('text'))) text.setAttribute('style', `${text.getAttribute('style') ?? ''};fill:${pen}!important`)
     const place = node.getAttribute('transform') ?? ''
     if (!/rotate/.test(place)) node.setAttribute('transform', `${place} rotate(${TILTS[index % TILTS.length]})`.trim())
-    const id = /flowchart-(.+)-\d+$/.exec(node.getAttribute('id') ?? '')?.[1]
+    const id = flowNodeName(node)
     if (!id) return
     for (const edge of edges) {
-      const ends = /(?:^|[-_])L_(.+)_\d+$/.exec(edge.getAttribute('id') ?? '')?.[1]
+      const ends = edgeEnds(edge)
       if (!ends || !(ends.startsWith(`${id}_`) || ends.endsWith(`_${id}`)) || strokes.has(edge)) continue
       strokes.set(edge, pen)
-      for (const name of ['marker-start', 'marker-end']) {
-        const marker = /#([^)"']+)/.exec(edge.getAttribute(name) ?? '')?.[1]
-        const original = marker ? Array.from(svg.querySelectorAll('marker')).find((candidate) => candidate.getAttribute('id') === marker) : undefined
-        if (!marker || !original) continue
-        const copyId = `${marker}-pen${index}`
-        if (!Array.from(svg.querySelectorAll('marker')).some((candidate) => candidate.getAttribute('id') === copyId)) {
-          const copy = original.cloneNode(true) as Element
-          copy.setAttribute('id', copyId)
-          original.after(copy)
-        }
-        edge.setAttribute(name, `url(#${copyId})`)
-      }
+      ownMarkers(svg, edge, `-pen${index}`)
     }
   })
 }

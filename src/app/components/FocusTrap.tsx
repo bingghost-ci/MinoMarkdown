@@ -24,3 +24,12 @@ export function FocusTrap({ children }: { children: ReactNode }) {
   }, [])
   return <div ref={root} style={{ display: 'contents' }}>{children}</div>
 }
+
+/**
+ * The dimmed layer a dialog sits on: focus is kept inside it, and a press on the layer itself, not on the
+ * dialog, closes it. Closing with Escape is the owner's business, since some dialogs must not close that way.
+ */
+export function ModalBackdrop({ onClose, className = 'settings-backdrop', children }: { onClose: () => void; className?: string; children: ReactNode }) {
+  return <FocusTrap><div className={className} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>{children}</div></FocusTrap>
+}
+

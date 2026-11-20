@@ -121,8 +121,7 @@ mod tests {
     use super::*;
     #[test]
     fn only_supported_files_enter_queue_and_repeats_are_deduplicated() {
-        let root = std::env::temp_dir().join(format!("mino-intents-{}-{}",std::process::id(),NEXT_INTENT.fetch_add(1,Ordering::Relaxed)));
-        fs::create_dir(&root).unwrap();
+        let root = crate::fs::test_dir("intents");
         let md = root.join("note.md"); let txt = root.join("bad.docx");
         fs::write(&md,b"hi").unwrap(); fs::write(&txt,b"hi").unwrap();
         // Text, source and PDF files are documents too (T81).
@@ -144,8 +143,7 @@ mod tests {
     }
     #[test]
     fn queued_file_belongs_to_its_target_window() {
-        let root = std::env::temp_dir().join(format!("mino-intent-owner-{}", NEXT_INTENT.fetch_add(1, Ordering::Relaxed)));
-        fs::create_dir(&root).unwrap();
+        let root = crate::fs::test_dir("intent-owner");
         let path = root.join("note.md"); fs::write(&path, b"hello").unwrap();
         let store = IntentStore::default();
         assert!(enqueue(&store, path.clone(), false, "workspace-1"));
@@ -157,8 +155,7 @@ mod tests {
     }
     #[test]
     fn an_intent_no_window_takes_expires() {
-        let root = std::env::temp_dir().join(format!("mino-intent-age-{}", NEXT_INTENT.fetch_add(1, Ordering::Relaxed)));
-        fs::create_dir(&root).unwrap();
+        let root = crate::fs::test_dir("intent-age");
         let (old, new) = (root.join("old.md"), root.join("new.md"));
         fs::write(&old, b"old").unwrap(); fs::write(&new, b"new").unwrap();
         let store = IntentStore::default();

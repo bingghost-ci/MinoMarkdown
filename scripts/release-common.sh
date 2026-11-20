@@ -41,6 +41,26 @@ version_of() {
   esac
 }
 
+# Sets $version to the app's version, or stops.
+require_version() {
+  version=$(version_of src-tauri/tauri.conf.json)
+  [ -n "$version" ] || die 'Could not read the version from src-tauri/tauri.conf.json.'
+}
+
+# Installs the npm dependencies when they are missing and checks that the toolchain is arm64.
+# Arguments go to `npm run` (start.sh passes --silent).
+ensure_toolchain() {
+  log_step 'Checking dependencies'
+  if [ -x node_modules/.bin/tauri ]; then
+    log_info 'npm dependencies are present'
+  else
+    log_info 'Installing npm dependencies from package-lock.json'
+    npm ci --no-audit --no-fund
+  fi
+  log_step 'Checking the Apple Silicon toolchain'
+  npm run "$@" archcheck
+}
+
 archive_for() { printf '%s/Mino-%s-macos-arm64-unsigned.zip' "$package_dir" "$1"; }
 
 macho_uuids() { dwarfdump --uuid "$1" 2>/dev/null | awk '{print $2}' | sort; }

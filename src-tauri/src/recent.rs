@@ -173,8 +173,7 @@ mod tests {
     use super::*;
     #[test]
     fn corrupt_or_unknown_session_records_restore_nothing() {
-        let dir = std::env::temp_dir().join(format!("mino-session-bad-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap(); let file = dir.join("session.json");
+        let dir = crate::fs::test_dir("session-bad"); let file = dir.join("session.json");
         fs::write(&file, b"not json").unwrap();
         assert_eq!(load_session(&file), SessionRecord::default());
         fs::write(&file, br#"{"schemaVersion":9,"paths":["/tmp/a.md"],"active":0}"#).unwrap();
@@ -186,8 +185,7 @@ mod tests {
     }
     #[test]
     fn session_plan_skips_missing_and_open_files_and_keeps_the_active_tab() {
-        let dir = std::env::temp_dir().join(format!("mino-session-plan-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap();
+        let dir = crate::fs::test_dir("session-plan");
         let (first, second, third) = (dir.join("first.md"), dir.join("second.md"), dir.join("third.md"));
         for path in [&first, &second, &third] { fs::write(path, b"x").unwrap(); }
         let paths = [first.clone(), dir.join("gone.md"), second.clone(), third.clone()].map(|path| path.to_string_lossy().into_owned()).to_vec();
@@ -201,8 +199,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn session_plan_rejects_links() {
-        let dir = std::env::temp_dir().join(format!("mino-session-link-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap();
+        let dir = crate::fs::test_dir("session-link");
         fs::write(dir.join("real.md"), b"x").unwrap();
         std::os::unix::fs::symlink(dir.join("real.md"), dir.join("link.md")).unwrap();
         let (plan, _, missing) = session_plan(SessionRecord { schema_version: 1, paths: vec![dir.join("link.md").to_string_lossy().into_owned()], active: None }, &HashSet::new());
@@ -212,8 +209,7 @@ mod tests {
     }
     #[test]
     fn corrupt_recent_file_recovers_without_granting_paths() {
-        let dir = std::env::temp_dir().join(format!("mino-recent-{}",std::process::id()));
-        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap(); let file = dir.join("recent.json");
+        let dir = crate::fs::test_dir("recent"); let file = dir.join("recent.json");
         fs::write(&file,b"not json").unwrap();
         assert!(load(&file).entries.is_empty());
         let note = dir.join("note.md"); fs::write(&note,b"hi").unwrap();
@@ -225,8 +221,7 @@ mod tests {
     }
     #[test]
     fn opening_an_existing_recent_item_keeps_manual_order() {
-        let dir = std::env::temp_dir().join(format!("mino-recent-order-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap(); let file = dir.join("recent.json");
+        let dir = crate::fs::test_dir("recent-order"); let file = dir.join("recent.json");
         let first = dir.join("first.md"); let second = dir.join("second.md");
         fs::write(&first, b"one").unwrap(); fs::write(&second, b"two").unwrap();
         remember_at(&file, &first, "file").unwrap();
@@ -241,8 +236,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn linked_recent_record_is_ignored() {
-        let dir = std::env::temp_dir().join(format!("mino-recent-link-{}",std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fs::test_dir("recent-link");
         fs::write(dir.join("outside.json"), br#"{"schemaVersion":1,"entries":[{"path":"/tmp/secret.md","kind":"file","lastOpened":1}]}"#).unwrap();
         std::os::unix::fs::symlink(dir.join("outside.json"), dir.join("recent.json")).unwrap();
         assert!(load(&dir.join("recent.json")).entries.is_empty());

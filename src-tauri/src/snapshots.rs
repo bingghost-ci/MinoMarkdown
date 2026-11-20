@@ -145,7 +145,7 @@ pub async fn export_snapshot_md(app: AppHandle, window: WebviewWindow, store: St
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    fn temp() -> PathBuf { let path = std::env::temp_dir().join(format!("mino-snapshot-{}-{}",std::process::id(),NEXT_SNAPSHOT.fetch_add(1,Ordering::Relaxed))); fs::create_dir(&path).unwrap(); fs::canonicalize(path).unwrap() }
+    fn temp() -> PathBuf { crate::fs::test_dir("snapshot") }
     #[test]
     fn snapshot_is_frozen_and_exported_with_local_image() {
         let store = SnapshotStore::default();

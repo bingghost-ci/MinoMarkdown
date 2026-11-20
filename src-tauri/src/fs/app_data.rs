@@ -6,17 +6,14 @@ pub fn ensure_dir(path: &Path) -> Result<PathBuf, String> {
     let parent = fs::canonicalize(parent).map_err(|_| "IO_ERROR")?;
     #[cfg(target_os = "macos")]
     {
-        use std::{ffi::CString, os::{fd::AsRawFd, unix::{ffi::OsStrExt, fs::MetadataExt}}};
+        use std::{ffi::CString, os::unix::ffi::OsStrExt};
         let name = path.file_name().ok_or("INVALID_PATH")?;
         let entry = CString::new(name.as_bytes()).map_err(|_| "INVALID_PATH")?;
         let parent_file = crate::fs::open_directory(&parent)?;
-        let made = unsafe { libc::mkdirat(parent_file.as_raw_fd(), entry.as_ptr(), 0o700) };
-        if made < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists { return Err("IO_ERROR".into()); }
+        crate::fs::ensure_directory_at(&parent_file, &entry, 0o700).map_err(|_| "IO_ERROR")?;
         let directory = crate::fs::open_directory_at(&parent_file, &entry).map_err(|_| "OUT_OF_SCOPE")?;
         let actual = parent.join(name);
-        let current = fs::symlink_metadata(&actual).map_err(|_| "COMMIT_UNCERTAIN")?;
-        let held = directory.metadata().map_err(|_| "COMMIT_UNCERTAIN")?;
-        if !current.is_dir() || current.dev() != held.dev() || current.ino() != held.ino() { return Err("COMMIT_UNCERTAIN".into()); }
+        crate::fs::still_at(&actual, &directory, "COMMIT_UNCERTAIN")?;
         return Ok(actual);
     }
     #[cfg(not(target_os = "macos"))]
@@ -50,9 +47,7 @@ mod tests {
     use super::*;
     #[test]
     fn app_data_creation_rejects_linked_directory() {
-        let parent = std::env::temp_dir().join(format!("mino-app-data-{}", std::process::id()));
-        fs::create_dir_all(&parent).unwrap();
-        let parent = fs::canonicalize(parent).unwrap();
+        let parent = crate::fs::test_dir("app-data");
         let data = parent.join("data");
         assert_eq!(ensure_dir(&data).unwrap(), data);
         fs::remove_dir(&data).unwrap();

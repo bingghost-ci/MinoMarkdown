@@ -33,7 +33,9 @@ export function textureFiles(id: TextureId | null): string[] {
 export function textureBackground(id: TextureId | null, source: (file: string) => string | undefined = (file) => file): { image: string; size: string } | null {
   const list = id ? layers[id] : undefined
   if (!id || !list) return null
-  const urls = list.map(([name]) => { const file = files[`../../assets/paper/${id}-${name}.png`]; return file ? source(file) : undefined })
+  const found = textureFiles(id)
+  if (found.length !== list.length) return null
+  const urls = found.map(source)
   if (urls.some((url) => !url)) return null
   return {
     image: urls.map((url) => `url("${url}")`).join(', '),

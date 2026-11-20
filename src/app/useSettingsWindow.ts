@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { typographyVariables } from '../features/reading/css'
 import type { ReadingStyle } from '../features/reading/styles'
-import type { AiTransport } from '../features/ai/client'
 import { useAiAssistant } from './aiAssistant'
 import { translate } from './i18n'
 import { whenStyled } from './whenStyled'
 import { activeStyle, documentTypography, pickedStyle } from './readingSettings'
-import { applyRemoteSettings, settingsPatch } from './settingsSync'
+import { settingsPatch } from './settingsSync'
+import { followSavedSettings, paintWindow, saveSettingsLater, tauriAiTransport, useSystemDark, writeTypography } from './settingsEffects'
 import { defaultSettings, type Settings, type SettingsHost, type SettingsTab } from './useDocumentWorkspace'
 
 /** The label of the settings window; `windows.rs` creates it under this name. */
@@ -31,7 +29,7 @@ export function useSettingsWindow(): SettingsHost {
   const persisted = useRef<Settings>(defaultSettings)
   const [loaded, setLoaded] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('appearance')
-  const [systemDark, setSystemDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false)
+  const systemDark = useSystemDark()
   const [systemFonts, setSystemFonts] = useState<string[] | null>(null)
   const t = useCallback((value: string) => translate(value, settings.language), [settings.language])
 
@@ -40,15 +38,8 @@ export function useSettingsWindow(): SettingsHost {
   }
 
   useEffect(() => {
-    let canceled = false
-    let stop: (() => void) | undefined
     void invoke<Settings>('get_settings').then((value) => { persisted.current = value; setSettings(value) }).catch(() => undefined).finally(() => setLoaded(true))
-    void listen<Settings>('settings-changed', (event) => {
-      const merged = applyRemoteSettings(settingsRef.current, persisted.current, event.payload)
-      persisted.current = merged.persisted
-      if (merged.current !== settingsRef.current) setSettings(merged.current)
-    }).then((unlisten) => { if (canceled) unlisten(); else stop = unlisten })
-    return () => { canceled = true; stop?.() }
+    return followSavedSettings(settingsRef, persisted, setSettings)
   }, [])
 
   // The size of a document window is that window's own, and this window never writes it.
@@ -59,10 +50,7 @@ export function useSettingsWindow(): SettingsHost {
     delete patch.windowWidth
     delete patch.windowHeight
     if (Object.keys(patch).length === 0) return
-    const timer = window.setTimeout(() => {
-      invoke<Settings>('update_settings', { patch }).then(() => { persisted.current = { ...persisted.current, ...patch } }).catch(() => undefined)
-    }, SAVE_DELAY_MS)
-    return () => window.clearTimeout(timer)
+    return saveSettingsLater(persisted, patch, SAVE_DELAY_MS)
   }, [loaded, settings])
 
   // Shown once the saved settings are in, so the default style never flashes; Rust answers with the page to open.
@@ -76,13 +64,6 @@ export function useSettingsWindow(): SettingsHost {
     return () => { canceled = true; stop?.() }
   }, [loaded])
 
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = () => setSystemDark(media.matches)
-    media.addEventListener('change', onChange)
-    return () => media.removeEventListener('change', onChange)
-  }, [])
-
   const style = activeStyle(settings, systemDark)
   const typography = documentTypography(settings, style)
   const typographyKey = JSON.stringify(typography)
@@ -90,14 +71,10 @@ export function useSettingsWindow(): SettingsHost {
     const root = window.document.documentElement
     root.dataset.theme = style.id
     root.lang = settings.language
-    for (const [name, value] of Object.entries(typographyVariables(typography, style))) root.style.setProperty(name, value)
-    root.style.setProperty('--editor-font', typography.fontFamily)
-    root.style.setProperty('--editor-font-size', `${typography.fontSize}px`)
+    writeTypography(typography, style)
   }, [typographyKey, style.id, settings.language])
   useEffect(() => {
-    const current = getCurrentWindow()
-    void current.setTheme(style.dark ? 'dark' : 'light').catch(() => undefined)
-    void current.setBackgroundColor(style.ui.chrome).catch(() => undefined)
+    paintWindow(style.dark, style.ui.chrome)
   }, [style.id])
 
   useEffect(() => {
@@ -112,10 +89,7 @@ export function useSettingsWindow(): SettingsHost {
   }
   const pickStyle = (picked: ReadingStyle) => updateSettings((current) => ({ ...pickedStyle(picked, current, systemDark) }))
 
-  const transport = useMemo<AiTransport>(() => ({
-    invoke: (command, args) => invoke(command, args),
-    listen: (event, handler) => getCurrentWindow().listen(event, (message) => handler(message.payload as never)),
-  }), [])
+  const transport = useMemo(tauriAiTransport, [])
   // Only the configuration half of the assistant is used here; there is no document to ask about.
   const ai = useAiAssistant({
     transport, documentId: 0, language: settings.language,

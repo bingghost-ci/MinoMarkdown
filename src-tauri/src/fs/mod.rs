@@ -12,12 +12,114 @@ pub fn open_directory(path: &std::path::Path) -> Result<std::fs::File, String> {
     std::fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(path).map_err(|_| "OUT_OF_SCOPE".into())
 }
 
+/// Opens a directory given by its canonical path, as the parents of granted files and of the app's records are.
+/// A path that is not its own canonical form has a link in it and is `OUT_OF_SCOPE`; `unresolved` is the code for
+/// a path that cannot be resolved at all, which callers tell apart (a deleted folder is `NOT_FOUND` for a document).
+#[cfg(target_os = "macos")]
+pub fn open_canonical_directory(path: &std::path::Path, unresolved: &str) -> Result<std::fs::File, String> {
+    if std::fs::canonicalize(path).map_err(|_| unresolved.to_string())? != path { return Err("OUT_OF_SCOPE".into()); }
+    open_directory(path)
+}
+
+/// Checks, after working through an open directory, that `path` still names that directory: nothing put a link or
+/// another folder in its place meanwhile. `code` is the error when it did, or when either cannot be examined.
+#[cfg(target_os = "macos")]
+pub fn still_at(path: &std::path::Path, directory: &std::fs::File, code: &str) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    let current = std::fs::symlink_metadata(path).map_err(|_| code.to_string())?;
+    let held = directory.metadata().map_err(|_| code.to_string())?;
+    if !current.is_dir() || current.dev() != held.dev() || current.ino() != held.ino() { return Err(code.into()); }
+    Ok(())
+}
+
+/// The same check for an entry of an open directory: `name` in `parent` is still what `opened` holds, and not a
+/// link or another file put under that name since.
+#[cfg(target_os = "macos")]
+pub fn still_entry(parent: &std::fs::File, name: &std::ffi::CStr, opened: &std::fs::File, code: &str) -> Result<(), String> {
+    use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
+    let mut current: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstatat(parent.as_raw_fd(), name.as_ptr(), &mut current, libc::AT_SYMLINK_NOFOLLOW) } < 0 { return Err(code.into()); }
+    let held = opened.metadata().map_err(|_| code.to_string())?;
+    if current.st_dev as u64 != held.dev() || current.st_ino as u64 != held.ino() { return Err(code.into()); }
+    Ok(())
+}
+
+/// A file name as the `*at` calls take it. Only a single plain name passes: no separator, no `.` or `..`, no NUL.
+#[cfg(target_os = "macos")]
+pub fn entry_c_name(name: &std::ffi::OsStr) -> Result<std::ffi::CString, String> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut parts = std::path::Path::new(name).components();
+    if !matches!(parts.next(), Some(std::path::Component::Normal(_))) || parts.next().is_some() { return Err("OUT_OF_SCOPE".into()); }
+    std::ffi::CString::new(name.as_bytes()).map_err(|_| "OUT_OF_SCOPE".into())
+}
+
+/// The names in an open directory, without `.` and `..`. The handle can be listed again afterwards.
+#[cfg(target_os = "macos")]
+pub fn directory_entries(folder: &std::fs::File) -> std::io::Result<Vec<std::ffi::OsString>> {
+    use std::os::{fd::AsRawFd, unix::ffi::OsStringExt};
+    let duplicate = unsafe { libc::dup(folder.as_raw_fd()) };
+    if duplicate < 0 { return Err(std::io::Error::last_os_error()); }
+    // A dup shares the read offset, so a directory listed earlier through this handle must be rewound.
+    unsafe { libc::lseek(duplicate, 0, libc::SEEK_SET); }
+    let stream = unsafe { libc::fdopendir(duplicate) };
+    if stream.is_null() { let error = std::io::Error::last_os_error(); unsafe { libc::close(duplicate); } return Err(error); }
+    let mut names = Vec::new();
+    loop {
+        unsafe { *libc::__error() = 0; }
+        let entry = unsafe { libc::readdir(stream) };
+        if entry.is_null() {
+            let code = unsafe { *libc::__error() };
+            unsafe { libc::closedir(stream); }
+            return if code != 0 { Err(std::io::Error::from_raw_os_error(code)) } else { Ok(names) };
+        }
+        let bytes = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
+        if bytes != b"." && bytes != b".." { names.push(std::ffi::OsString::from_vec(bytes.to_vec())); }
+    }
+}
+
+/// Opens an entry of an open directory for reading, never through a link. `flags` are added to the open
+/// (`O_DIRECTORY`, or `O_NONBLOCK` so that a FIFO under the name cannot block).
+#[cfg(target_os = "macos")]
+pub fn open_file_at(parent: &std::fs::File, name: &std::ffi::CStr, flags: libc::c_int) -> std::io::Result<std::fs::File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    let descriptor = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | flags) };
+    if descriptor < 0 { Err(std::io::Error::last_os_error()) } else { Ok(unsafe { std::fs::File::from_raw_fd(descriptor) }) }
+}
+
+/// Creates a file in an open directory. It fails when the name is taken, by a link too, so nothing is ever
+/// written over. `access` is `O_WRONLY` or `O_RDWR`.
+#[cfg(target_os = "macos")]
+pub fn create_file_at(parent: &std::fs::File, name: &std::ffi::CStr, access: libc::c_int, mode: libc::c_uint) -> std::io::Result<std::fs::File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    let descriptor = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), access | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC, mode) };
+    if descriptor < 0 { Err(std::io::Error::last_os_error()) } else { Ok(unsafe { std::fs::File::from_raw_fd(descriptor) }) }
+}
+
+/// Makes a directory in an open directory. A name that is taken is an `AlreadyExists` error.
+#[cfg(target_os = "macos")]
+pub fn make_directory_at(parent: &std::fs::File, name: &std::ffi::CStr, mode: libc::mode_t) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    if unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), mode) } < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
+}
+
+/// The same, but a name that is already there is not an error: the caller opens it next and sees what it is.
+#[cfg(target_os = "macos")]
+pub fn ensure_directory_at(parent: &std::fs::File, name: &std::ffi::CStr, mode: libc::mode_t) -> std::io::Result<()> {
+    match make_directory_at(parent, name, mode) {
+        Err(error) if error.kind() != std::io::ErrorKind::AlreadyExists => Err(error),
+        _ => Ok(()),
+    }
+}
+
+/// The error code for an entry that could not be opened: missing, or refused (a link, no permission).
+pub fn missing_or_refused(error: &std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::NotFound { "NOT_FOUND" } else { "OUT_OF_SCOPE" }.into()
+}
+
 /// The same for an entry of a directory that is already open. The error tells a missing entry from a refused one.
 #[cfg(target_os = "macos")]
 pub fn open_directory_at(parent: &std::fs::File, name: &std::ffi::CStr) -> std::io::Result<std::fs::File> {
-    use std::os::fd::{AsRawFd, FromRawFd};
-    let descriptor = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
-    if descriptor < 0 { Err(std::io::Error::last_os_error()) } else { Ok(unsafe { std::fs::File::from_raw_fd(descriptor) }) }
+    open_file_at(parent, name, libc::O_DIRECTORY)
 }
 
 /// How long an export waits for macOS to let it write the file the user chose.
@@ -57,6 +159,27 @@ pub fn hex(bytes: &[u8]) -> String {
 /// The SHA-256 of `bytes` in hexadecimal: the revision of a file's content.
 pub fn sha256_hex(bytes: &[u8]) -> String { hex(&Sha256::digest(bytes)) }
 
+/// The SHA-256 of everything a reader still has, read in pieces so a large file is never held whole.
+pub fn sha256_of_reader(reader: &mut impl std::io::Read) -> std::io::Result<String> {
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 256 * 1024];
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 { return Ok(hex(&hasher.finalize())); }
+        hasher.update(&buffer[..count]);
+    }
+}
+
+/// A new, empty folder for one test, given by its canonical path. The `mino-` prefix is what `clean.sh` sweeps.
+#[cfg(test)]
+pub(crate) fn test_dir(tag: &str) -> std::path::PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let dir = std::env::temp_dir().join(format!("mino-{tag}-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::canonicalize(dir).unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,9 +195,7 @@ mod tests {
 
     #[test]
     fn a_chosen_file_is_written_or_replaced_in_place_and_never_through_a_link() {
-        let dir = std::env::temp_dir().join(format!("mino-chosen-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir(&dir).unwrap();
+        let dir = crate::fs::test_dir("chosen");
         let target = dir.join("out.pdf");
         write_chosen_file(&target, b"%PDF-new".to_vec(), CHOSEN_FILE_TIMEOUT).unwrap();
         assert_eq!(std::fs::read(&target).unwrap(), b"%PDF-new");

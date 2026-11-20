@@ -9,8 +9,14 @@ pub fn read_open(file: fs::File, limit: u64, too_large: &str) -> Result<Vec<u8>,
     let metadata = file.metadata().map_err(|_| "IO_ERROR")?;
     if !metadata.is_file() { return Err("OUT_OF_SCOPE".into()); }
     if metadata.len() > limit { return Err(too_large.into()); }
+    read_at_most(file, limit, too_large)
+}
+
+/// Everything a reader has, refused with `too_large` once it yields more than `limit` bytes: a size taken
+/// beforehand is only a hint, since a file can grow while it is read.
+pub fn read_at_most(reader: impl Read, limit: u64, too_large: &str) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
-    file.take(limit + 1).read_to_end(&mut bytes).map_err(|_| "IO_ERROR")?;
+    reader.take(limit + 1).read_to_end(&mut bytes).map_err(|_| "IO_ERROR")?;
     if bytes.len() as u64 > limit { return Err(too_large.into()); }
     Ok(bytes)
 }
@@ -36,18 +42,12 @@ pub fn read_no_follow(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
 // so replacing the parent with a link cannot redirect a read outside app data.
 #[cfg(target_os = "macos")]
 pub fn read_canonical_parent(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
-    use std::{ffi::CString, fs::File, os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::MetadataExt}}};
+    use std::{ffi::CString, os::unix::{ffi::OsStrExt, fs::MetadataExt}};
     let parent = path.parent().ok_or("INVALID_PATH")?;
-    if fs::canonicalize(parent).map_err(|_| "IO_ERROR")? != parent { return Err("OUT_OF_SCOPE".into()); }
-    let directory = crate::fs::open_directory(parent)?;
+    let directory = crate::fs::open_canonical_directory(parent, "IO_ERROR")?;
     let directory_meta = directory.metadata().map_err(|_| "IO_ERROR")?;
     let name = CString::new(path.file_name().ok_or("INVALID_PATH")?.as_bytes()).map_err(|_| "INVALID_PATH")?;
-    let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
-    if fd < 0 {
-        let error = std::io::Error::last_os_error();
-        return Err(if error.kind() == std::io::ErrorKind::NotFound { "NOT_FOUND" } else { "OUT_OF_SCOPE" }.into());
-    }
-    let file = unsafe { File::from_raw_fd(fd) };
+    let file = crate::fs::open_file_at(&directory, &name, 0).map_err(|error| crate::fs::missing_or_refused(&error))?;
     let bytes = read_open(file, limit, "FILE_TOO_LARGE")?;
     let current = fs::symlink_metadata(parent).map_err(|_| "COMMIT_UNCERTAIN")?;
     if !current.is_dir() || current.dev() != directory_meta.dev() || current.ino() != directory_meta.ino() { return Err("COMMIT_UNCERTAIN".into()); }
@@ -62,19 +62,13 @@ pub fn read_canonical_parent(path: &Path, limit: u64) -> Result<Vec<u8>, String>
 /// The SHA-256 of an app record of any size, read in pieces through its canonical parent and never through a
 /// link: what `replace_record` compares before replacing a record that outgrew its limit.
 pub fn revision_canonical_parent(path: &Path) -> Result<String, String> {
-    use sha2::{Digest, Sha256};
     #[cfg(target_os = "macos")]
     let mut file = {
-        use std::{ffi::CString, fs::File, os::{fd::{AsRawFd, FromRawFd}, unix::ffi::OsStrExt}};
+        use std::{ffi::CString, os::unix::ffi::OsStrExt};
         let parent = path.parent().ok_or("INVALID_PATH")?;
-        if fs::canonicalize(parent).map_err(|_| "IO_ERROR")? != parent { return Err("OUT_OF_SCOPE".into()); }
-        let directory = crate::fs::open_directory(parent)?;
+        let directory = crate::fs::open_canonical_directory(parent, "IO_ERROR")?;
         let name = CString::new(path.file_name().ok_or("INVALID_PATH")?.as_bytes()).map_err(|_| "INVALID_PATH")?;
-        let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC) };
-        if fd < 0 {
-            return Err(if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound { "NOT_FOUND" } else { "OUT_OF_SCOPE" }.into());
-        }
-        unsafe { File::from_raw_fd(fd) }
+        crate::fs::open_file_at(&directory, &name, libc::O_NONBLOCK).map_err(|error| crate::fs::missing_or_refused(&error))?
     };
     #[cfg(not(target_os = "macos"))]
     let mut file = {
@@ -83,14 +77,7 @@ pub fn revision_canonical_parent(path: &Path) -> Result<String, String> {
         File::open(path).map_err(|_| "IO_ERROR")?
     };
     if !file.metadata().map_err(|_| "IO_ERROR")?.is_file() { return Err("OUT_OF_SCOPE".into()); }
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0u8; 256 * 1024];
-    loop {
-        let count = file.read(&mut buffer).map_err(|_| "IO_ERROR")?;
-        if count == 0 { break; }
-        hasher.update(&buffer[..count]);
-    }
-    Ok(super::hex(&hasher.finalize()))
+    super::sha256_of_reader(&mut file).map_err(|_| "IO_ERROR".into())
 }
 
 #[cfg(test)]
@@ -98,8 +85,7 @@ mod tests {
     use super::*;
     #[test]
     fn bounded_reader_rejects_links_and_growth() {
-        let root = std::env::temp_dir().join(format!("mino-bounded-{}", std::process::id()));
-        fs::create_dir_all(&root).unwrap();
+        let root = crate::fs::test_dir("bounded");
         let file = root.join("data.json");
         fs::write(&file, b"abcd").unwrap();
         assert_eq!(read_no_follow(&file, 4).unwrap(), b"abcd");
@@ -115,9 +101,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn canonical_parent_reader_rejects_linked_directory_and_file() {
-        let root = std::env::temp_dir().join(format!("mino-canonical-read-{}", std::process::id()));
-        fs::create_dir_all(&root).unwrap();
-        let root = fs::canonicalize(root).unwrap();
+        let root = crate::fs::test_dir("canonical-read");
         let data = root.join("data");
         let outside = root.join("outside");
         fs::create_dir(&data).unwrap();

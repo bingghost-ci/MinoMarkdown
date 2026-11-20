@@ -198,8 +198,7 @@ mod tests {
     use super::*;
     #[test]
     fn corrupt_and_old_settings_are_safe_and_do_not_touch_drafts() {
-        let dir = std::env::temp_dir().join(format!("mino-settings-{}",std::process::id()));
-        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap(); let file = dir.join("settings.json");
+        let dir = crate::fs::test_dir("settings"); let file = dir.join("settings.json");
         let draft = dir.join("draft.md"); fs::write(&draft,b"draft kept").unwrap();
         fs::write(&file,b"broken").unwrap();
         assert_eq!(read_at(&file),Settings::default());
@@ -319,8 +318,7 @@ mod tests {
     /// T78: pane widths default for a file written before they existed, are kept in range, and a width out of range is not accepted.
     #[test]
     fn pane_widths_default_and_are_range_checked() {
-        let dir = std::env::temp_dir().join(format!("mino-settings-panes-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap(); let file = dir.join("settings.json");
+        let dir = crate::fs::test_dir("settings-panes"); let file = dir.join("settings.json");
         let write = |extra: &str| fs::write(&file, format!(r#"{{"schemaVersion":1,"theme":"dark","sidebarWidth":300,"windowWidth":1100,"windowHeight":760{extra}}}"#)).unwrap();
         write("");
         let read = read_at(&file);
@@ -340,8 +338,7 @@ mod tests {
     /// T62 and T68: a settings file of any earlier version keeps its other values and a matching look.
     #[test]
     fn older_style_ids_and_font_settings_are_migrated_on_read() {
-        let dir = std::env::temp_dir().join(format!("mino-settings-migrate-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap(); let file = dir.join("settings.json");
+        let dir = crate::fs::test_dir("settings-migrate"); let file = dir.join("settings.json");
         let write = |extra: &str| fs::write(&file, format!(r#"{{"schemaVersion":1,"sidebarWidth":300,"windowWidth":1100,"windowHeight":760,{extra}}}"#)).unwrap();
         for (old, new) in LEGACY_STYLE_IDS {
             assert!(is_style(new), "{new}");
@@ -375,8 +372,7 @@ mod tests {
     /// A file with values this version does not know keeps everything else.
     #[test]
     fn unknown_values_fall_back_one_field_at_a_time() {
-        let dir = std::env::temp_dir().join(format!("mino-settings-fields-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap(); let dir = fs::canonicalize(dir).unwrap(); let file = dir.join("settings.json");
+        let dir = crate::fs::test_dir("settings-fields"); let file = dir.join("settings.json");
         fs::write(&file, br#"{"schemaVersion":1,"theme":"paper","sidebarWidth":300,"windowWidth":1300,"windowHeight":900,"language":"en-US","diagramStyle":"future-style","cjkFont":"sys:a;b","editorFontSize":99,"autoSave":true,"futureField":1,"nightTheme":"dusk","measure":"42"}"#).unwrap();
         let read = read_at(&file);
         assert!(valid(&read));
@@ -399,8 +395,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn linked_settings_are_ignored() {
-        let dir = std::env::temp_dir().join(format!("mino-settings-link-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fs::test_dir("settings-link");
         fs::write(dir.join("outside.json"), br#"{"schemaVersion":1,"theme":"dark","sidebarWidth":300,"windowWidth":1100,"windowHeight":760}"#).unwrap();
         std::os::unix::fs::symlink(dir.join("outside.json"), dir.join("settings.json")).unwrap();
         assert_eq!(read_at(&dir.join("settings.json")), Settings::default());

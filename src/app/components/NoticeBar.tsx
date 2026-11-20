@@ -1,6 +1,6 @@
 import { X } from 'lucide-react'
 import { translateStatus } from '../i18n'
-import { FocusTrap } from './FocusTrap'
+import { ModalBackdrop } from './FocusTrap'
 import type { DocumentWorkspace } from '../useDocumentWorkspace'
 
 export function NoticeBar({ workspace: w }: { workspace: DocumentWorkspace }) {
@@ -24,11 +24,11 @@ export function DiffDialog({ workspace: w }: { workspace: DocumentWorkspace }) {
   const { diskDiff, setDiskDiff, t } = w
   if (!diskDiff) return null
   const changes = diskDiff.lines?.filter((line) => line.kind !== 'same').slice(0, 2000)
-  return <FocusTrap><div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDiskDiff(null) }}>
+  return <ModalBackdrop onClose={() => setDiskDiff(null)}>
     <section className="drafts-dialog diff-dialog" role="dialog" aria-modal="true" aria-label={t('与磁盘版本的差异')}>
       <div className="settings-title"><h2>{t('与磁盘版本的差异')}</h2><button type="button" aria-label={t('关闭')} onClick={() => setDiskDiff(null)}><X aria-hidden="true" /></button></div>
       {changes === undefined ? <p>{t('差异过大，无法在此显示。')}</p> : changes.length === 0 ? <p>{t('内容相同。')}</p> : <pre className="diff-lines">{changes.map((line, index) => <div key={index} className={`diff-${line.kind}`}>{line.kind === 'added' ? '+ ' : '- '}{line.text}</div>)}</pre>}
       <p className="diff-legend">{t('“-”为磁盘版本，“+”为当前编辑内容。')}</p>
     </section>
-  </div></FocusTrap>
+  </ModalBackdrop>
 }

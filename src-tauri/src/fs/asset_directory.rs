@@ -42,9 +42,7 @@ fn valid_name(name: &OsStr) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 fn c_name(name: &OsStr) -> Result<std::ffi::CString, String> {
-    use std::os::unix::ffi::OsStrExt;
-    valid_name(name)?;
-    std::ffi::CString::new(name.as_bytes()).map_err(|_| "OUT_OF_SCOPE".into())
+    crate::fs::entry_c_name(name)
 }
 
 impl AssetDirectory {
@@ -53,14 +51,11 @@ impl AssetDirectory {
         if canonical != parent_path { return Err("OUT_OF_SCOPE".into()); }
         #[cfg(target_os = "macos")]
         {
-            use std::os::fd::AsRawFd;
+            
             let parent = crate::fs::open_directory(&canonical)?;
             let assets_name = c_name(OsStr::new("assets"))?;
             if create {
-                let created = unsafe { libc::mkdirat(parent.as_raw_fd(), assets_name.as_ptr(), 0o755) };
-                if created < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists {
-                    return Err("ASSET_WRITE_FAILED".into());
-                }
+                crate::fs::ensure_directory_at(&parent, &assets_name, 0o755).map_err(|_| "ASSET_WRITE_FAILED")?;
             }
             let assets = crate::fs::open_directory_at(&parent, &assets_name).map_err(|error| if error.kind() == std::io::ErrorKind::NotFound { "ASSET_NOT_FOUND" } else { "OUT_OF_SCOPE" })?;
             return Ok(Self { parent_path: canonical, parent, assets });
@@ -79,13 +74,12 @@ impl AssetDirectory {
         valid_name(name)?;
         #[cfg(target_os = "macos")]
         let file = {
-            use std::os::{fd::FromRawFd, fd::AsRawFd};
+            
             let name = c_name(name)?;
-            let fd = unsafe { libc::openat(self.assets.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW) };
-            if fd < 0 {
-                return if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound { Ok(None) } else { Err("OUT_OF_SCOPE".into()) };
+            match crate::fs::open_file_at(&self.assets, &name, 0) {
+                Ok(file) => file,
+                Err(error) => return if error.kind() == std::io::ErrorKind::NotFound { Ok(None) } else { Err("OUT_OF_SCOPE".into()) },
             }
-            unsafe { File::from_raw_fd(fd) }
         };
         #[cfg(not(target_os = "macos"))]
         let file = {
@@ -111,12 +105,10 @@ impl AssetDirectory {
         // failed write (a full disk) never leaves a truncated image under the name later saves would find.
         #[cfg(target_os = "macos")]
         {
-            use std::os::fd::{AsRawFd, FromRawFd};
+            use std::os::fd::AsRawFd;
             let entry = c_name(name)?;
             let temp = c_name(OsStr::new(&format!(".mino-asset-{}-{}.tmp", std::process::id(), NEXT_TEMP.fetch_add(1, Ordering::Relaxed))))?;
-            let fd = unsafe { libc::openat(self.assets.as_raw_fd(), temp.as_ptr(), libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW, 0o644) };
-            if fd < 0 { return Err("ASSET_WRITE_FAILED".into()); }
-            let mut file = unsafe { File::from_raw_fd(fd) };
+            let mut file = crate::fs::create_file_at(&self.assets, &temp, libc::O_WRONLY, 0o644).map_err(|_| "ASSET_WRITE_FAILED")?;
             let written = if fail_write() { Err(std::io::Error::other("injected")) } else { file.write_all(bytes).and_then(|_| file.sync_all()) };
             drop(file);
             let linked = written.is_ok() && unsafe { libc::linkat(self.assets.as_raw_fd(), temp.as_ptr(), self.assets.as_raw_fd(), entry.as_ptr(), 0) } == 0;
@@ -173,15 +165,8 @@ impl AssetDirectory {
     pub fn verify_location(&self) -> Result<(), String> {
         #[cfg(target_os = "macos")]
         {
-            use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
-            let expected_parent = self.parent.metadata().map_err(|_| "OUT_OF_SCOPE")?;
-            let actual_parent = fs::symlink_metadata(&self.parent_path).map_err(|_| "OUT_OF_SCOPE")?;
-            if !actual_parent.is_dir() || expected_parent.dev() != actual_parent.dev() || expected_parent.ino() != actual_parent.ino() { return Err("OUT_OF_SCOPE".into()); }
-            let mut child: libc::stat = unsafe { std::mem::zeroed() };
-            let name = c_name(OsStr::new("assets"))?;
-            if unsafe { libc::fstatat(self.parent.as_raw_fd(), name.as_ptr(), &mut child, libc::AT_SYMLINK_NOFOLLOW) } < 0 { return Err("OUT_OF_SCOPE".into()); }
-            let expected_assets = self.assets.metadata().map_err(|_| "OUT_OF_SCOPE")?;
-            if child.st_dev as u64 != expected_assets.dev() || child.st_ino as u64 != expected_assets.ino() { return Err("OUT_OF_SCOPE".into()); }
+            crate::fs::still_at(&self.parent_path, &self.parent, "OUT_OF_SCOPE")?;
+            crate::fs::still_entry(&self.parent, &c_name(OsStr::new("assets"))?, &self.assets, "OUT_OF_SCOPE")?;
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -195,13 +180,9 @@ impl AssetDirectory {
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT: AtomicU64 = AtomicU64::new(1);
 
     fn sample() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("mino-asset-dir-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
-        fs::create_dir(&dir).unwrap();
-        fs::canonicalize(dir).unwrap()
+        crate::fs::test_dir("asset-dir")
     }
 
     #[test]

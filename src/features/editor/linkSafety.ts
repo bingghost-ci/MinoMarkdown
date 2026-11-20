@@ -5,3 +5,8 @@ export function safeLinkHref(raw: string): string | null {
   if (scheme && !['http', 'https', 'mailto'].includes(scheme)) return null
   return href
 }
+
+/** Whether a link leaves the app: a web or mail address, which macOS opens, as against a file beside the document or a place in it. */
+export function isExternalHref(href: string): boolean {
+  return /^(https?|mailto):/i.test(href)
+}

@@ -162,17 +162,14 @@ fn write_retaining(root: &Path, draft_id: &str, name: &str, target_path: Option<
 #[cfg(target_os = "macos")]
 #[allow(clippy::too_many_arguments)]
 fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<String>, base_disk_revision: Option<String>, markdown: &str, assets: Vec<DraftAsset>, retained: &[String]) -> Result<(), String> {
-    use std::{ffi::{CString, OsStr}, os::{fd::{AsRawFd, FromRawFd}, unix::fs::MetadataExt}};
+    use std::{ffi::{CString, OsStr}, os::fd::AsRawFd};
     use macos_tree::{name as entry, same_entry as identity};
     fn make_dir(parent: &File, name: &CString) -> Result<File, String> {
-        let made = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) };
-        if made < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists { return Err("IO_ERROR".into()); }
+        crate::fs::ensure_directory_at(parent, name, 0o700).map_err(|_| "IO_ERROR")?;
         crate::fs::open_directory_at(parent, name).map_err(|_| "OUT_OF_SCOPE".into())
     }
     fn write_file(parent: &File, name: &CString, bytes: &[u8]) -> Result<(), String> {
-        let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC, 0o600) };
-        if fd < 0 { return Err("IO_ERROR".into()); }
-        let mut file = unsafe { File::from_raw_fd(fd) };
+        let mut file = crate::fs::create_file_at(parent, name, libc::O_WRONLY, 0o600).map_err(|_| "IO_ERROR")?;
         file.write_all(bytes).and_then(|_| file.sync_all()).map_err(|_| "IO_ERROR".into())
     }
     let mut records = Vec::with_capacity(assets.len() + retained.len());
@@ -182,8 +179,7 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
         records.push(AssetRecord { url: asset.url.clone(), mime: asset.mime.clone(), filename: format!("asset-{index:03}-{}.bin", &sha256[..24]), sha256 });
     }
     let root_parent = root.parent().ok_or("INVALID_PATH")?;
-    if fs::canonicalize(root_parent).map_err(|_| "OUT_OF_SCOPE")? != root_parent { return Err("OUT_OF_SCOPE".into()); }
-    let app_data = crate::fs::open_directory(root_parent)?;
+    let app_data = crate::fs::open_canonical_directory(root_parent, "OUT_OF_SCOPE")?;
     let root_name = entry(root.file_name().ok_or("INVALID_PATH")?)?;
     let root_dir = make_dir(&app_data, &root_name)?;
     let draft_name = entry(OsStr::new(draft_id))?;
@@ -209,7 +205,7 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
     let snapshot_id = format!("{:020}-{:010}", sequence, NEXT_SNAPSHOT.fetch_add(1, Ordering::Relaxed));
     let staging_name = entry(OsStr::new(&format!(".staging-{snapshot_id}")))?;
     let published_name = entry(OsStr::new(&format!("snapshot-{snapshot_id}")))?;
-    if unsafe { libc::mkdirat(folder.as_raw_fd(), staging_name.as_ptr(), 0o700) } < 0 { return Err("IO_ERROR".into()); }
+    crate::fs::make_directory_at(&folder, &staging_name, 0o700).map_err(|_| "IO_ERROR")?;
     let staging = crate::fs::open_directory_at(&folder, &staging_name).map_err(|_| "OUT_OF_SCOPE")?;
     let asset_dir = make_dir(&staging, &entry(OsStr::new("assets"))?)?;
     for (asset, record) in assets.iter().zip(&manifest.assets) { write_file(&asset_dir, &entry(OsStr::new(&record.filename))?, &asset.bytes)?; }
@@ -231,9 +227,7 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
     identity(&folder, &published_name, &staging)?;
     identity(&root_dir, &draft_name, &folder)?;
     identity(&app_data, &root_name, &root_dir)?;
-    let root_parent_meta = fs::symlink_metadata(root_parent).map_err(|_| "COMMIT_UNCERTAIN")?;
-    let app_data_meta = app_data.metadata().map_err(|_| "COMMIT_UNCERTAIN")?;
-    if !root_parent_meta.is_dir() || root_parent_meta.dev() != app_data_meta.dev() || root_parent_meta.ino() != app_data_meta.ino() { return Err("COMMIT_UNCERTAIN".into()); }
+    crate::fs::still_at(root_parent, &app_data, "COMMIT_UNCERTAIN")?;
     // The new snapshot is durable; failing to trim older ones must not fail the write.
     let _ = macos_tree::prune(&folder, KEEP_SNAPSHOTS);
     Ok(())
@@ -296,7 +290,7 @@ pub fn read_draft(app: AppHandle, window: WebviewWindow, staging: State<'_, Stag
 #[cfg(target_os = "macos")]
 mod macos_read {
     use super::*;
-    use std::{ffi::{CStr, CString, OsStr, OsString}, io::Read, os::{fd::{AsRawFd, FromRawFd}, unix::ffi::{OsStrExt, OsStringExt}}};
+    use std::{ffi::{CString, OsStr, OsString}, io::Read, os::unix::ffi::OsStrExt};
 
     fn name(value: &OsStr) -> Result<CString, String> { CString::new(value.as_bytes()).map_err(|_| "CORRUPT_DRAFT".into()) }
     fn open_dir(parent: &File, entry: &CString) -> Result<File, String> {
@@ -304,34 +298,14 @@ mod macos_read {
     }
     fn root_dir(root: &Path) -> Result<File, String> {
         let parent = root.parent().ok_or("INVALID_PATH")?;
-        if fs::canonicalize(parent).map_err(|_| "OUT_OF_SCOPE")? != parent { return Err("OUT_OF_SCOPE".into()); }
-        let app_data = crate::fs::open_directory(parent)?;
+        let app_data = crate::fs::open_canonical_directory(parent, "OUT_OF_SCOPE")?;
         open_dir(&app_data, &name(root.file_name().ok_or("INVALID_PATH")?)?)
     }
     fn entries(folder: &File) -> Result<Vec<OsString>, String> {
-        let duplicate = unsafe { libc::dup(folder.as_raw_fd()) };
-        if duplicate < 0 { return Err("CORRUPT_DRAFT".into()); }
-        // A dup shares the read offset, so a directory listed earlier through this handle must be rewound.
-        unsafe { libc::lseek(duplicate, 0, libc::SEEK_SET); }
-        let stream = unsafe { libc::fdopendir(duplicate) };
-        if stream.is_null() { unsafe { libc::close(duplicate); } return Err("CORRUPT_DRAFT".into()); }
-        let mut names = Vec::new();
-        loop {
-            unsafe { *libc::__error() = 0; }
-            let entry = unsafe { libc::readdir(stream) };
-            if entry.is_null() {
-                let failed = unsafe { *libc::__error() != 0 };
-                unsafe { libc::closedir(stream); }
-                return if failed { Err("CORRUPT_DRAFT".into()) } else { Ok(names) };
-            }
-            let bytes = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
-            if bytes != b"." && bytes != b".." { names.push(OsString::from_vec(bytes.to_vec())); }
-        }
+        crate::fs::directory_entries(folder).map_err(|_| "CORRUPT_DRAFT".into())
     }
     fn read_file(parent: &File, entry: &CString, limit: u64) -> Result<Vec<u8>, String> {
-        let fd = unsafe { libc::openat(parent.as_raw_fd(), entry.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
-        if fd < 0 { return Err("CORRUPT_DRAFT".into()); }
-        let mut file = unsafe { File::from_raw_fd(fd) };
+        let mut file = crate::fs::open_file_at(parent, entry, 0).map_err(|_| "CORRUPT_DRAFT")?;
         let before = file.metadata().map_err(|_| "CORRUPT_DRAFT")?;
         if !before.is_file() || before.len() > limit { return Err("CORRUPT_DRAFT".into()); }
         let mut bytes = Vec::new();
@@ -417,7 +391,7 @@ pub fn discard_draft(app: AppHandle, window: WebviewWindow, draft_id: String) ->
 #[cfg(target_os = "macos")]
 mod macos_tree {
     use super::*;
-    use std::{ffi::{CStr, CString, OsStr, OsString}, os::{fd::AsRawFd, unix::{ffi::{OsStrExt, OsStringExt}, fs::MetadataExt}}};
+    use std::{ffi::{CString, OsStr, OsString}, os::{fd::AsRawFd, unix::ffi::OsStrExt}};
     /// A file name as the system calls take it.
     pub(super) fn name(value: &OsStr) -> Result<CString, String> { CString::new(value.as_bytes()).map_err(|_| "OUT_OF_SCOPE".into()) }
     fn open_dir(parent: &File, entry: &CString) -> Result<File, String> {
@@ -425,31 +399,10 @@ mod macos_tree {
     }
     /// Whether `entry` of `parent` is still the directory that was opened, and not something put in its place since.
     pub(super) fn same_entry(parent: &File, entry: &CString, opened: &File) -> Result<(), String> {
-        let mut current: libc::stat = unsafe { std::mem::zeroed() };
-        if unsafe { libc::fstatat(parent.as_raw_fd(), entry.as_ptr(), &mut current, libc::AT_SYMLINK_NOFOLLOW) } < 0 { return Err("COMMIT_UNCERTAIN".into()); }
-        let held = opened.metadata().map_err(|_| "COMMIT_UNCERTAIN")?;
-        if current.st_dev as u64 != held.dev() || current.st_ino as u64 != held.ino() { return Err("COMMIT_UNCERTAIN".into()); }
-        Ok(())
+        crate::fs::still_entry(parent, entry, opened, "COMMIT_UNCERTAIN")
     }
     pub(super) fn entries(folder: &File) -> Result<Vec<OsString>, String> {
-        let duplicate = unsafe { libc::dup(folder.as_raw_fd()) };
-        if duplicate < 0 { return Err("IO_ERROR".into()); }
-        // A dup shares the read offset, so a directory listed earlier through this handle must be rewound.
-        unsafe { libc::lseek(duplicate, 0, libc::SEEK_SET); }
-        let stream = unsafe { libc::fdopendir(duplicate) };
-        if stream.is_null() { unsafe { libc::close(duplicate); } return Err("IO_ERROR".into()); }
-        let mut names = Vec::new();
-        loop {
-            unsafe { *libc::__error() = 0; }
-            let entry = unsafe { libc::readdir(stream) };
-            if entry.is_null() {
-                let failed = unsafe { *libc::__error() != 0 };
-                unsafe { libc::closedir(stream); }
-                return if failed { Err("IO_ERROR".into()) } else { Ok(names) };
-            }
-            let bytes = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
-            if bytes != b"." && bytes != b".." { names.push(OsString::from_vec(bytes.to_vec())); }
-        }
+        crate::fs::directory_entries(folder).map_err(|_| "IO_ERROR".into())
     }
     pub(super) fn remove_tree(folder: &File) -> Result<(), String> {
         for item in entries(folder)? {
@@ -492,15 +445,14 @@ fn discard_at(root: &Path, draft_id: &str) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 fn discard_at(root: &Path, draft_id: &str) -> Result<(), String> {
-    use std::{ffi::{CString, OsStr}, os::{fd::AsRawFd, unix::fs::MetadataExt}};
+    use std::{ffi::{CString, OsStr}, os::fd::AsRawFd};
     use macos_tree::{name, same_entry};
     fn open_dir(parent: &File, entry: &CString) -> Result<File, String> {
         crate::fs::open_directory_at(parent, entry).map_err(|error| if error.kind() == std::io::ErrorKind::NotFound { "NOT_FOUND" } else { "OUT_OF_SCOPE" }.into())
     }
     if !valid_id(draft_id) { return Err("INVALID_DRAFT".into()); }
     let parent = root.parent().ok_or("INVALID_PATH")?;
-    if fs::canonicalize(parent).map_err(|_| "OUT_OF_SCOPE")? != parent { return Err("OUT_OF_SCOPE".into()); }
-    let app_data = crate::fs::open_directory(parent)?;
+    let app_data = crate::fs::open_canonical_directory(parent, "OUT_OF_SCOPE")?;
     let root_name = name(root.file_name().ok_or("INVALID_PATH")?)?;
     let drafts = match open_dir(&app_data, &root_name) { Ok(dir) => dir, Err(code) if code == "NOT_FOUND" => return Ok(()), Err(code) => return Err(code) };
     let draft_name = name(OsStr::new(draft_id))?;
@@ -508,9 +460,7 @@ fn discard_at(root: &Path, draft_id: &str) -> Result<(), String> {
     macos_tree::remove_tree(&folder)?;
     same_entry(&drafts, &draft_name, &folder)?;
     same_entry(&app_data, &root_name, &drafts)?;
-    let held = app_data.metadata().map_err(|_| "COMMIT_UNCERTAIN")?;
-    let current = fs::symlink_metadata(parent).map_err(|_| "COMMIT_UNCERTAIN")?;
-    if held.dev() != current.dev() || held.ino() != current.ino() { return Err("COMMIT_UNCERTAIN".into()); }
+    crate::fs::still_at(parent, &app_data, "COMMIT_UNCERTAIN")?;
     if unsafe { libc::unlinkat(drafts.as_raw_fd(), draft_name.as_ptr(), libc::AT_REMOVEDIR) } < 0 { return Err("COMMIT_UNCERTAIN".into()); }
     drafts.sync_all().map_err(|_| "COMMIT_UNCERTAIN".into())
 }
@@ -518,7 +468,7 @@ fn discard_at(root: &Path, draft_id: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn temp() -> PathBuf { let p = std::env::temp_dir().join(format!("mino-draft-{}-{}", std::process::id(), NEXT_SNAPSHOT.fetch_add(1, Ordering::Relaxed))); fs::create_dir(&p).unwrap(); fs::canonicalize(p).unwrap() }
+    fn temp() -> PathBuf { crate::fs::test_dir("draft") }
     #[test]
     fn recovers_previous_complete_snapshot_after_corruption() {
         let root = temp(); let id = "draft-12345678";

@@ -6,7 +6,7 @@ import type { DocumentWorkspace } from '../useDocumentWorkspace'
 import type { AiTurn } from '../aiAssistant'
 import { providerLabels } from '../../features/ai/client'
 import { presets, selectionActions } from '../../features/ai/prompts'
-import { FocusTrap } from './FocusTrap'
+import { ModalBackdrop } from './FocusTrap'
 
 function host(baseUrl: string): string {
   try { return new URL(baseUrl).host } catch { return baseUrl }
@@ -84,7 +84,7 @@ export function AiDrawer({ workspace: w }: { workspace: DocumentWorkspace }) {
 export function AiConsentDialog({ workspace: w }: { workspace: DocumentWorkspace }) {
   const { ai, t } = w
   if (!ai.consentOpen) return null
-  return <FocusTrap><div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) ai.setConsentOpen(false) }}>
+  return <ModalBackdrop onClose={() => ai.setConsentOpen(false)}>
     <section className="consent-dialog" role="alertdialog" aria-modal="true" aria-labelledby="ai-consent-title">
       <h2 id="ai-consent-title">{t('开启 AI 功能')}</h2>
       <p>{t('Mino 默认不联网。开启后，只有在你点击提问、摘要或处理选中文字时，才会把下列内容发送到你配置的服务：')}</p>
@@ -96,5 +96,5 @@ export function AiConsentDialog({ workspace: w }: { workspace: DocumentWorkspace
       <p>{t('图片和其他文件不会发送。API 密钥保存在 macOS 钥匙串里。对方如何保存和使用这些内容，由该服务的条款决定。可随时在设置里关闭。')}</p>
       <div className="consent-actions"><button type="button" onClick={() => ai.setConsentOpen(false)}>{t('取消')}</button><button type="button" className="primary" autoFocus onClick={() => void ai.confirmConsent()}>{t('同意并开启')}</button></div>
     </section>
-  </div></FocusTrap>
+  </ModalBackdrop>
 }

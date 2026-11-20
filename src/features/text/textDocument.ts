@@ -1,3 +1,4 @@
+import { HEAD_CHARS, QUICK_READ_CHARS } from '../document/largeDocument'
 import type { OutlineItem } from '../outline/outline'
 
 /**
@@ -8,9 +9,10 @@ import type { OutlineItem } from '../outline/outline'
 
 /** Long texts are cut into sections the browser can leave out of layout while they are off screen. */
 export const CHUNK_BLOCKS = 80
-export const CHUNKED_FROM_CHARS = 200_000
+/** A text is long from the size at which a Markdown document is, and its first screens are as many characters. */
+export const CHUNKED_FROM_CHARS = QUICK_READ_CHARS
 /** About the first dozen screens, shown while the whole text is prepared. */
-export const TEXT_HEAD_CHARS = 48_000
+export const TEXT_HEAD_CHARS = HEAD_CHARS
 
 const NUMERAL = '0-9０-９零〇一二两兩三四五六七八九十百千万萬壹贰貳叁參肆伍陆陸柒捌玖拾佰仟'
 const chinese = new RegExp(`^第[${NUMERAL}]{1,9}([章回节節卷部篇集幕话話册冊])(?:$|[\\s　:：、.．·\\-—]|[^\\s　，。,；;！!？?]{1,30}$)`)

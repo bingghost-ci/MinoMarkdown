@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { X } from 'lucide-react'
-import { FocusTrap } from './FocusTrap'
+import { ModalBackdrop } from './FocusTrap'
 import type { Settings, SettingsHost } from '../useDocumentWorkspace'
 import { MAX_EDITOR_FONT_SIZE, MIN_EDITOR_FONT_SIZE, zoomedFontSize } from '../textZoom'
 import { translateStatus, type Language } from '../i18n'
@@ -8,11 +8,11 @@ import { readingStyles, type ReadingStyle } from '../../features/reading/styles'
 // The diagrams page brings the looks with it, so it loads when the page is opened, not with the window.
 const DiagramSettings = lazy(() => import('./DiagramSettings').then((module) => ({ default: module.DiagramSettings })))
 import { modelChoices, providerHasKey, providerIds, providerLabels, type AiProvider } from '../../features/ai/client'
-import { codeColorIds, codeColorLabels, codePalette, isHexColor, noCustomCodeColors, syntaxRoleLabels, withCustomColor, type CodeColors, type CustomCodeColors } from '../../features/reading/codeColors'
+import { codeColorIds, codeColorLabels, codePalette, noCustomCodeColors, syntaxRoleLabels, withCustomColor, type CodeColors, type CustomCodeColors } from '../../features/reading/codeColors'
 import type { SyntaxRole } from '../../core/markdown/syntaxRoleNames'
-import { parseHex, toHex } from '../../features/reading/color'
 import { StyleSwatches } from './AppearancePanel'
 import { FontPicker } from './FontPicker'
+import { ColorPalette } from './ColorPalette'
 import { Row, Segmented, ToggleRow } from './settingsControls'
 import { editorWidthOptions, lineHeightOptions } from '../readingSettings'
 
@@ -48,7 +48,6 @@ const customSample: readonly (readonly (readonly [SyntaxRole | null, string])[])
   [['heading', '# 标题']],
 ]
 
-const channels = [['红', 'R'], ['绿', 'G'], ['蓝', 'B']] as const
 
 /**
  * The user's own colors (T111). The colors edited are those of the kind of style in use, day or night, since one
@@ -71,7 +70,6 @@ function CustomCodeColorsEditor({ style, custom, onChange, t }: { style: Reading
   const half = (style.dark ? custom.night : custom.day) ?? {}
   const changed = Object.keys(half).length > 0 || live !== null
   const color = palette[role]
-  const rgb = parseHex(color)
   const label = syntaxRoleLabels.find(([id]) => id === role)?.[1] ?? ''
 
   const commit = (target: SyntaxRole, dark: boolean, value: string | null) => {
@@ -108,27 +106,7 @@ function CustomCodeColorsEditor({ style, custom, onChange, t }: { style: Reading
         <i style={{ background: palette[id] }} /><span>{t(name)}</span>{Object.hasOwn(half, id) && <b aria-label={t('已修改')} title={t('已修改')} />}
       </button>)}
     </div>
-    <div className="code-palette" role="group" aria-label={`${t('调色板')}: ${t(label)}`}>
-      <div className="code-palette-head">
-        <i style={{ background: color }} />
-        <strong>{t(label)}</strong>
-        <input key={color} type="text" aria-label={t('色值')} defaultValue={color} maxLength={7} spellCheck={false}
-          onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
-          onBlur={(event) => { const value = event.target.value.trim(); if (isHexColor(value)) { if (value.toLowerCase() !== color) commit(role, style.dark, value) } else event.target.value = color }} />
-        <button type="button" disabled={!Object.hasOwn(half, role) && !live} onClick={() => commit(role, style.dark, null)}>{t('恢复默认')}</button>
-      </div>
-      {channels.map(([name, letter], index) => {
-        const at = (value: number) => toHex(rgb.map((channel, i) => (i === index ? value : channel)) as [number, number, number])
-        return <label key={letter} className="code-palette-channel">
-          <span title={t(name)}>{letter}</span>
-          <input type="range" min={0} max={255} step={1} aria-label={t(name)} value={rgb[index]} style={{ background: `linear-gradient(to right, ${at(0)}, ${at(255)})` }} onChange={(event) => mix(at(Number(event.target.value)))} />
-          <output>{rgb[index]}</output>
-        </label>
-      })}
-      <div className="code-palette-quick" role="group" aria-label={t('常用颜色')}>
-        {quick.map((value) => <button key={value} type="button" title={value} aria-label={value} aria-pressed={value === color} style={{ background: value }} onClick={() => commit(role, style.dark, value)} />)}
-      </div>
-    </div>
+    <ColorPalette t={t} label={t(label)} color={color} canReset={Object.hasOwn(half, role) || live !== null} quick={quick} onMix={mix} onCommit={(value) => commit(role, style.dark, value)} />
     <div className="code-custom-actions">
       <label>{t('从一套配色开始')}<select value={source} onChange={(event) => setSource(event.target.value as CodeColors)}>{codeColorIds.filter((id) => id !== 'custom').map((id) => <option key={id} value={id}>{t(codeColorLabels[id].name)}</option>)}</select></label>
       <button type="button" onClick={() => replaceHalf(source === 'auto' ? {} : codePalette(source, style))}>{t('套用')}</button>
@@ -242,12 +220,12 @@ export function SettingsDialog({ workspace: w, windowed = false, documentKind }:
   const following = settings.theme === 'system'
   const frame = (pages: ReactNode) => windowed
     ? <main className="settings-dialog settings-window" aria-label={t('设置')}>{pages}</main>
-    : <FocusTrap><div className={drag.moved ? 'settings-backdrop is-moved' : 'settings-backdrop'} onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}>
+    : <ModalBackdrop className={drag.moved ? 'settings-backdrop is-moved' : 'settings-backdrop'} onClose={() => setSettingsOpen(false)}>
       <section ref={drag.dialog} className="settings-dialog" role="dialog" aria-modal="true" aria-label={t('设置')}>
         <header className="settings-title" title={t('拖动标题可以移开对话框，双击回到中间')} onPointerDown={drag.onPointerDown} onDoubleClick={(event) => { if (!(event.target as HTMLElement).closest('button')) drag.reset() }}><div><h2>{t('设置')}</h2><p>{t('自定义阅读、写作和工作区')}</p></div><button type="button" aria-label={t('关闭设置')} onClick={() => setSettingsOpen(false)}><X aria-hidden="true" /></button></header>
         {pages}
       </section>
-    </div></FocusTrap>
+    </ModalBackdrop>
   return frame(<>
       <nav className="settings-tabs" aria-label={t('设置分类')}>
         {([['appearance', '外观'], ['code', '代码配色'], ['diagrams', '图表'], ['typography', '排版'], ['reading', '阅读与导出'], ['workspace', '工作区'], ['ai', 'AI']] as const).map(([key, label]) => <button key={key} type="button" aria-current={settingsTab === key ? 'page' : undefined} onClick={() => setSettingsTab(key)}>{t(label)}</button>)}

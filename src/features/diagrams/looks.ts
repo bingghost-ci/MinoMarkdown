@@ -285,7 +285,7 @@ export function diagramVariables(styleId: string, look: DiagramLook = defaultDia
   const outlined = { secondaryBorderColor: tone.border, activationBorderColor: tone.border, noteBorderColor: tone.border, pieStrokeColor: tone.border, pieStrokeWidth: '1.4px', pieOuterStrokeColor: tone.border, pieOuterStrokeWidth: '1.4px' }
   switch (look) {
     case 'ink': {
-      const pies = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`pie${index + 1}`, mix(style.paper, style.text, 0.12 + (index % 6) * 0.13)]))
+      const pies = pieColors((index) => mix(style.paper, style.text, 0.12 + (index % 6) * 0.13))
       return {
         ...base, ...pies, ...outlined,
         secondaryColor: tone.node, tertiaryColor: tone.node, tertiaryBorderColor: tone.border,
@@ -312,7 +312,7 @@ export function diagramVariables(styleId: string, look: DiagramLook = defaultDia
         ...base, secondaryColor: mix(tone.ground, tone.second, 0.12), secondaryBorderColor: tone.second,
         clusterBkg: mix(tone.ground, tone.accent, 0.04), clusterBorder: tone.frame,
         noteBkgColor: mix(tone.ground, tone.second, 0.12), noteBorderColor: tone.second, actorLineColor: mix(tone.accent, tone.ground, 0.5),
-        ...Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`pie${index + 1}`, mix(tone.ground, fromHsl(toHsl(tone.accent)[0] + index * 47, 0.9, 0.6), 0.75)])),
+        ...pieColors((index) => mix(tone.ground, fromHsl(toHsl(tone.accent)[0] + index * 47, 0.9, 0.6), 0.75)),
         pieStrokeColor: tone.ground, pieOuterStrokeColor: tone.accent,
       }
     default:
@@ -323,28 +323,32 @@ export function diagramVariables(styleId: string, look: DiagramLook = defaultDia
 /** Shapes of nodes in the diagrams Mermaid draws; corners and outlines are set on these. */
 const NODE = '.node rect, .node polygon, .node circle, .node ellipse, .node path, rect.actor, .classGroup rect, g.classGroup line, .statediagram-state rect, rect.note, .er.entityBox'
 const ROUND_NODE = '.node rect, rect.actor, .classGroup rect, .statediagram-state rect, rect.note'
+/** Mermaid's twelve pie colors, `pie1` to `pie12`, each from its place in the round. */
+const pieColors = (color: (index: number) => string) => Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`pie${index + 1}`, color(index)]))
 /** Edges drawn plain, which the edge pattern applies to. Edges the diagram itself draws dashed or dotted keep their pattern. */
 const PLAIN_EDGE = '.flowchart-link.edge-pattern-solid, .messageLine0, .relation:not(.dashed-line):not(.dotted-line), .transition, .er.relationshipLine'
 const EDGE = '.flowchart-link, .messageLine0, .messageLine1, .relation, .transition, .er.relationshipLine'
 const LABEL = '.nodeLabel, .label text, .actor tspan, .classTitle, .cluster-label text, .messageText, .noteText'
+/** Edge labels keep a solid background, so the line they sit on does not run through the words. */
+const OPAQUE_EDGE_LABELS = '.edgeLabel rect,.edgeLabel .label rect{opacity:1}'
 
 function lookCss(tone: DiagramTone, look: DiagramLook): string {
   switch (look) {
     case 'page': return `${ROUND_NODE}{rx:5px;ry:5px}${EDGE}{stroke-width:1.2px}`
-    case 'color': return `${ROUND_NODE}{rx:10px;ry:10px}${NODE}{stroke-width:1.7px}${EDGE}{stroke-width:1.7px}.cluster rect{rx:14px;ry:14px;stroke-width:1.5px;stroke-dasharray:6 5}.edgeLabel rect,.edgeLabel .label rect{opacity:1}${LABEL}{font-weight:600}`
-    case 'ink': return `${ROUND_NODE}{rx:9px;ry:9px}${NODE}{stroke-width:2.2px}${EDGE}{stroke-width:1.7px}.actor-line{stroke-width:1.2px}.cluster rect{rx:12px;ry:12px;stroke-dasharray:6 5;stroke-width:1.4px}.edgeLabel rect,.edgeLabel .label rect{opacity:1}${LABEL}{font-weight:700}`
+    case 'color': return `${ROUND_NODE}{rx:10px;ry:10px}${NODE}{stroke-width:1.7px}${EDGE}{stroke-width:1.7px}.cluster rect{rx:14px;ry:14px;stroke-width:1.5px;stroke-dasharray:6 5}${OPAQUE_EDGE_LABELS}${LABEL}{font-weight:600}`
+    case 'ink': return `${ROUND_NODE}{rx:9px;ry:9px}${NODE}{stroke-width:2.2px}${EDGE}{stroke-width:1.7px}.actor-line{stroke-width:1.2px}.cluster rect{rx:12px;ry:12px;stroke-dasharray:6 5;stroke-width:1.4px}${OPAQUE_EDGE_LABELS}${LABEL}{font-weight:700}`
     // One pen stroke: `sketch.ts` reads these widths back.
-    case 'hand': return `${ROUND_NODE}{rx:9px;ry:9px}${NODE}{stroke-width:2px}${EDGE}{stroke-width:1.8px}.actor-line{stroke-width:1.3px}.cluster rect{rx:14px;ry:14px;stroke-dasharray:2 7;stroke-linecap:round;stroke-width:2.2px}.edgeLabel rect,.edgeLabel .label rect{opacity:1}`
-    case 'pencil': return `${ROUND_NODE}{rx:3px;ry:3px}${NODE}{stroke-width:1.1px}${EDGE}{stroke-width:1.1px}.actor-line{stroke-width:0.9px}.cluster rect{rx:4px;ry:4px;stroke-dasharray:7 5;stroke-width:1px}.edgeLabel rect,.edgeLabel .label rect{opacity:1}`
-    case 'chalk': return `${ROUND_NODE}{rx:8px;ry:8px}${NODE}{stroke-width:2.4px}${EDGE}{stroke-width:2.2px}.actor-line{stroke-width:1.6px}.cluster rect{rx:12px;ry:12px;stroke-dasharray:10 9;stroke-width:2px}.edgeLabel rect,.edgeLabel .label rect{opacity:1}${LABEL}{letter-spacing:0.02em}`
+    case 'hand': return `${ROUND_NODE}{rx:9px;ry:9px}${NODE}{stroke-width:2px}${EDGE}{stroke-width:1.8px}.actor-line{stroke-width:1.3px}.cluster rect{rx:14px;ry:14px;stroke-dasharray:2 7;stroke-linecap:round;stroke-width:2.2px}${OPAQUE_EDGE_LABELS}`
+    case 'pencil': return `${ROUND_NODE}{rx:3px;ry:3px}${NODE}{stroke-width:1.1px}${EDGE}{stroke-width:1.1px}.actor-line{stroke-width:0.9px}.cluster rect{rx:4px;ry:4px;stroke-dasharray:7 5;stroke-width:1px}${OPAQUE_EDGE_LABELS}`
+    case 'chalk': return `${ROUND_NODE}{rx:8px;ry:8px}${NODE}{stroke-width:2.4px}${EDGE}{stroke-width:2.2px}.actor-line{stroke-width:1.6px}.cluster rect{rx:12px;ry:12px;stroke-dasharray:10 9;stroke-width:2px}${OPAQUE_EDGE_LABELS}${LABEL}{letter-spacing:0.02em}`
     // Cards on a sheet: `dress.ts` finishes the frames, the accent edges and the dark blocks.
     case 'program': return `${ROUND_NODE}{rx:7px;ry:7px}${NODE}{stroke-width:1px}${EDGE}{stroke-width:1.4px}.cluster rect{rx:11px;ry:11px;stroke-dasharray:5 4;stroke-width:1.3px;fill:none}`
-      + `.cluster-label text{font-weight:700;font-size:15px}.edgeLabel rect,.edgeLabel .label rect{opacity:1}.nodeLabel,.label text{font-weight:500}`
+      + `.cluster-label text{font-weight:700;font-size:15px}${OPAQUE_EDGE_LABELS}.nodeLabel,.label text{font-weight:500}`
     case 'scifi': {
       const glow = `drop-shadow(0 0 2px ${tone.accent}) drop-shadow(0 0 7px ${tone.accent}a0)`
       return `${NODE}{stroke-width:1.4px}${EDGE}{stroke-width:1.5px;filter:${glow}}`
         + `.cluster rect{stroke-width:1px;stroke-dasharray:1 6;stroke-linecap:round}.arrowheadPath,.marker,marker path{fill:${tone.accent}!important;stroke:${tone.accent}!important}`
-        + `${LABEL}{font-weight:600;letter-spacing:0.08em;filter:drop-shadow(0 0 3px ${tone.accent}90)}.cluster-label text{font-size:12px;letter-spacing:0.18em}.edgeLabel rect,.edgeLabel .label rect{opacity:1}.edgeLabel text{fill:${tone.second};font-size:12px}`
+        + `${LABEL}{font-weight:600;letter-spacing:0.08em;filter:drop-shadow(0 0 3px ${tone.accent}90)}.cluster-label text{font-size:12px;letter-spacing:0.18em}${OPAQUE_EDGE_LABELS}.edgeLabel text{fill:${tone.second};font-size:12px}`
         + `.actor-line{stroke-dasharray:2 5}.messageText,.noteText{fill:${tone.text}}`
     }
   }

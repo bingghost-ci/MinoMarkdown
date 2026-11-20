@@ -17,8 +17,7 @@ case "${1:-}" in
 esac
 
 require_commands npm node rustc cargo lipo ditto unzip plutil dwarfdump
-version=$(version_of src-tauri/tauri.conf.json)
-[ -n "$version" ] || die 'Could not read the version from src-tauri/tauri.conf.json.'
+require_version
 archive=$(archive_for "$version")
 log_info "Building Mino $version"
 
@@ -27,16 +26,7 @@ rm -rf "$bundle_dir" "$dsym" "$sourcemap_dir" "$project_dir/dist"
 rm -f "$release_binary" "$manifest" "$package_dir"/Mino-*-macos-arm64-unsigned.zip
 log_ok 'Previous build output removed; dependencies and Cargo caches kept'
 
-log_step 'Checking dependencies'
-if [ -x node_modules/.bin/tauri ]; then
-  log_info 'npm dependencies are present'
-else
-  log_info 'Installing npm dependencies from package-lock.json'
-  npm ci --no-audit --no-fund
-fi
-
-log_step 'Checking the Apple Silicon toolchain'
-npm run archcheck
+ensure_toolchain
 
 log_step 'Compiling the release app'
 # --locked makes Cargo stop instead of changing Cargo.lock.

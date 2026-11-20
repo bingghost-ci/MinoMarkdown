@@ -60,16 +60,12 @@ pub(crate) fn valid_rename(current: &Path, name: &str, directory: bool) -> bool 
 
 #[cfg(target_os = "macos")]
 fn directory_handle(parent: &Path) -> Result<fs::File, String> {
-    if fs::canonicalize(parent).map_err(|_| "OUT_OF_SCOPE")? != parent { return Err("OUT_OF_SCOPE".into()); }
-    crate::fs::open_directory(parent)
+    crate::fs::open_canonical_directory(parent, "OUT_OF_SCOPE")
 }
 
 #[cfg(target_os = "macos")]
 fn entry_name(name: &std::ffi::OsStr) -> Result<std::ffi::CString, String> {
-    use std::os::unix::ffi::OsStrExt;
-    let mut parts = Path::new(name).components();
-    if !matches!(parts.next(), Some(std::path::Component::Normal(_))) || parts.next().is_some() { return Err("OUT_OF_SCOPE".into()); }
-    std::ffi::CString::new(name.as_bytes()).map_err(|_| "OUT_OF_SCOPE".into())
+    crate::fs::entry_c_name(name)
 }
 
 #[cfg(target_os = "macos")]
@@ -82,11 +78,7 @@ fn entry_stat(directory: &fs::File, name: &std::ffi::CString) -> Result<Option<l
 
 #[cfg(target_os = "macos")]
 fn same_directory(parent: &Path, directory: &fs::File) -> Result<(), String> {
-    use std::os::unix::fs::MetadataExt;
-    let actual = fs::symlink_metadata(parent).map_err(|_| "COMMIT_UNCERTAIN")?;
-    let held = directory.metadata().map_err(|_| "COMMIT_UNCERTAIN")?;
-    if !actual.is_dir() || actual.dev() != held.dev() || actual.ino() != held.ino() { return Err("COMMIT_UNCERTAIN".into()); }
-    Ok(())
+    crate::fs::still_at(parent, directory, "COMMIT_UNCERTAIN")
 }
 
 /// Whether the entry `before` describes now stands at `target`, a path whose folder is still where its path says:
@@ -118,17 +110,14 @@ thread_local! { static UNCERTAIN_AFTER_RENAME: std::cell::Cell<bool> = const { s
 
 #[cfg(target_os = "macos")]
 fn create_entry_at(parent: &Path, name: &str, directory: bool) -> Result<(), String> {
-    use std::os::fd::{AsRawFd, FromRawFd};
+    
     let held = directory_handle(parent)?;
     let entry = entry_name(std::ffi::OsStr::new(name))?;
     if directory {
-        if unsafe { libc::mkdirat(held.as_raw_fd(), entry.as_ptr(), 0o755) } < 0 {
-            return Err(if std::io::Error::last_os_error().kind() == std::io::ErrorKind::AlreadyExists { "TARGET_EXISTS" } else { "IO_ERROR" }.into());
-        }
+        crate::fs::make_directory_at(&held, &entry, 0o755).map_err(|error| if error.kind() == std::io::ErrorKind::AlreadyExists { "TARGET_EXISTS" } else { "IO_ERROR" })?;
     } else {
-        let fd = unsafe { libc::openat(held.as_raw_fd(), entry.as_ptr(), libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW, 0o644) };
-        if fd < 0 { return Err(if std::io::Error::last_os_error().kind() == std::io::ErrorKind::AlreadyExists { "TARGET_EXISTS" } else { "IO_ERROR" }.into()); }
-        unsafe { fs::File::from_raw_fd(fd) }.sync_all().map_err(|_| "COMMIT_UNCERTAIN")?;
+        let created = crate::fs::create_file_at(&held, &entry, libc::O_WRONLY, 0o644).map_err(|error| if error.kind() == std::io::ErrorKind::AlreadyExists { "TARGET_EXISTS" } else { "IO_ERROR" })?;
+        created.sync_all().map_err(|_| "COMMIT_UNCERTAIN")?;
     }
     held.sync_all().map_err(|_| "COMMIT_UNCERTAIN")?;
     same_directory(parent, &held)
@@ -998,7 +987,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
         fs::remove_dir_all(other).unwrap();
     }
-    fn temp() -> PathBuf { let dir = std::env::temp_dir().join(format!("mino-workspace-test-{}-{}",std::process::id(),NEXT_ENTRY.fetch_add(1,Ordering::Relaxed))); fs::create_dir(&dir).unwrap(); dir }
+    fn temp() -> PathBuf { crate::fs::test_dir("workspace-test") }
     #[cfg(target_os = "macos")]
     #[test]
     fn workspace_create_and_rename_do_not_overwrite_existing_entries() {

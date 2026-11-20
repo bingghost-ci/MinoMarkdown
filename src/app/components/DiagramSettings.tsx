@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Settings, SettingsHost } from '../useDocumentWorkspace'
+import { ColorPalette } from './ColorPalette'
 import { Row } from './settingsControls'
-import { isHexColor, parseHex, toHex } from '../../features/reading/color'
 import { systemFontName } from '../../features/reading/fonts'
 import {
   cleanDiagramColors, diagramColorLabels, diagramColorRoleLabels, diagramColorRoles, diagramColorSchemes, diagramCurveLabels, diagramCurves, diagramFillLabels, diagramFills, diagramFontFamily,
@@ -90,7 +90,6 @@ function DiagramColorsEditor({ styleId, options, onChange, t }: { styleId: strin
   const tone = diagramTone(styleId, options)
   const shown: Record<DiagramColorRole, string> = { accent: tone.accent, node: tone.pens[0] && isSketchLook(options.look) ? tone.pens[0] : tone.node || tone.ground, border: tone.border || tone.text, line: tone.line, text: tone.text }
   const color = draft?.role === role ? draft.color : options.custom[role] ?? shown[role]
-  const rgb = parseHex(color)
   // The object is replaced, never changed in place: settings are saved by comparing references.
   const commit = (target: DiagramColorRole, value: string | null) => {
     window.clearTimeout(timer.current)
@@ -111,27 +110,7 @@ function DiagramColorsEditor({ styleId, options, onChange, t }: { styleId: strin
         <i style={{ background: draft?.role === id ? draft.color : options.custom[id] ?? shown[id] }} /><span>{t(diagramColorRoleLabels[id])}</span>{options.custom[id] && <b aria-label={t('已修改')} title={t('已修改')} />}
       </button>)}
     </div>
-    <div className="code-palette" role="group" aria-label={`${t('调色板')}: ${t(diagramColorRoleLabels[role])}`}>
-      <div className="code-palette-head">
-        <i style={{ background: color }} />
-        <strong>{t(diagramColorRoleLabels[role])}</strong>
-        <input key={color} type="text" aria-label={t('色值')} defaultValue={color} maxLength={7} spellCheck={false}
-          onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
-          onBlur={(event) => { const value = event.target.value.trim(); if (isHexColor(value)) { if (value.toLowerCase() !== color) commit(role, value) } else event.target.value = color }} />
-        <button type="button" disabled={!options.custom[role] && draft?.role !== role} onClick={() => commit(role, null)}>{t('恢复默认')}</button>
-      </div>
-      {([['红', 'R'], ['绿', 'G'], ['蓝', 'B']] as const).map(([name, letter], index) => {
-        const at = (value: number) => toHex(rgb.map((channel, i) => (i === index ? value : channel)) as [number, number, number])
-        return <label key={letter} className="code-palette-channel">
-          <span title={t(name)}>{letter}</span>
-          <input type="range" min={0} max={255} step={1} aria-label={t(name)} value={rgb[index]} style={{ background: `linear-gradient(to right, ${at(0)}, ${at(255)})` }} onChange={(event) => mixTo(at(Number(event.target.value)))} />
-          <output>{rgb[index]}</output>
-        </label>
-      })}
-      <div className="code-palette-quick" role="group" aria-label={t('常用颜色')}>
-        {quick.map((value) => <button key={value} type="button" title={value} aria-label={value} aria-pressed={value === color} style={{ background: value }} onClick={() => commit(role, value)} />)}
-      </div>
-    </div>
+    <ColorPalette t={t} label={t(diagramColorRoleLabels[role])} color={color} canReset={Boolean(options.custom[role]) || draft?.role === role} quick={quick} onMix={mixTo} onCommit={(value) => commit(role, value)} />
     <div className="code-custom-actions"><button type="button" disabled={Object.keys(options.custom).length === 0} onClick={() => { window.clearTimeout(timer.current); setDraft(null); onChange({}) }}>{t('全部恢复默认')}</button></div>
   </div>
 }

@@ -1,5 +1,5 @@
 import type { IconifyJSON } from '@iconify/types'
-import { SVG_NS } from './svg'
+import { flowNodeName, SVG_NS } from './svg'
 
 /**
  * Icons in diagrams (T116), drawn from the Lucide set that ships with the app, so nothing is fetched.
@@ -113,7 +113,7 @@ export function remarkIds(source: string): Set<string> {
 /** The node of the drawn diagram with this id in the source: Mermaid names it `<diagram>-flowchart-<id>-<n>`. */
 export function remarkNodes(svg: Element, ids: ReadonlySet<string>): Element[] {
   if (!ids.size) return []
-  return Array.from(svg.querySelectorAll('g.node')).filter((node) => { const id = /flowchart-(.+)-\d+$/.exec(node.getAttribute('id') ?? '')?.[1]; return id !== undefined && ids.has(id) })
+  return Array.from(svg.querySelectorAll('g.node')).filter((node) => { const id = flowNodeName(node); return id !== undefined && ids.has(id) })
 }
 
 /**

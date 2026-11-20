@@ -392,7 +392,7 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .settings-stepper button, .settings-segmented button { color: var(--ui-secondary); }
 .settings-note, .panel-note { margin: 14px 0 0; color: var(--ui-muted); font-size: 11px; line-height: 1.6; }
 .settings-actions, .consent-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 0; }
-.settings-actions button, .consent-actions button, .settings-key button { height: 30px; border: 1px solid var(--line); border-radius: 7px; padding: 0 14px; background: var(--raised); color: var(--ui-text); font-size: 12px; }
+.settings-actions button, .consent-actions button, .settings-key button, .settings-model-tools button { height: 30px; border: 1px solid var(--line); border-radius: 7px; padding: 0 14px; background: var(--raised); color: var(--ui-text); font-size: 12px; }
 .settings-actions button.primary, .consent-actions button.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
 .settings-key { display: flex; align-items: center; gap: 6px; }
 .settings-key input { min-width: 180px !important; }
@@ -400,7 +400,7 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .settings-model select { min-width: 0; width: 132px; }
 .settings-model-tools { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); color: var(--ui-muted); font-size: 11px; line-height: 1.5; }
 .settings-model-tools [data-error="true"] { color: var(--danger); }
-.settings-model-tools button { flex: none; height: 30px; border: 1px solid var(--line); border-radius: 7px; padding: 0 14px; background: var(--raised); color: var(--ui-text); font-size: 12px; }
+.settings-model-tools button { flex: none; }
 .settings-badge { margin-left: 8px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; color: var(--ui-secondary); font-size: 10px; font-style: normal; }
 .settings-key-status[data-saved="true"] { color: var(--ui-secondary); }
 .consent-dialog { width: min(480px, 100%); border: 1px solid var(--line); border-radius: 14px; padding: 24px 26px 14px; background: var(--chrome); color: var(--ui-text); box-shadow: 0 20px 70px #0004; font-size: 13px; line-height: 1.7; }
@@ -522,7 +522,6 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .tree-root-name { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; height: 26px; border: 0; border-radius: 5px; padding: 0 6px; background: none; color: var(--ui-text); text-align: left; cursor: pointer; }
 .tree-root-name:hover, .tree-header[data-selected] .tree-root-name { background: var(--hover); }
 .tree-root-name svg { width: 14px; height: 14px; flex: none; color: var(--ui-muted); }
-.tree-root-name strong { flex: 1; min-width: 0; overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .file-tree .tree-header .icon-button { width: 24px; height: 24px; padding: 0; opacity: 0; }
 .file-tree .tree-header:is(:hover, :focus-within) .icon-button { opacity: 1; }
 .file-tree .tree-header .icon-button svg { width: 14px; height: 14px; }

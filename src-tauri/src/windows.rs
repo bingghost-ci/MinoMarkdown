@@ -84,10 +84,16 @@ pub fn open_settings_window(app: AppHandle, window: WebviewWindow, tab: Option<S
 }
 
 /// Called by the settings window once its page has the saved settings: shows it and tells it which page to open.
+/// Shows a window that was created hidden, once its page has its style, and brings it to the front.
+fn reveal(window: &WebviewWindow) -> Result<(), String> {
+    if !window.is_visible().unwrap_or(false) { window.show().map_err(|_| "WINDOW_SHOW_FAILED")?; let _ = window.set_focus(); }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn settings_window_ready(window: WebviewWindow, tab: State<'_, SettingsTab>) -> Result<String, String> {
     if window.label() != SETTINGS_WINDOW { return Err("OUT_OF_SCOPE".into()); }
-    if !window.is_visible().unwrap_or(false) { window.show().map_err(|_| "WINDOW_SHOW_FAILED")?; let _ = window.set_focus(); }
+    reveal(&window)?;
     Ok(tab.0.lock().map_err(|_| "IO_ERROR")?.clone())
 }
 
@@ -131,10 +137,7 @@ mod tests {
 #[tauri::command]
 pub fn show_workspace_window(window: WebviewWindow) -> Result<(), String> {
     crate::require_workspace_window(&window)?;
-    if !window.is_visible().unwrap_or(false) {
-        window.show().map_err(|_| "WINDOW_SHOW_FAILED")?;
-        let _ = window.set_focus();
-    }
+    reveal(&window)?;
     Ok(())
 }
 

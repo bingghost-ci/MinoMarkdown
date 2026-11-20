@@ -22,16 +22,7 @@ esac
 require_commands npm node rustc cargo lsof
 dev_port=1420
 
-log_step 'Checking dependencies'
-if [ -x node_modules/.bin/tauri ]; then
-  log_info 'npm dependencies are present'
-else
-  log_info 'Installing npm dependencies from package-lock.json'
-  npm ci --no-audit --no-fund
-fi
-
-log_step 'Checking the Apple Silicon toolchain'
-npm run --silent archcheck
+ensure_toolchain --silent
 
 if lsof -nP -iTCP:"$dev_port" -sTCP:LISTEN >/dev/null 2>&1; then
   die "Port $dev_port is already in use, probably by another ./start.sh or npm run dev. Stop it first."

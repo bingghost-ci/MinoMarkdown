@@ -761,10 +761,7 @@ mod tests {
         (result, deltas)
     }
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("mino-ai-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        fs::canonicalize(dir).unwrap()
+        crate::fs::test_dir(&format!("ai-{name}"))
     }
     fn patch(current: &AiConfig, value: serde_json::Value) -> Result<AiConfig, String> { apply_patch(current, value) }
     fn memory_state() -> AiState { AiState { secrets: Box::new(MemoryStore::default()), requests: Mutex::new(HashMap::new()), http_threads: Arc::default() } }

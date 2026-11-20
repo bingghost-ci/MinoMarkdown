@@ -14,6 +14,7 @@ import { rehypeFigures } from '../../core/markdown/figures'
 import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
 import { loadCodeParsers, rehypeHighlightCode } from '../../core/markdown/highlight'
 import { base64 } from './appAssets'
+import { collectImageNodes, type ImageNode } from './snapshot'
 import { escapeHtml } from '../text/textDocument'
 import { htmlImageSources, isInlineImageData, parseHtmlImages, remarkHtmlImages } from '../../core/markdown/htmlImages'
 
@@ -47,19 +48,11 @@ function embedImages(resolveImage: ImageResolver) {
   return () => async (tree: Root) => {
     const tasks: Promise<void>[] = []
     let embeddedBytes = 0
-    type Node = { type: string; url?: string; identifier?: string; children?: unknown[] }
-    const definitions = new Map<string, Node>()
-    const imageReferences = new Set<string>()
-    const linkReferences = new Set<string>()
-    function collect(node: Node) {
-      const id = node.identifier?.toLowerCase()
-      // The first definition of a label is the one that renders (CommonMark), so it is the one embedded.
-      if (node.type === 'definition' && id && !definitions.has(id)) definitions.set(id, node)
-      if (node.type === 'imageReference' && id) imageReferences.add(id)
-      if (node.type === 'linkReference' && id) linkReferences.add(id)
-      for (const child of node.children ?? []) collect(child as Node)
-    }
-    collect(tree)
+    type Node = ImageNode
+    // The first definition of a label is the one that renders, so it is the one embedded.
+    const found = collectImageNodes(tree as Node)
+    const { definitions, linkReferences } = found
+    const imageReferences = new Set(found.imageReferences.flatMap((node) => node.identifier ? [node.identifier.toLowerCase()] : []))
     function embed(node: Node) {
       if (node.url) {
         tasks.push((async () => {
@@ -73,11 +66,7 @@ function embedImages(resolveImage: ImageResolver) {
         })())
       }
     }
-    function walk(node: Node) {
-      if (node.type === 'image') embed(node)
-      for (const child of node.children ?? []) walk(child as typeof node)
-    }
-    walk(tree)
+    for (const image of found.images) embed(image)
     for (const id of imageReferences) {
       if (linkReferences.has(id)) throw new Error('EXPORT_RESOURCE_SHARED_REFERENCE')
       const definition = definitions.get(id)

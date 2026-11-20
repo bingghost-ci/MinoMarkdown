@@ -96,14 +96,15 @@ The frontend never supplies arbitrary paths for reading or writing. Rust stores 
 
 ## Reuse
 
-Search before writing a helper, and extract on the second use instead of copying. `doc/10-代码复用整改.md` holds the full rules, the table of shared code, and the duplicates that are still open (P-…) with what a merge must preserve.
+Search before writing a helper, and extract on the second use instead of copying. `doc/10-代码复用整改.md` holds the full rules, the table of shared code, and the look-alikes that were examined and left apart, each with the reason (read it before merging one of them).
 
 - One fact, one declaration: a limit, an extension list, a regular expression or a message lives in one place. Where TypeScript and Rust must each have a copy, a test compares them.
 - When two copies differ only by an error code, a limit, a delay or a class name, make that a parameter. Read both copies before merging: a difference is either a bug (fix it, add a test) or deliberate (keep it, say why in a comment).
 - Put a pure function in the layer with the fewest dependencies (`src/core`, or a module without imports) so the worker and the app shell can both use it, then run `npm run build` for the entry and worker checks.
-- Rust: hashing and hex are `fs::sha256_hex` and `fs::hex`; bounded reads are in `fs/bounded_file.rs` (`read_open` for a file that is already open); the app's own JSON records go through `record_path`, `load_record` and `save_record` in `fs/app_data.rs`; size limits are the constants in `file_kinds.rs`; a grant is looked up with `DocumentStore::grant` or `WorkspaceStore::grant`; an image with its bytes is `staging::HeldAsset`, moved in and out of staging with `take_all` and `put_all`.
+- Rust: hashing and hex are `fs::sha256_hex` and `fs::hex`; bounded reads are in `fs/bounded_file.rs` (`read_open` for a file that is already open); the app's own JSON records go through `record_path`, `load_record` and `save_record` in `fs/app_data.rs`; a directory is opened with `fs::open_canonical_directory` and checked afterwards with `fs::still_at`, and work inside an open directory uses the `…_at` functions of `fs/mod.rs` (`open_file_at`, `create_file_at`, `make_directory_at`, `directory_entries`), never a raw `libc::openat`; size limits are the constants in `file_kinds.rs`; a grant is looked up with `DocumentStore::grant` or `WorkspaceStore::grant`; an image with its bytes is `staging::HeldAsset`, moved in and out of staging with `take_all` and `put_all`.
 - TypeScript: colors, `towardContrast` and `isHexColor` are in `reading/color.ts`; HAST types and `textOf` in `core/markdown/hast.ts`; the plain GFM parser in `core/markdown/gfm.ts`; code fences by line in `core/markdown/fences.ts`; front matter in `core/markdown/frontMatter.ts`; image paths in `core/markdown/htmlImages.ts` (`localAssetPath`) and `editor/assetUrl.ts`; `escapeHtml` in `text/textDocument.ts`; file kinds in `document/kinds.ts`.
-- Settings controls (`Row`, `Segmented`, `ToggleRow` in `settingsControls.tsx`), dialog shells and `FocusTrap` come from `src/app/components/`; test stubs shared by two tests go in `tests/helpers/`.
+- Settings controls (`Row`, `Segmented`, `ToggleRow` in `settingsControls.tsx`, `ColorPalette`), the dialog backdrop (`ModalBackdrop`) and `FocusTrap` come from `src/app/components/`; what both kinds of window do with the settings is in `src/app/settingsEffects.ts`; test stubs shared by two tests go in `tests/helpers/`, and a Rust test takes its folder from `fs::test_dir`.
+- In the workspace hook, the wait `while (busyRef.current) await …` stays inline before `takeBusy()`: inside an async helper it lets two callers through.
 
 ## Tests
 

@@ -1,7 +1,6 @@
 import { customColorsKey } from '../features/diagrams/colorKey'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { LogicalSize } from '@tauri-apps/api/dpi'
 import { compareMarkdown, describeIssues, exceedsVisualLimit, protectedFragments } from '../core/markdown/compatibility'
@@ -15,7 +14,7 @@ import { mayContainMermaid } from '../core/markdown/diagrams'
 import { composeVisualMarkdown, prepareMarkdown, type PreparedMarkdown } from '../core/markdown/codec'
 import type { EditorAdapter as EditorInstance, PendingAsset, ToolbarState } from '../features/editor/EditorAdapter'
 import { EditorPool } from '../features/editor/editorPool'
-import { safeLinkHref } from '../features/editor/linkSafety'
+import { isExternalHref, safeLinkHref } from '../features/editor/linkSafety'
 import { isAssetUrl, relativeFromAssetUrl } from '../features/editor/assetUrl'
 import { beginSave, clearExternalConflict, createSession, discardChanges, editSession, externalConflict, isDirty, saveCanceled, saveFailed, saveSucceeded, withGeneration, type DocumentSession } from '../features/document/session'
 import { mayLeaveDocument, type UnsavedAction } from '../features/document/lifecycle'
@@ -27,7 +26,6 @@ import { outlineFromSource, type OutlineItem } from '../features/outline/outline
 import { localAssetPath, snapshotResources } from '../features/export/snapshot'
 import { translate, translateStatus, translateWith, type Language } from './i18n'
 import { activeStyle, defaultReadingSettings, documentTypography, layoutScript, lineHeights, opensInReadingMode, pickedStyle, toggledDayNight, type ReadingSettings } from './readingSettings'
-import { typographyVariables } from '../features/reading/css'
 import { dominantScript } from '../features/reading/script'
 import { createWordCounter, sameOutline } from '../features/document/derived'
 import { useStableFunctions } from './stable'
@@ -41,7 +39,9 @@ import { resetPinchZoom } from './pinchZoom'
 import type { Lightbox } from './components/ZoomViewer'
 import { formatMenuCommands, transformMenuActions } from './formatActions'
 import type { SourceEditor } from '../features/source/SourceEditor'
-import { applyRemoteSettings, settingsPatch } from './settingsSync'
+import { settingsPatch } from './settingsSync'
+import { followSavedSettings, paintWindow, saveSettingsLater, tauriAiTransport, useSystemDark, writeTypography } from './settingsEffects'
+import { untilCleanup } from './subscription'
 import { bodyMenu, entryMenu, tabMenu as tabMenuItems, type BodyView, type MenuEntry } from './contextMenu'
 import type { AiSelectionAction } from '../features/ai/prompts'
 import { blobUrl, readStaged, stageAssets, type StagedAsset } from './binary'
@@ -217,6 +217,9 @@ function revokeDocumentUrls(closed: DocumentState): void {
   for (const urls of [closed.imageUrls, closed.recoveredAssets, closed.pendingFiles]) for (const url of urls.keys()) URL.revokeObjectURL(url)
 }
 
+/** Resolves at the next animation frame. */
+function nextFrame(): Promise<void> { return new Promise((resolve) => requestAnimationFrame(() => resolve())) }
+
 /** What the find bar counts before a search and when nothing matches. */
 const NO_MATCHES: { current: number; total: number } = { current: 0, total: 0 }
 
@@ -363,7 +366,7 @@ export function useDocumentWorkspace() {
   // Its identity follows the language, so a `memo` component that shows text renders again when the language changes.
   const t = useCallback((value: string) => translate(value, settings.language), [settings.language])
   const [settingsLoaded, setSettingsLoaded] = useState(false)
-  const [systemDark, setSystemDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false)
+  const systemDark = useSystemDark()
   const [tree, setTree] = useState<Record<string, TreeState>>(uiPreview ? previewTree : {})
   const [selectedDirectory, setSelectedDirectory] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -651,6 +654,10 @@ export function useDocumentWorkspace() {
     return false
   }
 
+  /** Remembers how far down the page the reader is, as a fraction, for the view of document `id` that replaces this one. */
+  function carryScroll(id: number, scroller: HTMLElement | null) {
+    if (scroller && scroller.scrollHeight > scroller.clientHeight) carriedScroll.current = { id, fraction: scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight) }
+  }
   function noteBusy() { setStatus('当前操作尚未完成，请稍后再试') }
   /** Busy is checked through the ref, which changes at once; the state only redraws what depends on it. */
   function takeBusy() { busyRef.current = true; setBusy(true) }
@@ -682,7 +689,7 @@ export function useDocumentWorkspace() {
     }
     const deadline = performance.now() + 5000
     while (performance.now() < deadline) {
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      await nextFrame()
       const active = documentRef.current
       if (active.mode !== 'visual' || (adapterDocumentId.current === active.id && adapter.current?.isReady())) return true
     }
@@ -758,7 +765,7 @@ export function useDocumentWorkspace() {
       }
       if (!await focusTabForSave(key)) return false
       if (!await canProceedRef.current(true)) return false
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      await nextFrame()
       const closing = tabsRef.current.find((tab) => tab.key === key)
       if (!closing) continue
       const activePendingUrls = Array.from(adapter.current?.pendingFiles().keys() ?? [])
@@ -910,13 +917,6 @@ export function useDocumentWorkspace() {
 
   useEffect(() => () => { editorPool.current?.destroyAll(); editorPool.current = null }, [])
 
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = () => setSystemDark(media.matches)
-    media.addEventListener('change', onChange)
-    return () => media.removeEventListener('change', onChange)
-  }, [])
-
   const style = activeStyle(settings, systemDark)
   useEffect(() => {
     const root = window.document.documentElement
@@ -936,9 +936,7 @@ export function useDocumentWorkspace() {
   // menus, dialogs and the color shown while the window is resized match the page.
   useEffect(() => {
     if (!desktop) return
-    const current = getCurrentWindow()
-    void current.setTheme(style.dark ? 'dark' : 'light').catch(() => undefined)
-    void current.setBackgroundColor(style.desk).catch(() => undefined)
+    paintWindow(style.dark, style.desk)
   }, [desktop, style.id])
 
   // There is no system title bar (titleBarStyle Overlay): the traffic lights sit on the app's top row, which leaves
@@ -962,10 +960,7 @@ export function useDocumentWorkspace() {
   const typography = documentTypography(settings, style, docScript)
   const typographyKey = JSON.stringify(typography)
   useEffect(() => {
-    const root = window.document.documentElement
-    for (const [name, value] of Object.entries(typographyVariables(typography, style))) root.style.setProperty(name, value)
-    root.style.setProperty('--editor-font', typography.fontFamily)
-    root.style.setProperty('--editor-font-size', `${typography.fontSize}px`)
+    writeTypography(typography, style)
   }, [typographyKey, style.id])
 
   /** Font families installed on this Mac, read once when the font panel first needs them (T67). */
@@ -993,14 +988,7 @@ export function useDocumentWorkspace() {
 
   useEffect(() => {
     if (!desktop) return
-    let stop: (() => void) | undefined
-    let canceled = false
-    void listen<Settings>('settings-changed', (event) => {
-      const merged = applyRemoteSettings(settingsRef.current, persistedSettings.current, event.payload)
-      persistedSettings.current = merged.persisted
-      if (merged.current !== settingsRef.current) setSettings(merged.current)
-    }).then((unlisten) => { if (canceled) unlisten(); else stop = unlisten })
-    return () => { canceled = true; stop?.() }
+    return followSavedSettings(settingsRef, persistedSettings, setSettings)
   }, [desktop])
 
   useEffect(() => {
@@ -1017,12 +1005,7 @@ export function useDocumentWorkspace() {
     if (!desktop || !settingsLoaded) return
     const patch = settingsPatch(persistedSettings.current, settings)
     if (!patch) return
-    const timer = window.setTimeout(() => {
-      invoke<Settings>('update_settings', { patch })
-        .then(() => { persistedSettings.current = { ...persistedSettings.current, ...patch } })
-        .catch((error: unknown) => setStatus(errorText(error)))
-    }, 500)
-    return () => window.clearTimeout(timer)
+    return saveSettingsLater(persistedSettings, patch, 500, (error) => setStatus(errorText(error)))
   }, [desktop, settingsLoaded, settings])
 
   useEffect(() => {
@@ -1285,8 +1268,7 @@ export function useDocumentWorkspace() {
       next.entryToken = previous.entryToken
       // The reader stays in the mode and at the place they were; a PDF is always read.
       next.reading = next.kind === 'pdf' ? true : previous.reading
-      const scroller = documentScroller()
-      if (scroller && scroller.scrollHeight > scroller.clientHeight) carriedScroll.current = { id: next.id, fraction: scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight) }
+      carryScroll(next.id, documentScroller())
       updateSession(createSession(next.id, next.revision))
       documentRef.current = next
       setDocument(next)
@@ -1632,7 +1614,7 @@ export function useDocumentWorkspace() {
     setFindQuery(query)
     openFind()
     const deadline = performance.now() + 5000
-    do await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    do await nextFrame()
     while (performance.now() < deadline && !(documentRef.current.mode === 'visual' ? adapterDocumentId.current === documentRef.current.id && adapter.current?.isReady() : sourceEditor.current))
     runFindRef.current(query)
     findGoToRef.current(hit.occurrence)
@@ -2169,7 +2151,7 @@ export function useDocumentWorkspace() {
   linkOpenRef.current = (href) => {
     const safe = safeLinkHref(href)
     if (!safe) { setStatus('链接地址无效或使用了不允许的协议'); return }
-    if (/^(https?|mailto):/i.test(safe)) { void invoke('open_external', { url: safe }).catch((error: unknown) => setStatus(errorText(error))); return }
+    if (isExternalHref(safe)) { void invoke('open_external', { url: safe }).catch((error: unknown) => setStatus(errorText(error))); return }
     openSiblingDocument(safe)
   }
 
@@ -2380,25 +2362,20 @@ export function useDocumentWorkspace() {
   contextActionRef.current = (id, text) => { void runContextAction(id, text) }
   useEffect(() => {
     if (!desktop) return
-    let stop: (() => void) | undefined
-    let canceled = false
-    void getCurrentWindow().listen<{ id: string; text: string | null }>('context-action', (event) => contextActionRef.current(event.payload.id, event.payload.text)).then((unlisten) => { if (canceled) unlisten(); else stop = unlisten })
+    const stop = untilCleanup(getCurrentWindow().listen<{ id: string; text: string | null }>('context-action', (event) => contextActionRef.current(event.payload.id, event.payload.text)))
     // Elsewhere in the window WebKit's own menu (Reload, Inspect) has nothing for the user; text fields keep theirs.
     const suppress = (event: globalThis.MouseEvent) => { if (!(event.target as HTMLElement | null)?.closest('input, textarea, [contenteditable="true"]')) event.preventDefault() }
     const press = (event: globalThis.MouseEvent) => { if (event.button === 2 || (event.button === 0 && event.ctrlKey)) rightClickSelection.current = window.getSelection()?.toString() ?? '' }
     window.addEventListener('contextmenu', suppress)
     window.addEventListener('mousedown', press, true)
-    return () => { canceled = true; stop?.(); window.removeEventListener('contextmenu', suppress); window.removeEventListener('mousedown', press, true) }
+    return () => { stop(); window.removeEventListener('contextmenu', suppress); window.removeEventListener('mousedown', press, true) }
   }, [desktop])
 
   const menuActionRef = useRef<(action: string) => void>(() => undefined)
   menuActionRef.current = runFileAction
   useEffect(() => {
     if (!desktop) return
-    let stop: (() => void) | undefined
-    let canceled = false
-    void getCurrentWindow().listen<string>('menu-action', (event) => menuActionRef.current(event.payload)).then((unlisten) => { if (canceled) unlisten(); else stop = unlisten })
-    return () => { canceled = true; stop?.() }
+    return untilCleanup(getCurrentWindow().listen<string>('menu-action', (event) => menuActionRef.current(event.payload)))
   }, [desktop])
 
   useEffect(() => {
@@ -2418,7 +2395,7 @@ export function useDocumentWorkspace() {
         const active = documentRef.current
         if (active.token && isDirty(sessionRef.current)) {
           if (!await saveDocumentRef.current()) return
-          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+          await nextFrame()
         } else if (!await canProceedRef.current(true)) return
       }
       await draftWriteChain.current.catch(() => undefined)
@@ -2509,7 +2486,7 @@ export function useDocumentWorkspace() {
     event.preventDefault()
     const href = anchor.getAttribute('href') ?? ''
     if (!href.startsWith('#')) {
-      if (event.metaKey || !/^(https?|mailto):/i.test(href)) linkOpenRef.current(href)
+      if (event.metaKey || !isExternalHref(href)) linkOpenRef.current(href)
       return
     }
     let id: string
@@ -2531,7 +2508,7 @@ export function useDocumentWorkspace() {
     if (event.type !== 'click') return
     const href = anchor.getAttribute('href') ?? ''
     if (href.startsWith('#')) return
-    if (event.metaKey || !/^(https?|mailto):/i.test(href)) linkOpenRef.current(href)
+    if (event.metaKey || !isExternalHref(href)) linkOpenRef.current(href)
   }
 
   async function switchToVisual() {
@@ -2562,8 +2539,7 @@ export function useDocumentWorkspace() {
         setStatus('图片引用无法安全恢复，请继续使用源码模式')
         return
       }
-      const scroller = document.deferredVisual ? documentScroller() : null
-      if (scroller && scroller.scrollHeight > scroller.clientHeight) carriedScroll.current = { id: visual.id, fraction: scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight) }
+      carryScroll(visual.id, document.deferredVisual ? documentScroller() : null)
       updateSession(withGeneration(sessionRef.current, visual.id))
       setDocument({ ...visual, draftId: document.draftId, retiredTokens: document.retiredTokens, originalMarkdown: document.originalMarkdown, sampleId: document.sampleId })
     } finally {
@@ -2588,10 +2564,7 @@ export function useDocumentWorkspace() {
   }
 
   // The optional AI assistant (T70–T73). Its requests leave from Rust; this hook only passes the IPC along.
-  const aiTransport = useMemo<AiTransport | null>(() => uiPreview ? previewAiTransport() : desktop ? {
-    invoke: (command, args) => invoke(command, args),
-    listen: (event, handler) => getCurrentWindow().listen(event, (message) => handler(message.payload as never)),
-  } : null, [desktop])
+  const aiTransport = useMemo<AiTransport | null>(() => uiPreview ? previewAiTransport() : desktop ? tauriAiTransport() : null, [desktop])
   function aiSelection() {
     const current = documentRef.current
     if (current.mode === 'visual') return adapter.current?.selectionContext() ?? null

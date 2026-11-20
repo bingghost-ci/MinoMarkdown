@@ -164,8 +164,7 @@ mod tests {
 
     #[test]
     fn positions_follow_a_renamed_file_and_the_files_of_a_moved_folder() {
-        let dir = std::env::temp_dir().join(format!("mino-positions-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = crate::fs::test_dir("positions");
         std::fs::create_dir_all(dir.join("new/sub")).unwrap();
         std::fs::write(dir.join("new/a.txt"), "a").unwrap();
         std::fs::write(dir.join("new/sub/b.pdf"), "b").unwrap();
@@ -187,9 +186,7 @@ mod tests {
 
     #[test]
     fn a_record_that_outgrew_its_limit_is_replaced_instead_of_staying_unwritable() {
-        let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap().join(format!("mino-positions-large-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::fs::test_dir("positions-large");
         let path = dir.join("reading-positions.json");
         std::fs::write(&path, vec![b' '; MAX_FILE as usize + 1]).unwrap();
         let mut record = load(&path);

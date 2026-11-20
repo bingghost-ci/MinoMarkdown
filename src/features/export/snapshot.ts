@@ -1,12 +1,20 @@
 import { parseGfm } from '../../core/markdown/gfm'
 import { localAssetPath } from '../../core/markdown/htmlImages'
 
-type ImageNode = { type: string; url?: string; identifier?: string; position?: { start: { offset?: number }; end: { offset?: number } }; children?: unknown[] }
+export type ImageNode = { type: string; url?: string; identifier?: string; position?: { start: { offset?: number }; end: { offset?: number } }; children?: unknown[] }
 
 type Parsed = { images: ImageNode[]; imageReferences: ImageNode[]; linkReferences: Set<string>; definitions: Map<string, ImageNode> }
 
 function parse(markdown: string): Parsed {
-  const tree = parseGfm(markdown)
+  return collectImageNodes(parseGfm(markdown))
+}
+
+/**
+ * The image nodes of a syntax tree: inline images, image references, the labels links refer to, and for each
+ * label its first definition, which is the one that renders (CommonMark). The nodes are those of the tree, so
+ * changing one changes the tree.
+ */
+export function collectImageNodes(tree: ImageNode): Parsed {
   const images: ImageNode[] = []
   const imageReferences: ImageNode[] = []
   const linkReferences = new Set<string>()
@@ -15,7 +23,6 @@ function parse(markdown: string): Parsed {
     if (node.type === 'image') images.push(node)
     if (node.type === 'imageReference') imageReferences.push(node)
     if (node.type === 'linkReference' && node.identifier) linkReferences.add(node.identifier.toLowerCase())
-    // The first definition of a label is the one that renders (CommonMark).
     if (node.type === 'definition' && node.identifier && !definitions.has(node.identifier.toLowerCase())) definitions.set(node.identifier.toLowerCase(), node)
     for (const child of node.children ?? []) walk(child as ImageNode)
   }

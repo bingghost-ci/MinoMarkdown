@@ -4,6 +4,9 @@ import type { FindOptions } from '../editor/findText'
 import type { OutlineItem } from '../outline/outline'
 import { closePdf, assemblePdfText, clampScale, fitWidthScale, joinTextItems, loadPdfLibrary, openPdf, outputScale, pageAtOffset, pdfOutline, PdfTextCache, resolveDestination, searchPages, zoomedScale, type PdfDocument, type PdfLibrary, type PdfMatch, type PdfSource, type PdfText } from './pdfEngine'
 
+/** Gives a canvas's bitmap back at once; WebKit otherwise keeps it until the element is collected. */
+function freeCanvas(canvas: HTMLCanvasElement): void { canvas.width = 0; canvas.height = 0 }
+
 export type PdfPosition = { page: number; offset: number }
 export type PdfZoomAction = 'zoom-in' | 'zoom-out' | 'zoom-reset'
 export type FindCount = { current: number; total: number }
@@ -130,7 +133,7 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
     try { entry.page?.cleanup() } catch { /* The document is already closing. */ }
     const host = pageElements.current.get(pageNumber)
     if (!host) return
-    for (const canvas of host.querySelectorAll('canvas')) { canvas.width = 0; canvas.height = 0 }
+    for (const canvas of host.querySelectorAll('canvas')) freeCanvas(canvas)
     host.replaceChildren()
   }
 
@@ -152,7 +155,7 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
     let cancelled = false
     let pending: HTMLCanvasElement | null = null
     const cancels: (() => void)[] = []
-    const entry: Rendered = { scale, cancel: () => { cancelled = true; for (const cancel of cancels) cancel(); if (pending && !pending.isConnected) { pending.width = 0; pending.height = 0 } }, divs: [], starts: [], page: previous?.page }
+    const entry: Rendered = { scale, cancel: () => { cancelled = true; for (const cancel of cancels) cancel(); if (pending && !pending.isConnected) freeCanvas(pending) }, divs: [], starts: [], page: previous?.page }
     rendered.current.set(pageNumber, entry)
     try {
       const pdfPage = await document.getPage(pageNumber)
@@ -176,7 +179,7 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
       const show = () => {
         const old = Array.from(host.querySelectorAll('canvas'))
         host.replaceChildren(canvas, textLayer, linkLayer)
-        for (const stale of old) if (stale !== canvas) { stale.width = 0; stale.height = 0 }
+        for (const stale of old) if (stale !== canvas) freeCanvas(stale)
       }
       if (!redraw) show()
       const task = pdfPage.render({ canvas, viewport, transform: ratio !== 1 ? [ratio, 0, 0, ratio, 0, 0] : undefined })
@@ -227,9 +230,9 @@ export default function PdfView({ bridge, name, dark, t }: Props) {
       host.dataset.failed = 'true'
       host.dataset.reason = String(reason instanceof Error ? `${reason.name}: ${reason.message}` : reason)
       // The entry is gone, so `release` can no longer reach this page: free its canvas and what it decoded now.
-      if (pending) { pending.width = 0; pending.height = 0 }
+      if (pending) freeCanvas(pending)
       if (current) {
-        for (const canvas of host.querySelectorAll('canvas')) { canvas.width = 0; canvas.height = 0 }
+        for (const canvas of host.querySelectorAll('canvas')) freeCanvas(canvas)
         host.replaceChildren()
       }
       try { entry.page?.cleanup() } catch { /* The document is already closing. */ }
