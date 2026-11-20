@@ -339,7 +339,7 @@ mod tests {
         assert_eq!(accelerator("toggle-reading"), Some("Cmd+Shift+R"));
         assert_eq!(label("toggle-reading", false), "阅读模式");
         assert_eq!(label("toggle-reading", true), "Reading Mode");
-        // ⌘E stays with inline code (doc/08 §8).
+        // ⌘E stays with inline code; reading mode did not take it.
         assert_eq!(accelerator("format-inline-code"), Some("Cmd+E"));
     }
 

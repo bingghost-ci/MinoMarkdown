@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EVIDENCE = ROOT / "doc/evidence"
+EVIDENCE = ROOT / "doc/licenses"
 REGISTRY = Path.home() / ".cargo/registry/src"
 PREFIXES = ("license", "licence", "copying", "notice")
 INDEX = EVIDENCE / "third-party-license-file-index.tsv"

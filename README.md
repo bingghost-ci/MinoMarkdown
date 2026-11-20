@@ -1,6 +1,8 @@
-# Mino
+<p align="center"><img src="doc/images/readme-icon.png" width="128" height="128" alt="Mino 的应用图标"></p>
 
-**简体中文** · [English](README.en.md)
+<h1 align="center">Mino</h1>
+
+<p align="center"><b>简体中文</b> · <a href="README.en.md">English</a></p>
 
 **一个安静的本地 Markdown 编辑器与阅读器，专为 Apple Silicon 上的 macOS 设计。**
 
@@ -141,4 +143,4 @@ npm run dev                                             # 只在浏览器里预�
 
 ## 许可
 
-项目自身的许可尚未确定。第三方依赖的许可清单见 [npm 依赖](doc/evidence/dependency-licenses.tsv)、[Rust 依赖](doc/evidence/rust-dependency-licenses.tsv)和[随附字体](doc/evidence/bundled-font-licenses.tsv)；许可原文的核对情况见 [T28 许可审查](doc/evidence/T28-license-text-audit.md)。
+项目自身的许可尚未确定。第三方依赖的许可清单见 [npm 依赖](doc/licenses/dependency-licenses.tsv)、[Rust 依赖](doc/licenses/rust-dependency-licenses.tsv)和[随附字体](doc/licenses/bundled-font-licenses.tsv)；许可原文的核对情况见 [许可原文审查](doc/licenses/license-text-audit.md)。

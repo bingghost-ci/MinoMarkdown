@@ -1,6 +1,8 @@
-# Mino
+<p align="center"><img src="doc/images/readme-icon.png" width="128" height="128" alt="The Mino app icon"></p>
 
-[简体中文](README.md) · **English**
+<h1 align="center">Mino</h1>
+
+<p align="center"><a href="README.md">简体中文</a> · <b>English</b></p>
 
 **A quiet local Markdown editor and reader for macOS on Apple Silicon.**
 
@@ -143,4 +145,4 @@ Built with Tauri 2 (Rust), React 19, TypeScript, Milkdown/Crepe, CodeMirror, PDF
 
 ## License
 
-The project's own license has not been decided. The licenses of third-party dependencies are listed for [npm packages](doc/evidence/dependency-licenses.tsv), [Rust crates](doc/evidence/rust-dependency-licenses.tsv) and the [bundled fonts](doc/evidence/bundled-font-licenses.tsv); the check of the license texts is recorded in the [T28 license audit](doc/evidence/T28-license-text-audit.md).
+The project's own license has not been decided. The licenses of third-party dependencies are listed for [npm packages](doc/licenses/dependency-licenses.tsv), [Rust crates](doc/licenses/rust-dependency-licenses.tsv) and the [bundled fonts](doc/licenses/bundled-font-licenses.tsv); the check of the license texts is recorded in the [license text audit](doc/licenses/license-text-audit.md).

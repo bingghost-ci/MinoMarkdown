@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_DIR = ROOT / "src-tauri"
-OUTPUT = ROOT / "doc/evidence/rust-dependency-licenses.tsv"
+OUTPUT = ROOT / "doc/licenses/rust-dependency-licenses.tsv"
 TARGET = "aarch64-apple-darwin"
 
 
