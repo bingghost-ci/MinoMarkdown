@@ -4,6 +4,29 @@
 
 What changed in Mino for the people who use it, by version. Versions follow [Semantic Versioning](https://semver.org/): a fix raises the third number, a new feature the second, an incompatible change the first.
 
+## 1.1.0 — 2026-11-21
+
+A round of typography learned from Typora's theme gallery (the ideas only; the rules and colors are Mino's own), and fixes for data safety across windows. The automated tests pass. How it looks on screen and the native behavior have not been checked on a device yet.
+
+### Added
+
+- **Alerts**: a quote whose first line is `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]` is drawn as a card with an icon and a title. The document stays a plain quote.
+- **Layouts**, chosen apart from the paper: standard, academic (section numbers, abstract, figure numbers), official (after GB/T 9704, margins included), technical and typewriter.
+- **Four reading styles**: High Contrast, Terracotta, Pine and Midnight Blue, sixteen in all. Styles and layouts are picked from thumbnails in the settings.
+- **Table of contents**: a paragraph that says only `[TOC]` becomes the contents in reading mode and in exports.
+- **Quote styles** (follow style, bar, card, indented), **rounded tables**, **paper rulings** (grid, dots), **Chinese emphasis** (slanted, Kai, emphasis dots) and **focus mode**.
+- Highlights, keys (`<kbd>`), strikethrough, footnotes and finished tasks have styles of their own, and a code block names its language in the corner.
+- Western serif faces are drawn slightly larger in Chinese documents, level with the characters. Bold no longer blooms on night styles.
+- Print and PDF export: no widows or orphans, no heading stranded at the foot of a page, and tables, alerts and diagrams are not cut in two.
+
+### Fixed
+
+- A file is open in one tab of one window only; opening it elsewhere switches to that tab.
+- When saving fails as a window closes, the document can be saved under another name instead of only being discarded.
+- A draft belongs to the window that opened it and cannot be recovered twice.
+- An AI key is sent only to the address it was entered for.
+- The editor no longer escapes `[!NOTE]` and `[TOC]` on save.
+
 ## 1.0.0 — 2026-11-20
 
 The first version with a settled number. It holds all the work from 2026-11-07 to 2026-11-20 (50 commits, all labeled 0.1.0 until now). The features are complete and the automated tests pass. Native behavior (opening from Finder, Chinese input methods, PDF export and printing, performance) has not yet been checked item by item on a device; the package is unsigned and is built from source.

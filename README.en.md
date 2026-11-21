@@ -8,7 +8,7 @@
 
 Plans, reports, reading notes, technical documents: nearly everything an AI writes is Markdown. There is more of it every day, and it keeps getting longer, yet most of the time we read it as source full of symbols in an editor, or as a plain web page in a preview pane. Mino is a local Markdown reader and editor that puts its effort into reading, so these documents read like a typeset book:
 
-- **Typeset for reading**: twelve reading styles (White, Off-white, Book Page, Xuan Paper, Parchment, Kraft, Soft Green, and five night styles) with paper texture; Chinese, Western and code fonts chosen separately, with fourteen bundled fonts such as Source Han Serif and LXGW WenKai that work offline; adjustable line width, paragraph spacing and first-line indent, and Western layout for a mostly-Western document.
+- **Typeset for reading**: sixteen reading styles (White, Off-white, High Contrast, Terracotta, Book Page, Xuan Paper, Parchment, Kraft, Soft Green, and seven night styles) with paper texture, and layouts (academic, official, technical, typewriter) that go with any paper; Chinese, Western and code fonts chosen separately, with fourteen bundled fonts such as Source Han Serif and LXGW WenKai that work offline; adjustable line width, paragraph spacing and first-line indent, and Western layout for a mostly-Western document.
 - **Diagrams and code get the same care**: Mermaid diagrams in eight looks, including the hand-drawn Marker, Pencil, Chalk and Fountain Pen; code highlighting in seven color schemes, or colors you set role by role.
 - **Edit where you read**: press `⌘⇧R` to edit the typeset page itself, WYSIWYG; pasted images go into an `assets/` folder beside the document when you save.
 - **More than Markdown**: 55 file extensions in all. Markdown; plain text, with UTF-8, UTF-16, GB18030 and Big5 recognized; 50 kinds of source and configuration files such as JSON, YAML, Python, Rust and Swift, with highlighting and line numbers, and CSV/TSV shown as tables; and read-only PDF.
@@ -18,7 +18,7 @@ Plans, reports, reading notes, technical documents: nearly everything an AI writ
 
 ![A document read in the Parchment style: the file sidebar on the left, tabs above, and the outline, font, AI, day/night and edit buttons on the right](doc/images/readme-reading.jpg)
 
-> **Current version: v1.0.0** (2026-11-20, [changelog](CHANGELOG.en.md)). The features are complete, the automated tests pass and the author uses it daily. Native behavior (opening from Finder, Chinese input methods, PDF export and printing, performance) has not yet been checked item by item on a device. There is no download: you build it from source, and the resulting `.app` is unsigned and not notarized. Keep a copy of important documents.
+> **Current version: v1.1.0** (2026-11-21, [changelog](CHANGELOG.en.md)). The features are complete, the automated tests pass and the author uses it daily. Native behavior (opening from Finder, Chinese input methods, PDF export and printing, performance) has not yet been checked item by item on a device. There is no download: you build it from source, and the resulting `.app` is unsigned and not notarized. Keep a copy of important documents.
 
 [Features](#what-it-does) · [Diagrams](#diagrams) · [Safety and privacy](#your-documents-are-safe) · [Build and run](#build-and-run-from-source) · [Shortcuts](#shortcuts) · [Limits](#limits) · [Development](#development)
 
@@ -34,7 +34,8 @@ The interface is available in Simplified Chinese and English; the screenshots sh
 
 **Reading**
 - A document opened from Finder or the sidebar starts in reading mode: the editing controls are hidden, progress is shown, Space turns the page, and a click enlarges an image.
-- Twelve reading styles: White, Off-white, Book Page, Xuan Paper, Parchment, Kraft and Soft Green, and five night styles. They can follow the system appearance.
+- Sixteen reading styles: White, Off-white, High Contrast, Terracotta, Book Page, Xuan Paper, Parchment, Kraft and Soft Green, and seven night styles. They can follow the system appearance.
+- Five layouts (standard, academic, official, technical, typewriter) chosen apart from the paper; `> [!NOTE]` alerts, a `[TOC]` table of contents, quote styles, rounded tables and focus mode.
 - Chinese, Western and code fonts are chosen separately. Bundled and usable offline: Source Han Serif, LXGW WenKai, Source Han Sans, Zhuque Fangsong, ChillKai, Long Cang and Ma Shan Zheng; Source Serif, Literata, EB Garamond and Inter; JetBrains Mono, Fira Code and Source Code Pro. Fonts installed on your Mac can be used too.
 - Line width, paragraph spacing, first-line indent and table style are adjustable; number columns align right, and a mostly-Western document gets Western layout.
 - Code highlighting comes in seven color schemes, or in colors you set role by role, kept separately for day and night.

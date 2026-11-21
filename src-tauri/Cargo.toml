@@ -1,6 +1,6 @@
 [package]
 name = "mino-markdown"
-version = "1.0.0"
+version = "1.1.0"
 description = "Local-first Markdown editor"
 authors = ["MinoMarkdown contributors"]
 edition = "2021"
