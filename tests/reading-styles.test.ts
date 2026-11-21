@@ -266,7 +266,8 @@ describe('reading styles', () => {
     expect(justified).toMatchObject({ textAlign: 'justify', hyphens: true })
     expect(typographyVariables(justified, style)).toMatchObject({ '--doc-align': 'justify', '--doc-hyphens': 'auto', '--doc-justify': 'auto' })
     expect(latin.lineHeight).toBeLessThan(cjk.lineHeight)
-    expect(latin.fontFamily).toBe(cjk.fontFamily)
+    // The same faces, except that a Chinese document takes the Western one sized to its characters (T134).
+    expect(latin.fontFamily).toBe(cjk.fontFamily.replaceAll(' CJK', ''))
     expect(typographyVariables(latin, style)).toMatchObject({ '--doc-measure': '32em', '--doc-align': 'left', '--doc-indent': '0', '--doc-hyphens': 'manual', '--doc-line-height': String(latinLineHeights.comfortable) })
     expect(latinMeasures).toEqual({ '30': '28', '36': '32', '42': '36', unlimited: 'unlimited' })
     for (const height of ['compact', 'comfortable', 'relaxed'] as const) {

@@ -52,3 +52,43 @@ describe('Chinese paragraphs and headings (T129)', () => {
     expect(layoutRules('academic', '.mino-doc')).toContain('.mino-doc > :is(h1,h2,h3,h4,h5,h6,hr) + p:lang(en){text-indent:0}')
   })
 })
+
+describe('Western faces matched to Chinese text (T134)', () => {
+  it('uses the matched registration in a Chinese document and the plain face in a Western one', async () => {
+    const { matchedForCjk, cjkMatchedFamilies, CJK_MATCHED_SUFFIX, bundledFamilies } = await import('../src/features/reading/fonts')
+    const style = readingStyle('paper')
+    const chinese = documentTypography(defaultReadingSettings, style, 'cjk').fontFamily
+    const western = documentTypography(defaultReadingSettings, style, 'latin').fontFamily
+    expect(chinese).toContain("'Mino Source Serif 4 CJK'")
+    expect(western).toContain("'Mino Source Serif 4'")
+    expect(western).not.toContain(' CJK')
+    expect(matchedForCjk("'Mino Inter', 'Mino Noto Sans SC'")).toBe("'Mino Inter', 'Mino Noto Sans SC'")
+    for (const family of cjkMatchedFamilies) expect(bundledFamilies.has(family + CJK_MATCHED_SUFFIX), family).toBe(true)
+  })
+
+  it('registers each matched family on the same files with a size-adjust, in the app and in exports', async () => {
+    const { cjkMatchedFamilies, CJK_MATCHED_SUFFIX } = await import('../src/features/reading/fonts')
+    const { fontSizeAdjust, fontFaceRows } = await import('../src/features/reading/fontTable')
+    const { cjkMatched } = await import('../scripts/generate-font-table.mjs')
+    expect(Object.keys(fontSizeAdjust).sort()).toEqual(cjkMatchedFamilies.map((family) => family + CJK_MATCHED_SUFFIX).sort())
+    expect(Object.keys(cjkMatched).sort()).toEqual([...cjkMatchedFamilies].sort())
+    for (const [family, size] of Object.entries(fontSizeAdjust)) {
+      const percent = Number(size.replace('%', ''))
+      expect(percent, family).toBeGreaterThan(100)
+      expect(percent, family).toBeLessThanOrEqual(112)
+      const plain = family.slice(0, -CJK_MATCHED_SUFFIX.length)
+      expect(fontFaceRows.filter((row) => row[0] === family).map((row) => row[1])).toEqual(fontFaceRows.filter((row) => row[0] === plain).map((row) => row[1]))
+    }
+    const css = readFileSync('src/features/reading/bundledFonts.css', 'utf8')
+    expect(css).toContain("font-family:'Mino Source Serif 4 CJK'")
+    expect(css.match(/size-adjust:108%/g)?.length).toBe(fontFaceRows.filter((row) => row[0] === 'Mino Source Serif 4 CJK').length)
+  })
+
+  it('carries the size into the faces an export embeds', async () => {
+    const { bundledFaces, fontFaceCss } = await import('../src/features/reading/fontFaces')
+    const face = bundledFaces.find((item) => item.family === 'Mino Literata CJK')!
+    expect(face.sizeAdjust).toBe('103%')
+    expect(fontFaceCss([face])).toContain('size-adjust:103%;')
+    expect(fontFaceCss([bundledFaces.find((item) => item.family === 'Mino Literata')!])).not.toContain('size-adjust')
+  })
+})

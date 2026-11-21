@@ -2,17 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { buildExportStyle, HTML_FONT_BUDGET, PRINT_FONT_BUDGET } from '../src/features/export/exportStyle'
 import { renderExport } from '../src/features/export/renderHtml'
 import { PAGE_RADIUS } from '../src/features/reading/css'
-import { fontStack, KAI_FAMILY, MONO_FAMILY, SERIF_FAMILY, SOURCE_SERIF_FAMILY, withoutBundledFonts } from '../src/features/reading/fonts'
+import { CJK_MATCHED_SUFFIX, fontStack, matchedForCjk, KAI_FAMILY, MONO_FAMILY, SERIF_FAMILY, SOURCE_SERIF_FAMILY, withoutBundledFonts } from '../src/features/reading/fonts'
 import type { FontFace } from '../src/features/reading/fontFaces'
 import { readingStyle } from '../src/features/reading/styles'
 import { defaultReadingSettings, documentTypography } from '../src/app/readingSettings'
 
 const face = (file: string, ranges: [number, number][] | null, family = SERIF_FAMILY, style: FontFace['style'] = 'normal', weight = '400'): FontFace => ({ family, weight, style, file, url: `/assets/${file}`, ranges, unicodeRange: ranges ? ranges.map(([a, b]) => `U+${a.toString(16)}-${b.toString(16)}`).join(',') : null })
+// A Chinese document reads its Western text in the registration sized for it (T134).
+const MATCHED_SERIF = SOURCE_SERIF_FAMILY + CJK_MATCHED_SUFFIX
 const latin: [number, number][] = [[0x20, 0x7e]]
 const faces = [
   face('latin.woff2', latin), face('cjk-a.woff2', [[0x4e00, 0x7fff]]), face('cjk-b.woff2', [[0x8000, 0x9fff]]), face('cyrillic.woff2', [[0x400, 0x4ff]]),
   face('kai.woff2', null, KAI_FAMILY),
-  face('source-serif.woff2', latin, SOURCE_SERIF_FAMILY, 'normal', '200 900'), face('source-serif-italic.woff2', latin, SOURCE_SERIF_FAMILY, 'italic', '200 900'), face('source-serif-ext.woff2', [[0x100, 0x24f]], SOURCE_SERIF_FAMILY, 'normal', '200 900'),
+  face('source-serif.woff2', latin, MATCHED_SERIF, 'normal', '200 900'), face('source-serif-italic.woff2', latin, MATCHED_SERIF, 'italic', '200 900'), face('source-serif-ext.woff2', [[0x100, 0x24f]], MATCHED_SERIF, 'normal', '200 900'),
   face('mono.woff2', latin, MONO_FAMILY, 'normal', '100 800'), face('mono-italic.woff2', latin, MONO_FAMILY, 'italic', '100 800'), face('mono-ext.woff2', [[0x100, 0x24f]], MONO_FAMILY, 'normal', '100 800'),
 ]
 
@@ -70,13 +72,13 @@ describe('export style', () => {
     expect(result.fontBytes).toBe(15)
     expect(result.diagramStyleId).toBe('paper')
     expect(result.stylesheet).toContain(`font-family:'${SERIF_FAMILY}'`)
-    expect(result.stylesheet).toContain(`font-family:'${SOURCE_SERIF_FAMILY}';font-style:normal;font-weight:200 900;`)
+    expect(result.stylesheet).toContain(`font-family:'${MATCHED_SERIF}';font-style:normal;font-weight:200 900;`)
     expect(result.stylesheet).toContain(`font-family:'${MONO_FAMILY}';font-style:normal;`)
     expect(result.stylesheet).toContain('src:url(data:font/woff2;base64,AQID)')
     expect(result.stylesheet.match(/@font-face/g)?.length).toBe(5)
     expect(result.stylesheet).not.toContain('font-style:italic')
     expect(result.stylesheet).not.toContain('/assets/')
-    expect(docFont(result.stylesheet)).toBe(fontStack('auto', 'auto', 'song'))
+    expect(docFont(result.stylesheet)).toBe(matchedForCjk(fontStack('auto', 'auto', 'song')))
   })
 
   it('embeds italic faces only for a document with emphasis', async () => {
@@ -86,7 +88,7 @@ describe('export style', () => {
     const underscore = input({ text: '_Reading_' })
     const withUnderscore = await buildExportStyle(underscore.value)
     expect(underscore.read).toContain('/assets/source-serif-italic.woff2')
-    expect(withUnderscore.stylesheet).toContain(`font-family:'${SOURCE_SERIF_FAMILY}';font-style:italic;`)
+    expect(withUnderscore.stylesheet).toContain(`font-family:'${MATCHED_SERIF}';font-style:italic;`)
     // Bold, list bullets and escaped asterisks are not emphasis.
     for (const text of ['读书 **Reading** 笔记', '* Reading\n* Notes\n', 'Reading \\*notes\\*', '2 * 3 = 6']) {
       const plain = input({ text })

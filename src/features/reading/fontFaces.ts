@@ -1,11 +1,11 @@
-import { fontFaceRows, fontRanges } from './fontTable'
+import { fontFaceRows, fontRanges, fontSizeAdjust } from './fontTable'
 
 /**
  * The bundled fonts as data: which WOFF2 file draws which characters. The app itself registers them through
  * `bundledFonts.css`; this table is for exports, which embed only the subsets a document uses, and it is
  * loaded with the export code rather than at startup (T98). Both files come from scripts/generate-font-table.mjs.
  */
-export type FontFace = { family: string; weight: string; style: 'normal' | 'italic'; file: string; url: string; ranges: [number, number][] | null; unicodeRange: string | null }
+export type FontFace = { family: string; weight: string; style: 'normal' | 'italic'; file: string; url: string; ranges: [number, number][] | null; unicodeRange: string | null; /** `size-adjust`, for a Western face matched to Chinese text (T134). */ sizeAdjust?: string }
 
 // Only WOFF2 is imported, so the WOFF copies in the npm packages never reach the bundle. These are the same
 // files `bundledFonts.css` names, so the build emits each of them once.
@@ -31,7 +31,7 @@ function parseRanges(value: string): [number, number][] {
 /** `ranges` is tens of thousands of number pairs in all, so each face works its own out when first asked. */
 function bundledFace(family: string, weight: string, style: FontFace['style'], file: string, url: string, unicodeRange: string | null): FontFace {
   let ranges: [number, number][] | null | undefined
-  return { family, weight, style, file, url, unicodeRange, get ranges() { return ranges === undefined ? ranges = unicodeRange ? parseRanges(unicodeRange) : null : ranges } }
+  return { family, weight, style, file, url, unicodeRange, sizeAdjust: fontSizeAdjust[family], get ranges() { return ranges === undefined ? ranges = unicodeRange ? parseRanges(unicodeRange) : null : ranges } }
 }
 
 export const bundledFaces: readonly FontFace[] = fontFaceRows.flatMap(([family, file, weight, italic, range]) => {
@@ -41,7 +41,7 @@ export const bundledFaces: readonly FontFace[] = fontFaceRows.flatMap(([family, 
 
 /** `font-display: block` shows the right font after a short blank instead of swapping in a fallback first. */
 export function fontFaceCss(faces: readonly FontFace[], source: (face: FontFace) => string = (face) => face.url): string {
-  return faces.map((face) => `@font-face{font-family:'${face.family}';font-style:${face.style};font-weight:${face.weight};font-display:block;src:url(${source(face)}) format('woff2');${face.unicodeRange ? `unicode-range:${face.unicodeRange};` : ''}}`).join('\n')
+  return faces.map((face) => `@font-face{font-family:'${face.family}';font-style:${face.style};font-weight:${face.weight};font-display:block;src:url(${source(face)}) format('woff2');${face.unicodeRange ? `unicode-range:${face.unicodeRange};` : ''}${face.sizeAdjust ? `size-adjust:${face.sizeAdjust};` : ''}}`).join('\n')
 }
 
 /**

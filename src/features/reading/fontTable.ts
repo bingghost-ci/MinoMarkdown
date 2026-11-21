@@ -728,4 +728,19 @@ export const fontFaceRows: readonly (readonly [family: string, file: string, wei
   ["Mino Source Code Pro","source-code-pro-latin-wght-italic.woff2","200 900",1,100],
   ["Mino Source Code Pro","source-code-pro-latin-ext-wght-normal.woff2","200 900",0,99],
   ["Mino Source Code Pro","source-code-pro-latin-wght-normal.woff2","200 900",0,100],
+  ["Mino Source Serif 4 CJK","source-serif-4-latin-ext-wght-italic.woff2","200 900",1,99],
+  ["Mino Source Serif 4 CJK","source-serif-4-latin-wght-italic.woff2","200 900",1,100],
+  ["Mino Source Serif 4 CJK","source-serif-4-latin-ext-wght-normal.woff2","200 900",0,99],
+  ["Mino Source Serif 4 CJK","source-serif-4-latin-wght-normal.woff2","200 900",0,100],
+  ["Mino Literata CJK","literata-latin-ext-wght-italic.woff2","200 900",1,101],
+  ["Mino Literata CJK","literata-latin-wght-italic.woff2","200 900",1,100],
+  ["Mino Literata CJK","literata-latin-ext-wght-normal.woff2","200 900",0,101],
+  ["Mino Literata CJK","literata-latin-wght-normal.woff2","200 900",0,100],
+  ["Mino EB Garamond CJK","eb-garamond-latin-ext-wght-italic.woff2","400 800",1,101],
+  ["Mino EB Garamond CJK","eb-garamond-latin-wght-italic.woff2","400 800",1,100],
+  ["Mino EB Garamond CJK","eb-garamond-latin-ext-wght-normal.woff2","400 800",0,101],
+  ["Mino EB Garamond CJK","eb-garamond-latin-wght-normal.woff2","400 800",0,100],
 ]
+
+/** Families drawn at another size than their files give (T134): the size-adjust of each. */
+export const fontSizeAdjust: Readonly<Record<string, string>> = {"Mino Source Serif 4 CJK":"108%","Mino Literata CJK":"103%","Mino EB Garamond CJK":"112%"}

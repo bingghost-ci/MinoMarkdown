@@ -1,4 +1,4 @@
-import { codeFontStack, fontStack } from '../features/reading/fonts'
+import { codeFontStack, fontStack, matchedForCjk } from '../features/reading/fonts'
 import { tableStyles, type Measure, type PageMargin, type PageSize, type ParagraphSpacing, type TableStyle, type Typography } from '../features/reading/css'
 import { noCustomCodeColors, type CodeColors, type CustomCodeColors } from '../features/reading/codeColors'
 import type { DocumentScript } from '../features/reading/script'
@@ -91,7 +91,8 @@ export function documentTypography(settings: ReadingSettings, style: ReadingStyl
   const latin = layoutScript(settings, script) === 'latin'
   const lineHeight = (latin ? latinLineHeights : lineHeights)[settings.editorLineHeight] ?? (latin ? latinLineHeights : lineHeights).comfortable
   return {
-    fontFamily: layoutFontPrefix(settings.layout) + documentFontFamily(settings, style),
+    // In a Chinese document the Western face is the one sized to sit level with the characters (T134).
+    fontFamily: layoutFontPrefix(settings.layout) + (latin ? documentFontFamily(settings, style) : matchedForCjk(documentFontFamily(settings, style))),
     codeFontFamily: codeFontStack(settings.codeFont),
     codeColors: settings.codeColors,
     codeCustomColors: settings.codeCustomColors,

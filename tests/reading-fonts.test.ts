@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  bundledFamilies, choiceFamily, cjkFonts, codeFonts, codeFontStack, CODE_FONT_STACK, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, familiesIn, fontStack, isFontChoice, isSystemFontName, latinFonts, systemFontId, systemFontName, withoutBundledFonts,
+  bundledFamilies, cjkMatchedFamilies, CJK_MATCHED_SUFFIX, choiceFamily, cjkFonts, codeFonts, codeFontStack, CODE_FONT_STACK, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, familiesIn, fontStack, isFontChoice, isSystemFontName, latinFonts, systemFontId, systemFontName, withoutBundledFonts,
   LONG_CANG_FAMILY, MA_SHAN_FAMILY, CAVEAT_FAMILY, OXANIUM_FAMILY, FANGSONG_FAMILY, GARAMOND_FAMILY, ZHENGKAI_FAMILY, INTER_FAMILY, KAI_FAMILY, LITERATA_FAMILY, MONO_FAMILY, SANS_FAMILY, SERIF_FAMILY, SOURCE_SERIF_FAMILY,
 } from '../src/features/reading/fonts'
 import { bundledFaces, facesForText, fontFaceCss, type FontFace } from '../src/features/reading/fontFaces'
@@ -27,13 +27,15 @@ const directories: Record<string, string> = {
   [FIRA_CODE_FAMILY]: 'node_modules/@fontsource-variable/fira-code/files',
   [SOURCE_CODE_FAMILY]: 'node_modules/@fontsource-variable/source-code-pro/files',
 }
+// The registrations matched to Chinese text (T134) are the same files under a second name.
+for (const family of cjkMatchedFamilies) directories[family + CJK_MATCHED_SUFFIX] = directories[family]
 const westernFamilies = [SOURCE_SERIF_FAMILY, LITERATA_FAMILY, GARAMOND_FAMILY, INTER_FAMILY, MONO_FAMILY]
 const fileOnDisk = (face: FontFace) => join(directories[face.family], face.file)
 const facesOf = (family: string) => bundledFaces.filter((face) => face.family === family)
 const rust = readFileSync('src-tauri/src/settings.rs', 'utf8')
 
 describe('bundled fonts', () => {
-  it('bundles sixteen families, each with WOFF2 files that exist on disk', () => {
+  it('bundles sixteen families and three matched registrations, each with WOFF2 files that exist on disk', () => {
     expect([...bundledFamilies].sort()).toEqual(Object.keys(directories).sort())
     for (const family of Object.keys(directories)) expect(facesOf(family).length, family).toBeGreaterThan(0)
     for (const face of bundledFaces) {
@@ -103,7 +105,8 @@ describe('bundled fonts', () => {
   it('stays within the font budget of the build', () => {
     expect(FONT_BUDGET_BYTES).toBe(56 * 1024 * 1024)
     const byFamily = new Map<string, number>()
-    for (const face of bundledFaces) byFamily.set(face.family, (byFamily.get(face.family) ?? 0) + statSync(fileOnDisk(face)).size)
+    // A matched registration adds no file.
+    for (const face of bundledFaces.filter((face) => !face.sizeAdjust)) byFamily.set(face.family, (byFamily.get(face.family) ?? 0) + statSync(fileOnDisk(face)).size)
     const total = [...byFamily.values()].reduce((sum, size) => sum + size, 0)
     const mib = (bytes: number) => (bytes / 1048576).toFixed(2)
     console.info(`bundled fonts: ${mib(total)} MiB of ${mib(FONT_BUDGET_BYTES)} MiB (${[...byFamily].map(([family, size]) => `${family.replace('Mino ', '')} ${mib(size)}`).join(', ')})`)
@@ -394,7 +397,7 @@ describe('the generated font files (T98)', () => {
 
   it('register every face under a family the app knows, and every family the app knows has faces', () => {
     expect(new Set(bundledFaces.map((face) => face.family))).toEqual(bundledFamilies)
-    expect(bundledFamilies.size).toBe(16)
+    expect(bundledFamilies.size).toBe(16 + cjkMatchedFamilies.length)
   })
 
   it('give the page the same rules the app used to write from the face list, with each file found by the build', () => {

@@ -55,7 +55,19 @@ export const KAI_EMPHASIS_STACK = `'${KAI_FAMILY}', 'Kaiti SC', 'STKaiti'`
 export const CODE_FONT_STACK = `'${MONO_FAMILY}', ${CODE_FALLBACK}`
 
 /** The private families the app ships. Their faces are registered by `bundledFonts.css`; `fontFaces.ts` lists them for exports. */
-export const bundledFamilies: ReadonlySet<string> = new Set([SERIF_FAMILY, SANS_FAMILY, KAI_FAMILY, FANGSONG_FAMILY, ZHENGKAI_FAMILY, SOURCE_SERIF_FAMILY, LITERATA_FAMILY, GARAMOND_FAMILY, INTER_FAMILY, MONO_FAMILY, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, LONG_CANG_FAMILY, MA_SHAN_FAMILY, CAVEAT_FAMILY, OXANIUM_FAMILY])
+/**
+ * Western families that have a second registration, `<name> CJK`, drawn a little larger so their words and figures
+ * sit level with Chinese characters (T134). `scripts/generate-font-table.mjs` holds the sizes and the same names.
+ */
+export const CJK_MATCHED_SUFFIX = ' CJK'
+export const cjkMatchedFamilies: readonly string[] = [SOURCE_SERIF_FAMILY, LITERATA_FAMILY, GARAMOND_FAMILY]
+
+/** A font stack for a Chinese document: its Western families replaced by their matched registrations. */
+export function matchedForCjk(stack: string): string {
+  return cjkMatchedFamilies.reduce((result, family) => result.replaceAll(`'${family}'`, `'${family}${CJK_MATCHED_SUFFIX}'`), stack)
+}
+
+export const bundledFamilies: ReadonlySet<string> = new Set([...cjkMatchedFamilies.map((family) => family + CJK_MATCHED_SUFFIX), SERIF_FAMILY, SANS_FAMILY, KAI_FAMILY, FANGSONG_FAMILY, ZHENGKAI_FAMILY, SOURCE_SERIF_FAMILY, LITERATA_FAMILY, GARAMOND_FAMILY, INTER_FAMILY, MONO_FAMILY, FIRA_CODE_FAMILY, SOURCE_CODE_FAMILY, LONG_CANG_FAMILY, MA_SHAN_FAMILY, CAVEAT_FAMILY, OXANIUM_FAMILY])
 
 /** Chinese fonts offered by name; all ship with the app. */
 export const cjkFonts: readonly FontOption[] = [
