@@ -25,6 +25,14 @@ export function layoutFontPrefix(layout: LayoutId | undefined): string {
   return layout === 'typewriter' ? `'${MONO_FAMILY}', ` : ''
 }
 
+/**
+ * The page margins a layout prescribes, replacing the reader's choice (T136): GB/T 9704 sets an official document
+ * 37 mm from the top, 35 from the bottom, 28 from the binding edge and 26 from the other.
+ */
+export function layoutPageMargin(layout: LayoutId | undefined): string | null {
+  return layout === 'official' ? '37mm 26mm 35mm 28mm' : null
+}
+
 const HEI = `'${SANS_FAMILY}', 'PingFang SC', 'Heiti SC', sans-serif`
 const KAI = `${KAI_EMPHASIS_STACK}, serif`
 

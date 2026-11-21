@@ -4,7 +4,7 @@ import { readingStyle, readingStyles, type ReadingStyle } from './styles'
 import { syntaxVariables, type CustomCodeColors } from './codeColors'
 import { textureBackground } from './textures'
 import { alertCss, alertVariables } from './alertCss'
-import { layoutIds, layoutRules, type LayoutId } from './layouts'
+import { layoutIds, layoutPageMargin, layoutRules, type LayoutId } from './layouts'
 import { syntaxRoles, tokenClass } from '../../core/markdown/syntaxRoleNames'
 
 /**
@@ -305,7 +305,7 @@ export function exportStylesheet(options: ExportStyleOptions): string {
     `${DOC_ROOT} img{max-height:240mm;object-fit:contain}`,
     // A diagram fits the width of the page, on screen and on paper alike: nothing of it may lie outside.
     `.mermaid-diagram{margin:1.2em 0;text-align:center;break-inside:avoid}.mermaid-diagram svg{max-width:100%;height:auto}`,
-    `@page{size:${options.pageSize === 'letter' ? 'letter' : 'A4'};margin:${pageMargins[options.pageMargin]}}`,
+    `@page{size:${options.pageSize === 'letter' ? 'letter' : 'A4'};margin:${layoutPageMargin(options.typography.layout) ?? pageMargins[options.pageMargin]}}`,
     options.pdfFile
       ? `@media print{html,body{background:transparent}html{-webkit-print-color-adjust:exact;print-color-adjust:exact}}`
       : options.pdfMode === 'print'
@@ -313,5 +313,7 @@ export function exportStylesheet(options: ExportStyleOptions): string {
       : // WebKit leaves @page margins unpainted (T52), so the page color covers the printed area only.
         `@media print{html{${PAGE_BACKGROUND};-webkit-print-color-adjust:exact;print-color-adjust:exact}}`,
     `@media print{body{padding:0}.mino-page{max-width:none;margin:0;padding:0;border:0;border-radius:0;box-shadow:none;background:none}thead{display:table-header-group}img,blockquote,tr,figure{break-inside:avoid}pre{break-inside:auto}}`,
+    // T136: no line of a paragraph alone at the top or foot of a page, no heading left at the foot of one, and nothing short cut in two.
+    `@media print{${DOC_ROOT} p,${DOC_ROOT} li,${DOC_ROOT} dd{orphans:3;widows:3}${DOC_ROOT} :is(h1,h2,h3,h4,h5,h6){break-after:avoid-page;break-inside:avoid}${DOC_ROOT} :is(.mino-alert,.mermaid-diagram,.katex-display,dl,kbd){break-inside:avoid}${DOC_ROOT} .footnotes{break-before:avoid}${DOC_ROOT} a{text-decoration:none}}`,
   ].filter(Boolean).join('\n')
 }

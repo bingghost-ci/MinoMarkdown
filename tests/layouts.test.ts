@@ -51,4 +51,13 @@ describe('layouts (T122)', () => {
     expect(typewriter.layout).toBe('typewriter')
     expect(documentTypography({ ...defaultReadingSettings, layout: 'neon' as never }, style).layout).toBe('standard')
   })
+
+  it('prints without widows, orphans or stranded headings, and sets an official document on its own margins (T136)', () => {
+    const standard = exportCss('standard')
+    expect(standard).toContain('orphans:3;widows:3')
+    expect(standard).toContain('break-after:avoid-page')
+    expect(standard).toContain('@page{size:A4;margin:18mm}')
+    expect(exportCss('official')).toContain('@page{size:A4;margin:37mm 26mm 35mm 28mm}')
+    expect(exportCss('academic')).toContain('@page{size:A4;margin:18mm}')
+  })
 })
