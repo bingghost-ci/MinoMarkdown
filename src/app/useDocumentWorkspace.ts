@@ -973,6 +973,7 @@ export function useDocumentWorkspace() {
   useEffect(() => {
     const root = window.document.documentElement
     root.dataset.theme = style.id
+    root.dataset.focus = settings.focusMode ? 'on' : 'off'
     root.dataset.diagram = settings.diagramStyle
     root.dataset.diagramLine = settings.diagramLine
     root.dataset.diagramCurve = settings.diagramCurve
@@ -982,7 +983,7 @@ export function useDocumentWorkspace() {
     root.dataset.diagramCustom = customColorsKey(settings.diagramCustomColors ?? {})
     // Diagrams take their colors from the style and their drawing from the diagram settings; Mermaid only loads when one is on screen.
     if (window.document.querySelector('.mermaid-preview')) void import('../features/diagrams/mermaid').then((module) => module.restyleDiagrams(window.document))
-  }, [style.id, settings.diagramStyle, settings.diagramLine, settings.diagramCurve, settings.diagramFill, settings.diagramColors, settings.diagramFont, settings.diagramCustomColors])
+  }, [style.id, settings.focusMode, settings.diagramStyle, settings.diagramLine, settings.diagramCurve, settings.diagramFill, settings.diagramColors, settings.diagramFont, settings.diagramCustomColors])
 
   // The window takes the style's light or dark appearance rather than the system's, so the traffic lights, native
   // menus, dialogs and the color shown while the window is resized match the page.

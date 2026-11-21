@@ -98,7 +98,7 @@ describe('quote styles and titled quotes (T131)', () => {
     const app = appStylesheet()
     for (const id of ['bar', 'card', 'indent']) expect(app).toContain(`:root[data-quote="${id}"] .mino-doc blockquote:not(.mino-alert){`)
     // The reader's choice comes after the layout's rules, in the app and in an export.
-    expect(app.lastIndexOf('data-quote="card"')).toBeGreaterThan(app.lastIndexOf('data-layout="typewriter"'))
+    expect(app.indexOf(':root[data-quote="card"]')).toBeGreaterThan(app.lastIndexOf(':root[data-layout="typewriter"] .mino-doc'))
     const style = readingStyle('paper')
     const css = exportStylesheet({ styleId: 'paper', exportStyle: 'current', pdfMode: 'print', pageSize: 'a4', pageMargin: 'standard', fontFaces: '', typography: documentTypography({ ...defaultReadingSettings, quoteStyle: 'card', layout: 'academic' }, style) })
     expect(css).toContain('.mino-doc blockquote:not(.mino-alert){position:static;margin:1.1em 0;padding:.65em 1.1em')

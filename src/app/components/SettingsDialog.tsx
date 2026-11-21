@@ -281,6 +281,7 @@ export function SettingsDialog({ workspace: w, windowed = false, documentKind }:
           <div className="settings-section-heading"><strong>{t('阅读')}</strong></div>
           <ToggleRow title={t('打开文件时进入阅读模式')} note={t('新建、从草稿恢复和有未保存修改的文档直接编辑；⌘⇧R 切换')} checked={settings.openInReadingMode} onChange={(checked) => update({ openInReadingMode: checked })} />
           <Row title={t('正文显示模式')} note={t('页面像一张纸，宽屏铺满窗口')}><Segmented t={t} value={settings.editorWidth} onChange={(value) => update({ editorWidth: value })} options={editorWidthOptions} /></Row>
+          <ToggleRow title={t('专注模式')} note={t('编辑时只有正在写的段落清楚，其余淡化；阅读和导出不受影响')} checked={settings.focusMode} onChange={(checked) => update({ focusMode: checked })} />
           <ToggleRow title={t('显示图注')} note={t('在图片下方显示标题或替代文本，不改动文档')} checked={settings.imageCaptions} onChange={(checked) => update({ imageCaptions: checked })} />
           <ToggleRow title={t('夜间降低图片亮度')} note={t('夜间风格下图片亮度降到 90%')} checked={settings.imageDimming} onChange={(checked) => update({ imageDimming: checked })} />
           <div className="settings-section-heading"><strong>{t('导出 HTML 与 PDF')}</strong></div>

@@ -77,6 +77,8 @@ const english: Record<string, string> = {
   "中灰": "Gray",
   "青灰": "Slate",
   "暖灰": "Warm gray",
+  "专注模式": "Focus Mode",
+  "编辑时只有正在写的段落清楚，其余淡化；阅读和导出不受影响": "While editing, only the paragraph being written stays clear and the rest is dimmed. Reading and exports are not affected.",
   "纸面图案": "Paper Ruling",
   "很淡的方格或点阵，像笔记本的内页；打印时没有": "A faint grid or dots, like the page of a notebook. Not printed.",
   "方格": "Grid",

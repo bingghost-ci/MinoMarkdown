@@ -55,6 +55,8 @@ export type ReadingSettings = {
   /** `auto` lays out mostly-Western documents the Western way. */
   latinLayout: 'auto' | 'off'
   imageCaptions: boolean
+  /** While editing, blocks other than the one being written are dimmed (T135). */
+  focusMode: boolean
   imageDimming: boolean
   openInReadingMode: boolean
   exportStyle: 'current' | 'plain'
@@ -67,7 +69,7 @@ export type ReadingSettings = {
 export const defaultReadingSettings: ReadingSettings = {
   theme: 'system', dayTheme: 'white', nightTheme: 'dark', cjkFont: 'auto', latinFont: 'auto', codeFont: 'auto', codeColors: 'auto', codeCustomColors: noCustomCodeColors, editorFontSize: DEFAULT_EDITOR_FONT_SIZE, editorLineHeight: 'comfortable',
   paragraphSpacing: 'standard', measure: '36', textAlign: 'left', firstLineIndent: false, tableStyle: 'three-line', layout: 'standard', cjkEmphasis: 'italic', quoteStyle: 'auto', paperPattern: 'none', diagramStyle: 'page', diagramLine: 'auto', diagramCurve: 'auto', diagramFill: 'auto', diagramColors: 'auto', diagramCustomColors: noDiagramColors, diagramFont: 'auto', textureStrength: 60, latinLayout: 'auto',
-  imageCaptions: true, imageDimming: true, openInReadingMode: true, exportStyle: 'current', pdfMode: 'print', pageSize: 'a4', pageMargin: 'standard',
+  imageCaptions: true, focusMode: false, imageDimming: true, openInReadingMode: true, exportStyle: 'current', pdfMode: 'print', pageSize: 'a4', pageMargin: 'standard',
 }
 
 export const lineHeights = { compact: 1.5, comfortable: 1.8, relaxed: 2.05 } as const

@@ -288,9 +288,15 @@ export function appStylesheet(): string {
   const decorations = readingStyles.map((style) => decorationRules(style, (root) => `:root[data-theme="${style.id}"] ${root}`, [EDITOR_ROOT, DOC_ROOT]))
   // Layouts come last: they set headings and quotes over the style's own decoration.
   const layouts = layoutIds.map((id) => [EDITOR_ROOT, DOC_ROOT].map((root) => layoutRules(id, `:root[data-layout="${id}"] ${root}`)).join('\n'))
+  // T135, while editing only: in focus mode the blocks around the one being written step back, and a heading under the caret names its level in the margin.
+  const editing = `.editor-panel:not([data-reading="true"]) ${EDITOR_ROOT}`
+  const focus = [
+    `:root[data-focus="on"] ${editing} > :not(.mino-focus){opacity:.36;transition:opacity .18s ease}`,
+    `@media (min-width:980px){${[1, 2, 3, 4, 5, 6].map((level) => `${editing} > h${level}.mino-focus::after{content:"H${level}"}`).join('')}${editing} > :is(h1,h2,h3,h4,h5,h6).mino-focus{position:relative}${editing} > :is(h1,h2,h3,h4,h5,h6).mino-focus::after{position:absolute;right:100%;top:50%;transform:translateY(-50%);margin-right:.9em;padding:.1em .4em;border:1px solid var(--rule);border-radius:4px;color:var(--muted);font:500 10px/1.3 var(--code-font);letter-spacing:.04em;pointer-events:none}:root[data-layout="typewriter"] ${editing} > :is(h1,h2,h3,h4,h5,h6).mino-focus::after{content:none}}`,
+  ].join('\n')
   // A chosen quote style is the reader's word on quotes, over both the style and the layout.
   const quotes = quoteStyleIds.map((id) => [EDITOR_ROOT, DOC_ROOT].map((root) => quoteRules(id, `:root[data-quote="${id}"] ${root}`)).join('\n'))
-  return [...blocks, documentElementCss(EDITOR_ROOT), documentElementCss(DOC_ROOT), documentImageCss(DOC_ROOT), plainDocumentCss(DOC_ROOT), ...decorations, ...layouts, ...quotes].filter(Boolean).join('\n')
+  return [...blocks, documentElementCss(EDITOR_ROOT), documentElementCss(DOC_ROOT), documentImageCss(DOC_ROOT), plainDocumentCss(DOC_ROOT), ...decorations, ...layouts, ...quotes, focus].filter(Boolean).join('\n')
 }
 
 export type PageSize = 'a4' | 'letter'
