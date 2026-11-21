@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { lazy, Suspense, useRef } from 'react'
 import { useDocumentWorkspace } from './useDocumentWorkspace'
 import { usePinchZoom } from './pinchZoom'
 import { ZoomViewer } from './components/ZoomViewer'
@@ -10,10 +10,11 @@ import { TabBar } from './components/TabBar'
 import { EditorToolbar } from './components/EditorToolbar'
 import { EditorBody } from './components/EditorBody'
 import { DocumentRenameDialog, DraftsDialog } from './components/Dialogs'
-import { SettingsDialog } from './components/SettingsDialog'
 import { StatusBar, VerificationPanel } from './components/StatusBar'
 import { FloatingControls } from './components/FloatingControls'
 import { AiConsentDialog, AiDrawer } from './components/AiDrawer'
+
+const SettingsDialog = lazy(() => import('./components/SettingsDialog').then((module) => ({ default: module.SettingsDialog })))
 
 export function App() {
   const controller = useDocumentWorkspace()
@@ -39,7 +40,8 @@ export function App() {
       <StatusBar workspace={controller} />
       <DocumentRenameDialog workspace={controller} />
       <DraftsDialog workspace={controller} />
-      <SettingsDialog workspace={controller} documentKind={controller.document.kind} />
+      {/* Loaded when first opened: the settings pages are not needed to show a document (T124 kept the entry chunk in budget). */}
+      {controller.settingsOpen && <Suspense fallback={null}><SettingsDialog workspace={controller} documentKind={controller.document.kind} /></Suspense>}
       <AiConsentDialog workspace={controller} />
       <DiffDialog workspace={controller} />
       <VerificationPanel workspace={controller} />

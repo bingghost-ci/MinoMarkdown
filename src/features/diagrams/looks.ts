@@ -197,7 +197,8 @@ export function diagramTone(styleId: string, given: Partial<DiagramOptions> = {}
     }
     case 'hand': {
       const pen = mix(ink, ground, 0.08)
-      node = dark ? fromHsl(hue, 0.4, 0.3) : fromHsl(hue, 0.75, 0.86); border = pen; line = pen; frame = mix(fitColor(picked, ground, 3), ink, 0.1)
+      // A yellow-green wash is bright for its lightness (the pine style's accent), so the fill moves away from the text until the label reads.
+      node = towardContrast(dark ? fromHsl(hue, 0.4, 0.3) : fromHsl(hue, 0.75, 0.86), text, 4.6, { lighter: !dark, step: 0.02, steps: 15 }); border = pen; line = pen; frame = mix(fitColor(picked, ground, 3), ink, 0.1)
       pens = hues(8, options.colors === 'auto' ? 340 : hue).map((h) => mix(dark ? fromHsl(h, 0.45, 0.34) : fromHsl(h, 0.8, 0.84), ground, 0.06))
       break
     }

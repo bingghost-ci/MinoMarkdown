@@ -76,7 +76,7 @@ fn short_stem(name: &[u8], max: usize) -> Vec<u8> {
     let text = String::from_utf8_lossy(name);
     let mut cut = max.saturating_sub(17).min(text.len());
     while !text.is_char_boundary(cut) { cut -= 1; }
-    [text[..cut].as_bytes(), b"~", super::sha256_hex(name)[..16].as_bytes()].concat()
+    [&text.as_bytes()[..cut], b"~", &super::sha256_hex(name).as_bytes()[..16]].concat()
 }
 
 /// What every backup of `file_name` starts with. A name short enough keeps the form earlier versions wrote, so

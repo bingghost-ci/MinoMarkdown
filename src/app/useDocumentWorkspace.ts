@@ -94,6 +94,8 @@ export const samples = [
 type OpenResult = { token: string; name: string; markdown: string; revision: string; assetKey: string; /** What Rust opened the file as (T81); a PDF has no `markdown`. */ kind: DocumentKind; encoding?: string; size?: number }
 /** `markdown` comes back only when saving changed the text (pasted images now point at their files); otherwise it is the text that was sent (T100). */
 type SaveResult = Omit<OpenResult, 'markdown'> & { markdown?: string; assetPaths: Record<string, string>; assetRelocations: Record<string, string> }
+/** Where a file just opened is already shown (`claim_document`): nowhere else, in a tab here, or in another window. */
+type Claim = { where: 'claimed' } | { where: 'here'; token: string } | { where: 'elsewhere' }
 type DiskStatus = { kind: 'same' | 'changed' | 'deleted'; revision: string | null }
 type DocumentState = OpenResult & { id: number; draftId: string; imageUrls: Map<string, string>; recoveredAssets: Map<string, { bytes: Uint8Array<ArrayBuffer>; mime: string }>; pendingFiles: Map<string, File>; retiredTokens: string[]; entryToken?: string; sampleId?: string; originalMarkdown: string; prepared: PreparedMarkdown; /** T77: a large document shown through the preview until the user edits; see largeDocument.ts. */ deferredVisual?: boolean; sourceText: string; mode: 'visual' | 'source-protected'; reading?: boolean }
 /** The bytes a PDF may hold in one IPC answer; Rust allows 8 MiB. */
@@ -202,6 +204,10 @@ export function errorText(error: unknown): string {
     EXPORT_RESOURCE_MISSING: '图片附件缺失或包含远程图片，无法生成完整资源包。可选择“仅正文 MD”。',
     SNAPSHOT_BUDGET: '同时进行的导出作业过多，请稍后重试。',
     NOT_FOUND: '原文件或文件夹已经不在原位置，请重新选择文件或文件夹。',
+    OPEN_ELSEWHERE: '其中有文件正在另一个窗口中打开，请先在那个窗口关闭它。',
+    FILE_OPEN_ELSEWHERE: '所选文件正在一个标签页中打开，不能覆盖。请换一个名字，或先关闭那个标签页。',
+    DRAFT_IN_USE: '这份草稿正由另一个窗口里的文档使用。',
+    STAGING_BUDGET: '同时处理的图片过多，请稍后重试。',
   }
   return messages[code] ?? `操作失败：${code}`
 }
@@ -380,10 +386,15 @@ export function useDocumentWorkspace() {
   const [renaming, setRenaming] = useState(false)
   const draftWriteChain = useRef<Promise<void>>(Promise.resolve())
   const pendingDiscardDraftId = useRef<string | null>(null)
+  /** Documents whose visual editor has passed `fragmentsSurvived`. */
+  const verifiedEditors = useRef(new Set<number>())
   const desktop = isTauri()
-  busyRef.current = busy
+  // `busyRef` alone is the lock (`takeBusy`, `releaseBusy`); `busy` only redraws what depends on it. Copying the state
+  // into the ref on render would let a render that ran before `setBusy(true)` applied drop a lock still held.
   const composingRef = useRef(false)
   composingRef.current = toolbar.composing
+  /** Whether either editor is in the middle of an input method composition; nothing half-typed is saved or drafted. */
+  function composingNow(): boolean { return composingRef.current || Boolean(sourceEditor.current?.composing) }
   const settingsRef = useRef(settings)
   settingsRef.current = settings
   const persistedSettings = useRef(settings)
@@ -470,6 +481,8 @@ export function useDocumentWorkspace() {
 
   const canProceedRef = useRef<(finalizeDiscard?: boolean) => Promise<boolean>>(async () => true)
   const saveDocumentRef = useRef<(background?: boolean) => Promise<boolean>>(async () => false)
+  /** Save As for the document in front, read through a ref by flows that await between tabs. */
+  const saveDocumentAsRef = useRef<() => Promise<boolean>>(async () => false)
   const closeWindowRef = useRef<() => Promise<void>>(async () => undefined)
 
   /** Keystrokes only advance the ref; React re-renders when something visible about the session changes. */
@@ -665,7 +678,8 @@ export function useDocumentWorkspace() {
 
   function switchTab(key: string) {
     if (key === activeTabKeyRef.current) return
-    if (busyRef.current) { noteBusy(); return }
+    // While tabs or the window close, the tab being closed stays in front until it is done (see `focusTabForSave`).
+    if (busyRef.current || closingTabsRef.current || closingWindowRef.current) { noteBusy(); return }
     captureCurrentTab()
     const target = tabsRef.current.find((tab) => tab.key === key)
     if (target) activateTab(target)
@@ -684,12 +698,18 @@ export function useDocumentWorkspace() {
   /** Makes `key` the active tab and waits until its content can really be saved. */
   async function focusTabForSave(key: string): Promise<boolean> {
     if (key !== activeTabKeyRef.current) {
-      switchTab(key)
+      if (busyRef.current) { noteBusy(); return false }
+      captureCurrentTab()
+      const target = tabsRef.current.find((tab) => tab.key === key)
+      if (target) activateTab(target)
       if (activeTabKeyRef.current !== key) { noteBusy(); return false }
     }
     const deadline = performance.now() + 5000
     while (performance.now() < deadline) {
       await nextFrame()
+      // Something else came to the front meanwhile, such as a file opened from Finder: what is ready now is not
+      // this tab, so nothing may be saved, asked about or closed in its name.
+      if (activeTabKeyRef.current !== key) { setStatus('标签页已切换，操作已取消，内容没有改变'); return false }
       const active = documentRef.current
       if (active.mode !== 'visual' || (adapterDocumentId.current === active.id && adapter.current?.isReady())) return true
     }
@@ -705,24 +725,46 @@ export function useDocumentWorkspace() {
 
   /** Shows a file Rust has just opened in a new tab and notes it among the recent files. The caller releases the file's token if this fails. */
   async function showOpened(opened: OpenResult, entryToken?: string): Promise<void> {
-    // A file one of the tabs already shows comes to the front there, with its edits, rather than in a second tab.
-    const tokens = tabsRef.current.map((tab) => ({ key: tab.key, token: tab.key === activeTabKeyRef.current ? documentRef.current.token : tab.document.token })).filter((tab) => tab.token)
-    const existing = tokens.length ? await invoke<string | null>('find_open_document', { token: opened.token, candidates: tokens.map((tab) => tab.token) }) : null
-    const match = existing ? tokens.find((tab) => tab.token === existing) : undefined
-    if (match) {
+    // A file is open in one tab of one window only: a file a tab already shows comes to the front there, with its
+    // edits, rather than in a second tab whose saves would race the first.
+    const claim = await claimDocument(opened.token)
+    if (claim.where !== 'claimed') {
       await releaseCandidate(opened.token)
-      if (match.key !== activeTabKeyRef.current) {
-        captureCurrentTab()
-        const target = tabsRef.current.find((tab) => tab.key === match.key)
-        if (target) activateTab(target)
-      }
-      setStatus(`${opened.name} 已经打开`)
+      if (claim.where === 'here') showTabOf(claim.token)
+      setStatus(claim.where === 'here' ? `${opened.name} 已经打开` : `${opened.name} 已在另一个窗口打开`)
       return
     }
     const hydrated = await hydrateImages(opened, settingsRef.current.openInReadingMode)
     openTab(entryToken ? { ...hydrated, entryToken } : hydrated, createSession(hydrated.id, hydrated.revision))
     void rememberDocument(opened.token).catch(() => undefined)
   }
+
+  /** Asks Rust who shows the file behind `token`; when no one does, this window's new tab now holds it. */
+  async function claimDocument(token: string): Promise<Claim> {
+    return desktop ? await invoke<Claim>('claim_document', { token }) : { where: 'claimed' }
+  }
+
+  /** Brings the tab that holds document token `token` to the front, if this window has one. The caller holds the lock. */
+  function showTabOf(token: string) {
+    const match = tabsRef.current.find((tab) => (tab.key === activeTabKeyRef.current ? documentRef.current.token : tab.document.token) === token)
+    if (!match || match.key === activeTabKeyRef.current) return
+    captureCurrentTab()
+    const target = tabsRef.current.find((tab) => tab.key === match.key)
+    if (target) activateTab(target)
+  }
+
+  // Another window was asked to open a file this one shows: Rust has brought this window to the front, and the
+  // tab follows unless something is under way here, such as a save or a tab closing.
+  const revealRef = useRef<(token: string) => void>(() => undefined)
+  revealRef.current = (token) => {
+    if (busyRef.current || closingTabsRef.current || closingWindowRef.current) return
+    takeBusy()
+    try { showTabOf(token) } finally { releaseBusy() }
+  }
+  useEffect(() => {
+    if (!desktop) return
+    return untilCleanup(getCurrentWindow().listen<string>('reveal-document', (event) => revealRef.current(event.payload)))
+  }, [desktop])
 
   /** Takes a tab out of the bar and shows its neighbour, or an empty document when it was the last. */
   function removeTab(key: string, index: number) {
@@ -738,12 +780,13 @@ export function useDocumentWorkspace() {
   /** Lets go of what is kept for a document that has left this window: its live editor and its remembered positions (T96). */
   function forgetDocument(closed: DocumentState) {
     editorPool.current?.drop(closed.id)
+    verifiedEditors.current.delete(closed.id)
     scrollPositions.current.delete(closed.id)
     savedPositions.current.delete(closed.id)
     autosaveStopped.current.delete(closed.id)
     draftUploads.current.delete(closed.draftId)
     draftedText.current.delete(closed.draftId)
-    ai.forget(closed.id)
+    ai.forget(closed.draftId)
   }
 
   async function closeTabs(keys: string[]): Promise<boolean> {
@@ -768,15 +811,19 @@ export function useDocumentWorkspace() {
       await nextFrame()
       const closing = tabsRef.current.find((tab) => tab.key === key)
       if (!closing) continue
+      // What is released below is the document in front; it has to be this tab's.
+      if (activeTabKeyRef.current !== key) { setStatus('标签页已切换，操作已取消，内容没有改变'); return false }
       const activePendingUrls = Array.from(adapter.current?.pendingFiles().keys() ?? [])
-      const token = documentRef.current.token || closing.document.token
-      const retiredTokens = [...closing.document.retiredTokens, ...documentRef.current.retiredTokens]
+      // The tab's entry can hold an older version of the document in front: switching between source and visual
+      // mode gives it a new id, its editor and its images, and the entry is updated only when the tab is left.
+      const live = documentRef.current
+      const token = live.token || closing.document.token
+      const retiredTokens = [...closing.document.retiredTokens, ...live.retiredTokens]
       removeTab(key, index)
       await draftWriteChain.current.catch(() => undefined)
       for (const retired of new Set([token, ...retiredTokens])) await releaseCandidate(retired)
-      revokeDocumentUrls(closing.document)
+      for (const note of live.id === closing.document.id ? [live] : [live, closing.document]) { revokeDocumentUrls(note); forgetDocument(note) }
       for (const url of activePendingUrls) URL.revokeObjectURL(url)
-      forgetDocument(closing.document)
       setStatus(`已关闭 ${closing.document.name}`)
     }
     return true
@@ -873,22 +920,27 @@ export function useDocumentWorkspace() {
       adapterDocumentId.current = document.id
       instance.setReadonly(Boolean(documentRef.current.reading))
       editorPool.current.retain(new Set([documentRef.current.id, ...tabsRef.current.map((tab) => tab.document.id)]))
+      const revisionAtStart = sessionRef.current.revision
+      /** Checks once per editor, on whichever showing first sees it created, that it keeps raw HTML and footnotes
+       * as they are; leaving the tab while it was still being created must not skip the check. */
+      const fellBack = () => {
+        if (disposed || verifiedEditors.current.has(document.id)) return false
+        if (sessionRef.current.revision !== revisionAtStart || fragmentsSurvived(instance)) { verifiedEditors.current.add(document.id); return false }
+        // The editor would change raw HTML or footnotes, so this document stays source-only.
+        const current = documentRef.current
+        const issues = [...current.prepared.analysis.issues, { code: 'ROUNDTRIP_RISK' as const, detail: 'Visual editor changed protected fragments' }]
+        const id = nextDocumentId++
+        updateSession(withGeneration(sessionRef.current, id))
+        setDocument({ ...current, id, mode: 'source-protected', prepared: { ...current.prepared, analysis: { ...current.prepared.analysis, mode: 'source-protected', issues } } })
+        return true
+      }
       if (!created) {
-        void instance.create().then(() => { if (!disposed) { if (documentRef.current.reading) instance.setReadonly(true); else instance.resume(); restoreScroll(); reapplyFind(instance); setStatus(document.token ? `已打开 ${document.name}` : '编辑器已就绪 · 新文档尚未保存') } }).catch(() => undefined)
+        void instance.create().then(() => { if (!disposed && !fellBack()) { if (documentRef.current.reading) instance.setReadonly(true); else instance.resume(); restoreScroll(); reapplyFind(instance); setStatus(document.token ? `已打开 ${document.name}` : '编辑器已就绪 · 新文档尚未保存') } }).catch(() => undefined)
         return
       }
-      const revisionAtStart = sessionRef.current.revision
       void instance.create().then(() => {
         reapplyFind(instance)
-        if (!disposed && sessionRef.current.revision === revisionAtStart && !fragmentsSurvived(instance)) {
-          // The editor would change raw HTML or footnotes, so this document stays source-only.
-          const current = documentRef.current
-          const issues = [...current.prepared.analysis.issues, { code: 'ROUNDTRIP_RISK' as const, detail: 'Visual editor changed protected fragments' }]
-          const id = nextDocumentId++
-          updateSession(withGeneration(sessionRef.current, id))
-          setDocument({ ...current, id, mode: 'source-protected', prepared: { ...current.prepared, analysis: { ...current.prepared.analysis, mode: 'source-protected', issues } } })
-          return
-        }
+        if (fellBack()) return
         if (!disposed) {
           setStatus(documentRef.current.reading ? `已打开 ${document.name} · 阅读模式，按 ⌘⇧R 开始编辑` : document.token ? `已打开 ${document.name}` : '编辑器已就绪 · 新文档尚未保存')
           restoreScroll()
@@ -1095,7 +1147,7 @@ export function useDocumentWorkspace() {
   const draftTimerRef = useRef<() => void>(() => undefined)
   draftTimerRef.current = () => {
     if (!isDirty(sessionRef.current)) return
-    if (composingRef.current) { draftScheduler.current?.schedule(); return }
+    if (composingNow()) { draftScheduler.current?.schedule(); return }
     if (documentRef.current.mode === 'visual' && !liveEditorFor(documentRef.current)?.isReady()) { draftScheduler.current?.schedule(); return }
     void persistTabDraft(currentTabSnapshot(), liveEditorFor(documentRef.current))
   }
@@ -1114,7 +1166,7 @@ export function useDocumentWorkspace() {
     const decision = autosaveDecision({
       enabled: settingsRef.current.autoSave, hasFile: Boolean(current.token), dirty: isDirty(sessionRef.current), persistence: sessionRef.current.persistence,
       stopped: autosaveStopped.current.has(current.id), conflict: diskConflictRef.current?.documentId === current.id,
-      busy: busyRef.current, composing: composingRef.current, ready: current.mode !== 'visual' || Boolean(adapter.current?.isReady()),
+      busy: busyRef.current, composing: composingNow(), ready: current.mode !== 'visual' || Boolean(adapter.current?.isReady()),
     })
     if (decision === 'wait') autosaveScheduler.current?.schedule()
     if (decision !== 'save') return
@@ -1149,6 +1201,10 @@ export function useDocumentWorkspace() {
 
   async function recoverDraft(draftId: string): Promise<void> {
     if (busyRef.current) { noteBusy(); return }
+    // A draft belongs to one tab. The tab that writes it already holds its text, so it comes to the front instead
+    // of a second tab writing the same draft; Rust refuses one another window holds (`DRAFT_IN_USE`).
+    const owner = tabsRef.current.find((tab) => (tab.key === activeTabKeyRef.current ? documentRef.current : tab.document).draftId === draftId)
+    if (owner) { switchTab(owner.key); setDraftsOpen(false); return }
     takeBusy()
     try {
       const recovered = await invoke<DraftContent>('read_draft', { draftId, includeAssets: true })
@@ -1182,7 +1238,8 @@ export function useDocumentWorkspace() {
       openTab(next, editSession(createSession(next.id)))
       setDraftsOpen(false)
       setDraftPreview(null)
-      setStatus(recovered.targetStatus === 'changed' ? '已恢复草稿；原文件已有新版本，保存时请选择新文件名' : '已恢复草稿；请检查内容后保存')
+      const lost = recovered.assetCount - recovered.assets.length
+      setStatus(`${recovered.targetStatus === 'changed' ? '已恢复草稿；原文件已有新版本，保存时请选择新文件名' : '已恢复草稿；请检查内容后保存'}${lost > 0 ? `；${lost} 张图片已损坏，未能恢复` : ''}`)
     } catch (error) { setStatus(errorText(error)) }
     finally { releaseBusy() }
   }
@@ -1198,7 +1255,7 @@ export function useDocumentWorkspace() {
     let inFlight = false
     let deleted = false
     const poll = async () => {
-      if (inFlight || busyRef.current || composingRef.current || sessionRef.current.generation !== document.id || sessionRef.current.persistence === 'saving') return
+      if (inFlight || busyRef.current || composingNow() || sessionRef.current.generation !== document.id || sessionRef.current.persistence === 'saving') return
       inFlight = true
       const expectedAtStart = sessionRef.current.diskRevision
       try {
@@ -1286,15 +1343,22 @@ export function useDocumentWorkspace() {
     }
   }
 
-  function currentDocumentText(): string {
+  /** The text the user sees now, or null while the visual editor that holds it is not ready (still loading, or an
+   * input method is composing): falling back to the text as opened would pass it off as the user's edits. */
+  function currentDocumentText(): string | null {
     const current = flushSourceText()
-    return current.mode === 'visual' && adapter.current?.isReady() ? composeVisualMarkdown(current.prepared.analysis, adapter.current.getPersistableMarkdown()) : current.sourceText
+    if (current.mode !== 'visual') return current.sourceText
+    const instance = adapter.current
+    if (!instance?.isReady() || adapterDocumentId.current !== current.id || composingNow()) return null
+    return composeVisualMarkdown(current.prepared.analysis, instance.getPersistableMarkdown())
   }
 
   async function showDiskDiff(): Promise<void> {
     try {
+      const text = currentDocumentText()
+      if (text === null) { setStatus('编辑器尚未就绪，请稍后再试'); return }
       const disk = await invoke<string>('read_disk_version', { token: documentRef.current.token })
-      setDiskDiff({ lines: lineDiff(disk, currentDocumentText()) ?? undefined })
+      setDiskDiff({ lines: lineDiff(disk, text) ?? undefined })
     } catch (error) { setStatus(errorText(error)) }
   }
 
@@ -1323,9 +1387,10 @@ export function useDocumentWorkspace() {
   async function saveConflictCopyAs(): Promise<void> {
     if (busyRef.current) { noteBusy(); return }
     if (!isTextKind(documentRef.current.kind)) { setStatus(errorText('READ_ONLY')); return }
+    const markdown = currentDocumentText()
+    if (markdown === null) { setStatus('编辑器尚未就绪，请稍后再另存副本'); return }
     takeBusy()
     try {
-      const markdown = currentDocumentText()
       const assets = adapter.current?.isReady() ? await adapter.current.pendingAssets() : []
       const name = await invokeSave<string | null>('save_conflict_copy', { token: documentRef.current.token, markdown }, () => stageAssets(assets))
       setStatus(name ? `已另存副本 ${name}；可继续选择使用磁盘版本` : '已取消另存，当前内容仍在编辑器中')
@@ -1447,6 +1512,8 @@ export function useDocumentWorkspace() {
       let missing = restored.missing
       for (const [index, opened] of restored.documents.entries()) {
         try {
+          // Another window may already show it, for one opened from Finder before this one restored its tabs.
+          if ((await claimDocument(opened.token)).where !== 'claimed') { await releaseCandidate(opened.token); continue }
           const hydrated = await hydrateImages(opened, settingsRef.current.openInReadingMode)
           const item = { key: crypto.randomUUID(), document: hydrated, session: createSession(hydrated.id, hydrated.revision) }
           items.push(item)
@@ -1714,7 +1781,7 @@ export function useDocumentWorkspace() {
 
   async function saveDocument(asNew = false, background = false): Promise<boolean> {
     const instance = adapter.current
-    if (background && (busyRef.current || toolbar.composing)) return false
+    if (background && (busyRef.current || composingNow())) return false
     if (busyRef.current) {
       if (sessionRef.current.persistence === 'saving') { queuedSave.current = true; setStatus('正在保存，完成后会再保存一次') }
       else noteBusy()
@@ -1723,7 +1790,7 @@ export function useDocumentWorkspace() {
     if (!isTextKind(document.kind)) { if (!background) setStatus(errorText('READ_ONLY')); return false }
     // An editor still loading may yet fall back to source mode (`fragmentsSurvived`), which would orphan this save.
     if (document.mode === 'visual' && (!instance || !instance.isReady() || adapterDocumentId.current !== document.id)) { if (!background) setStatus('编辑器尚未就绪，请稍后再保存'); return false }
-    if (toolbar.composing) { setStatus('请先完成当前中文输入，再保存'); return false }
+    if (composingNow()) { setStatus('请先完成当前中文输入，再保存'); return false }
     if (document.token && !asNew && !isDirty(sessionRef.current)) {
       setStatus('内容未修改，磁盘文件无需重写')
       return true
@@ -1799,6 +1866,7 @@ export function useDocumentWorkspace() {
     }
   }
   saveDocumentRef.current = (background = false) => saveDocument(false, background)
+  saveDocumentAsRef.current = () => saveDocument(true)
 
   /** Export HTML, Export PDF, or Print through the system panel (T106): all three render the same page. */
   async function exportPage(mode: 'html' | 'print' | 'pdf') {
@@ -2388,19 +2456,55 @@ export function useDocumentWorkspace() {
   async function requestCloseWindow(): Promise<void> {
     if (closingWindowRef.current) return
     closingWindowRef.current = true
+    // Tabs whose edits the user chose to discard. They are dropped only once the window really closes: when a later
+    // tab stops the close (a failed save, Cancel), they keep their edits and drafts instead of looking saved.
+    const discarded: { key: string; draftId: string | null; before: DocumentSession }[] = []
+    let closed = false
     try {
       for (const { key, session: storedSession } of [...tabsRef.current]) {
         if (!isDirty(key === activeTabKeyRef.current ? sessionRef.current : storedSession)) continue
         if (!await focusTabForSave(key)) return
         const active = documentRef.current
         if (active.token && isDirty(sessionRef.current)) {
-          if (!await saveDocumentRef.current()) return
+          if (!await saveDocumentRef.current()) {
+            // A file that was deleted, changed on disk or cannot take the text in its encoding would otherwise keep
+            // the window from ever closing. Save As, or close without saving: the draft keeps the edits then.
+            if (busyRef.current || !isDirty(sessionRef.current)) return
+            let action: UnsavedAction
+            try { action = await invoke<UnsavedAction>('choose_unsaved_action', { saveFailed: true }) }
+            catch (error) { setStatus(errorText(error)); return }
+            if (action === 'cancel') return
+            if (action === 'save') { if (!await saveDocumentAsRef.current()) return }
+            else {
+              const before = sessionRef.current
+              // Closing without the draft written would lose the edits outright, so a failed draft stops the close.
+              try { await persistTabDraft(currentTabSnapshot(), liveEditorFor(documentRef.current), true) }
+              catch (error) { setStatus(`草稿保存失败，窗口未关闭：${errorText(error)}`); return }
+              draftScheduler.current?.cancel()
+              autosaveScheduler.current?.cancel()
+              updateSession(discardChanges(sessionRef.current))
+              discarded.push({ key, draftId: null, before })
+            }
+          }
           await nextFrame()
-        } else if (!await canProceedRef.current(true)) return
+        } else {
+          const before = sessionRef.current
+          if (!await canProceedRef.current(false)) return
+          if (pendingDiscardDraftId.current) discarded.push({ key, draftId: pendingDiscardDraftId.current, before })
+          pendingDiscardDraftId.current = null
+        }
       }
       await draftWriteChain.current.catch(() => undefined)
+      for (const { draftId } of discarded) if (draftId) await discardDraft(draftId).catch(() => undefined)
       await invoke('close_workspace_window')
-    } finally { closingWindowRef.current = false }
+      closed = true
+    } finally {
+      closingWindowRef.current = false
+      if (!closed) for (const { key, before } of discarded) {
+        if (key === activeTabKeyRef.current) updateSession(before)
+        else updateTabs(tabsRef.current.map((tab) => tab.key === key ? { ...tab, session: before } : tab))
+      }
+    }
   }
   closeWindowRef.current = requestCloseWindow
 
@@ -2542,6 +2646,8 @@ export function useDocumentWorkspace() {
       carryScroll(visual.id, document.deferredVisual ? documentScroller() : null)
       updateSession(withGeneration(sessionRef.current, visual.id))
       setDocument({ ...visual, draftId: document.draftId, retiredTokens: document.retiredTokens, originalMarkdown: document.originalMarkdown, sampleId: document.sampleId })
+      // The source view's images were copied to new addresses above; the old ones would leak with every switch.
+      revokeDocumentUrls(document)
     } finally {
       releaseBusy()
     }
@@ -2630,7 +2736,7 @@ export function useDocumentWorkspace() {
 
   const ai = useAiAssistant({
     transport: aiTransport,
-    documentId: document.id,
+    documentId: document.draftId,
     language: settings.language,
     getDocument: () => {
       const current = documentRef.current

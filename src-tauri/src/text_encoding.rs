@@ -29,7 +29,7 @@ fn strict(encoding: &'static Encoding, bytes: &[u8]) -> Option<String> {
 
 /// UTF-16 without a mark: in mostly-ASCII text every other byte is zero.
 fn unmarked_utf16(bytes: &[u8]) -> Option<&'static Encoding> {
-    if bytes.len() < 4 || bytes.len() % 2 != 0 { return None; }
+    if bytes.len() < 4 || !bytes.len().is_multiple_of(2) { return None; }
     let sample = &bytes[..bytes.len().min(4096) & !1];
     let pairs = sample.len() / 2;
     let even = sample.iter().step_by(2).filter(|byte| **byte == 0).count();

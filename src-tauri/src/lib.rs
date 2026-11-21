@@ -69,6 +69,7 @@ pub fn run() {
         })
         .manage(documents::DocumentStore::default())
         .manage(staging::StagingStore::default())
+        .manage(drafts::DraftClaims::default())
         .manage(workspace::WorkspaceStore::default())
         .manage(workspace::SearchState::default())
         .manage(snapshots::SnapshotStore::default())
@@ -220,6 +221,10 @@ pub fn run() {
             if let tauri::WindowEvent::Destroyed = event {
                 // A stream for a window that is gone would run to its end for nobody.
                 window.app_handle().state::<ai::AiState>().cancel_window(window.label());
+                // Its tabs are gone, so the files they showed may open elsewhere, and their grants end.
+                documents::release_window(&window.app_handle().state::<documents::DocumentStore>(), window.label());
+                workspace::release_window(&window.app_handle().state::<workspace::WorkspaceStore>(), window.label());
+                window.app_handle().state::<drafts::DraftClaims>().release_window(window.label());
             }
             if let tauri::WindowEvent::Focused(true) = event {
                 if let Ok(mut active) = window.app_handle().state::<windows::ActiveWindow>().0.lock() { *active = window.label().into(); }
@@ -238,7 +243,7 @@ pub fn run() {
             pdf_export::export_pdf,
             pdf_export::print_page,
             documents::release_document,
-            documents::find_open_document,
+            documents::claim_document,
             documents::choose_unsaved_action,
             documents::check_document_revision,
             documents::read_disk_version,

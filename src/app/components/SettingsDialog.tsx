@@ -10,7 +10,8 @@ const DiagramSettings = lazy(() => import('./DiagramSettings').then((module) => 
 import { modelChoices, providerHasKey, providerIds, providerLabels, type AiProvider } from '../../features/ai/client'
 import { codeColorIds, codeColorLabels, codePalette, noCustomCodeColors, syntaxRoleLabels, withCustomColor, type CodeColors, type CustomCodeColors } from '../../features/reading/codeColors'
 import type { SyntaxRole } from '../../core/markdown/syntaxRoleNames'
-import { StyleSwatches } from './AppearancePanel'
+import { LayoutGallery, StyleGallery } from './StyleGallery'
+import { layouts } from '../../features/reading/layouts'
 import { FontPicker } from './FontPicker'
 import { ColorPalette } from './ColorPalette'
 import { Row, Segmented, ToggleRow } from './settingsControls'
@@ -239,8 +240,11 @@ export function SettingsDialog({ workspace: w, windowed = false, documentKind }:
             <label>{t('夜间')}<select value={settings.nightTheme} onChange={(event) => update({ nightTheme: event.target.value as Settings['nightTheme'] })}>{readingStyles.filter((style) => style.dark).map((style) => <option key={style.id} value={style.id}>{t(style.name)}</option>)}</select></label>
           </div>}
           <div className="settings-section-heading"><strong>{t('阅读风格')}</strong><small>{t('窗口和标题栏带一点纸张的色调，颜色主要在纸面和标题上')}</small></div>
-          <StyleSwatches workspace={w} />
+          <StyleGallery workspace={w} />
           {active.texture && <Row title={t('纸张纹理')} note={t('纸面纤维、压纹和做旧的明显程度')}><input type="range" aria-label={t('纸张纹理')} min={0} max={100} step={10} value={settings.textureStrength} onChange={(event) => update({ textureStrength: Number(event.target.value) })} /></Row>}
+          <div className="settings-section-heading"><strong>{t('版式')}</strong><small>{t('标题、编号、引用和分隔线的排法，与纸张分开选择；导出也用这里的选择')}</small></div>
+          <LayoutGallery workspace={w} />
+          <p className="settings-note">{t(layouts.find((layout) => layout.id === settings.layout)?.note ?? layouts[0].note)}</p>
         </>}
         {settingsTab === 'code' && <>
           <div className="settings-section-heading is-first"><strong>{t('代码配色')}</strong><small>{t('代码块和源码文件里各种记号的颜色；底色始终是纸张的，颜色会按纸张调到看得清，导出也用这里的选择')}</small></div>

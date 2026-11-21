@@ -90,7 +90,7 @@ pub fn open_intent_workspace(window: WebviewWindow, intents: State<'_, IntentSto
     if intent.kind != Kind::Folder { return Err("OUT_OF_SCOPE".into()); }
     let metadata = fs::symlink_metadata(&intent.path).map_err(|_| "NOT_FOUND")?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() { return Err("OUT_OF_SCOPE".into()); }
-    register_workspace(&workspaces, intent.path)
+    register_workspace(&workspaces, intent.path, window.label())
 }
 #[tauri::command(async)]
 pub fn open_intent_document(window: WebviewWindow, intents: State<'_, IntentStore>, documents: State<'_, DocumentStore>, token: String) -> Result<OpenDocument, String> {
@@ -125,7 +125,7 @@ mod tests {
         let md = root.join("note.md"); let txt = root.join("bad.docx");
         fs::write(&md,b"hi").unwrap(); fs::write(&txt,b"hi").unwrap();
         // Text, source and PDF files are documents too (T81).
-        for name in ["novel.txt", "config.yaml", "manual.pdf"] { assert_eq!(kind_for(&root.join(name)) == Some(Kind::Document), true, "{name}"); }
+        for name in ["novel.txt", "config.yaml", "manual.pdf"] { assert!(kind_for(&root.join(name)) == Some(Kind::Document), "{name}"); }
         std::os::unix::fs::symlink(&md, root.join("link.md")).unwrap();
         let store = IntentStore::default();
         assert!(enqueue(&store,md.clone(),false,"main"));

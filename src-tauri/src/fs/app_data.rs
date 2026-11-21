@@ -14,7 +14,7 @@ pub fn ensure_dir(path: &Path) -> Result<PathBuf, String> {
         let directory = crate::fs::open_directory_at(&parent_file, &entry).map_err(|_| "OUT_OF_SCOPE")?;
         let actual = parent.join(name);
         crate::fs::still_at(&actual, &directory, "COMMIT_UNCERTAIN")?;
-        return Ok(actual);
+        Ok(actual)
     }
     #[cfg(not(target_os = "macos"))]
     {

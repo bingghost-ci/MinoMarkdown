@@ -142,9 +142,15 @@ pub fn show_workspace_window(window: WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn create_workspace_window(app: AppHandle, window: WebviewWindow, transfers: State<'_, TransferStore>, transfer: Option<serde_json::Value>) -> Result<String, String> {
+pub fn create_workspace_window(app: AppHandle, window: WebviewWindow, transfers: State<'_, TransferStore>, documents: State<'_, crate::documents::DocumentStore>, drafts: State<'_, crate::drafts::DraftClaims>, transfer: Option<serde_json::Value>) -> Result<String, String> {
     crate::require_workspace_window(&window)?;
-    create(&app, &transfers, transfer)
+    let field = |name: &str| transfer.as_ref().and_then(|value| value.get(name)).and_then(|value| value.as_str()).filter(|value| !value.is_empty()).map(str::to_owned);
+    let (token, draft) = (field("token"), field("draftId"));
+    let label = create(&app, &transfers, transfer)?;
+    // The moved tab's file and draft belong to the new window from now on, even before its page has loaded.
+    if let Some(token) = token { crate::documents::hand_over(&documents, &token, &label)?; }
+    if let Some(draft) = draft { drafts.hand_over(&draft, &label); }
+    Ok(label)
 }
 
 #[tauri::command]

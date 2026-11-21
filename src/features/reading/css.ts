@@ -3,6 +3,8 @@ import { CODE_FONT_STACK } from './fonts'
 import { readingStyle, readingStyles, type ReadingStyle } from './styles'
 import { syntaxVariables, type CustomCodeColors } from './codeColors'
 import { textureBackground } from './textures'
+import { alertCss, alertVariables } from './alertCss'
+import { layoutIds, layoutRules, type LayoutId } from './layouts'
 import { syntaxRoles, tokenClass } from '../../core/markdown/syntaxRoleNames'
 
 /**
@@ -36,6 +38,8 @@ export type Typography = {
   textureStrength: number
   /** Western layout (T68): hyphenated words, set with `lang="en"` on the document. */
   hyphens: boolean
+  /** How headings, quotes and rules are set (T122); `standard` when left out. */
+  layout?: LayoutId
 }
 
 export type TableStyle = 'three-line' | 'grid'
@@ -93,6 +97,7 @@ export function styleVariables(style: ReadingStyle, textureSource?: (file: strin
     '--accent-ink': style.ui.accentInk,
     '--danger': style.ui.danger,
     ...syntaxVariables('auto', style),
+    ...alertVariables(style),
   }
 }
 
@@ -101,7 +106,11 @@ function decorationRules(style: ReadingStyle, scope: (root: string) => string, r
   const rules: string[] = []
   for (const root of roots) {
     const r = scope(root)
-    if (style.quoteMark) rules.push(`${r} blockquote{position:relative;border-left:0;padding-left:2.1em}${r} blockquote::before{content:"\\201C";position:absolute;left:0;top:-.08em;font:2.8em/1 Georgia,'Songti SC',serif;color:var(--quote-line)}`)
+    if (style.quoteMark) rules.push(`${r} blockquote:not(.mino-alert){position:relative;border-left:0;padding-left:2.1em}${r} blockquote:not(.mino-alert)::before{content:"\\201C";position:absolute;left:0;top:-.08em;font:2.8em/1 Georgia,'Songti SC',serif;color:var(--quote-line)}`)
+    if (style.levels) {
+      const { h1, h2, h3, h4, strong } = style.levels
+      rules.push([h1 && `${r} h1{color:${h1}}`, h2 && `${r} h2{color:${h2}}`, h3 && `${r} h3{color:${h3}}`, h4 && `${r} h4{color:${h4}}`, strong && `${r} strong{color:${strong}}`].filter(Boolean).join(''))
+    }
     if (style.ornament) rules.push(`${r} h1{text-align:center}${r} hr{border:0;background:none;height:1.6em;margin:1.6em 0;text-align:center;overflow:visible}${r} hr::before{content:"\\2766";display:block;color:var(--secondary);font:1.05em/1.6em Georgia,'Apple Symbols',serif;letter-spacing:0}`)
   }
   return rules.join('')
@@ -137,6 +146,7 @@ export function documentElementCss(root: string): string {
     `${r} .mino-num{text-align:right!important;font-variant-numeric:tabular-nums}`,
     `${r} thead th,${r} tr:first-child > th{border-bottom:1px solid var(--table-rule);font-weight:700;color:var(--heading)}`,
     `${r} ::selection{background:var(--selection)}`,
+    alertCss(r),
     `@supports (text-autospace: normal){${r}{text-autospace:normal}}@supports (text-spacing-trim: normal){${r}{text-spacing-trim:normal}}`,
   ].join('\n')
 }
@@ -207,7 +217,9 @@ export function typographyVariables(typography: Typography, style: ReadingStyle)
 export function appStylesheet(): string {
   const blocks = readingStyles.map((style) => `:root[data-theme="${style.id}"]${style.id === 'white' ? ',:root:not([data-theme])' : ''}{${declarations(styleVariables(style))}}`)
   const decorations = readingStyles.map((style) => decorationRules(style, (root) => `:root[data-theme="${style.id}"] ${root}`, [EDITOR_ROOT, DOC_ROOT]))
-  return [...blocks, documentElementCss(EDITOR_ROOT), documentElementCss(DOC_ROOT), documentImageCss(DOC_ROOT), plainDocumentCss(DOC_ROOT), ...decorations].join('\n')
+  // Layouts come last: they set headings and quotes over the style's own decoration.
+  const layouts = layoutIds.map((id) => [EDITOR_ROOT, DOC_ROOT].map((root) => layoutRules(id, `:root[data-layout="${id}"] ${root}`)).join('\n'))
+  return [...blocks, documentElementCss(EDITOR_ROOT), documentElementCss(DOC_ROOT), documentImageCss(DOC_ROOT), plainDocumentCss(DOC_ROOT), ...decorations, ...layouts].filter(Boolean).join('\n')
 }
 
 export type PageSize = 'a4' | 'letter'
@@ -264,6 +276,7 @@ export function exportStylesheet(options: ExportStyleOptions): string {
     documentImageCss(DOC_ROOT),
     plainDocumentCss(DOC_ROOT),
     decorationRules(style, (root) => root, [DOC_ROOT]),
+    layoutRules(options.typography.layout ?? 'standard', DOC_ROOT),
     `${DOC_ROOT} img{max-height:240mm;object-fit:contain}`,
     // A diagram fits the width of the page, on screen and on paper alike: nothing of it may lie outside.
     `.mermaid-diagram{margin:1.2em 0;text-align:center;break-inside:avoid}.mermaid-diagram svg{max-width:100%;height:auto}`,

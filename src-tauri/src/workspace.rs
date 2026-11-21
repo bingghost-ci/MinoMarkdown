@@ -16,7 +16,9 @@ const SNIPPET_CHARS: usize = 120;
 #[derive(Clone)]
 struct EntryGrant { workspace: String, root: PathBuf, path: PathBuf, directory: bool }
 #[derive(Default)]
-pub struct WorkspaceStore(Mutex<HashMap<String, EntryGrant>>);
+/// The entries, and for each open folder the windows that show it: one grant serves every window that opens
+/// the same folder, and it ends when the last of them closes it.
+pub struct WorkspaceStore(Mutex<HashMap<String, EntryGrant>>, Mutex<HashMap<String, HashSet<String>>>);
 impl WorkspaceStore {
     /// The entry a token was issued for; an unknown token is out of scope.
     fn grant(&self, token: &str) -> Result<EntryGrant, String> {
@@ -268,18 +270,24 @@ pub async fn choose_workspace(app: AppHandle, window: WebviewWindow, store: Stat
     let Some(selected) = app.dialog().file().blocking_pick_folder() else { return Ok(None); };
     let path = fs::canonicalize(selected.into_path().map_err(|_| "INVALID_PATH")?).map_err(|_| "NOT_FOUND")?;
     if !fs::metadata(&path).map_err(|_| "NOT_FOUND")?.is_dir() { return Err("INVALID_PATH".into()); }
-    Ok(Some(register_workspace(&store, path)?))
+    Ok(Some(register_workspace(&store, path, window.label())?))
 }
 
-pub(crate) fn register_workspace(store: &WorkspaceStore, path: PathBuf) -> Result<WorkspaceRoot, String> {
+pub(crate) fn register_workspace(store: &WorkspaceStore, path: PathBuf, label: &str) -> Result<WorkspaceRoot, String> {
     let path = fs::canonicalize(path).map_err(|_| "NOT_FOUND")?;
     if !fs::metadata(&path).map_err(|_| "NOT_FOUND")?.is_dir() { return Err("INVALID_PATH".into()); }
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
     let mut map = store.0.lock().map_err(|_| "IO_ERROR")?;
     // Several folders can be open at once (T79); opening one again returns its existing grant.
-    if let Some(token) = map.iter().find(|(token, entry)| entry.workspace == **token && entry.path == path).map(|(token, _)| token.clone()) { return Ok(WorkspaceRoot { token, name }); }
-    let token = format!("workspace-{}", NEXT_ENTRY.fetch_add(1, Ordering::Relaxed));
-    map.insert(token.clone(), EntryGrant { workspace: token.clone(), root: path.clone(), path, directory: true });
+    let token = match map.iter().find(|(token, entry)| entry.workspace == **token && entry.path == path).map(|(token, _)| token.clone()) {
+        Some(token) => token,
+        None => {
+            let token = format!("workspace-{}", NEXT_ENTRY.fetch_add(1, Ordering::Relaxed));
+            map.insert(token.clone(), EntryGrant { workspace: token.clone(), root: path.clone(), path, directory: true });
+            token
+        }
+    };
+    store.1.lock().map_err(|_| "IO_ERROR")?.entry(token.clone()).or_default().insert(label.to_owned());
     Ok(WorkspaceRoot { token, name })
 }
 
@@ -329,13 +337,30 @@ pub fn open_workspace_document(window: WebviewWindow, workspace: State<'_, Works
     let path = checked_path(&grant)?;
     open_granted_path(&documents, &path)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn release_workspace(window: WebviewWindow, store: State<'_, WorkspaceStore>, token: String) -> Result<(), String> {
     crate::require_workspace_window(&window)?;
+    release_for(&store, &token, window.label())
+}
+
+/// This window no longer shows folder `token`; the folder's grants end once no window does.
+fn release_for(store: &WorkspaceStore, token: &str, label: &str) -> Result<(), String> {
     let mut map = store.0.lock().map_err(|_| "IO_ERROR")?;
-    if !map.get(&token).is_some_and(|entry| entry.workspace == token) { return Err("OUT_OF_SCOPE".into()); }
+    if !map.get(token).is_some_and(|entry| entry.workspace == token) { return Err("OUT_OF_SCOPE".into()); }
+    let mut windows = store.1.lock().map_err(|_| "IO_ERROR")?;
+    if let Some(open) = windows.get_mut(token) {
+        open.remove(label);
+        if !open.is_empty() { return Ok(()); }
+        windows.remove(token);
+    }
     map.retain(|_, entry| entry.workspace != token);
     Ok(())
+}
+
+/// Closes, for a window that is gone, every folder it showed.
+pub(crate) fn release_window(store: &WorkspaceStore, label: &str) {
+    let shown: Vec<String> = match store.1.lock() { Ok(windows) => windows.iter().filter(|(_, open)| open.contains(label)).map(|(token, _)| token.clone()).collect(), Err(_) => return };
+    for token in shown { let _ = release_for(store, &token, label); }
 }
 
 #[tauri::command(async)]
@@ -457,6 +482,8 @@ fn contents_at(store: &WorkspaceStore, documents: &DocumentStore, entry_token: &
 #[tauri::command(async)]
 pub fn workspace_entry_contents(window: WebviewWindow, store: State<'_, WorkspaceStore>, documents: State<'_, DocumentStore>, entry_token: String) -> Result<EntryContents, String> {
     crate::require_workspace_window(&window)?;
+    // Asked before this window closes its own tabs, so a refusal leaves them as they were.
+    crate::documents::not_open_elsewhere(&documents, &entry_path(&store, &entry_token)?.0, window.label())?;
     contents_at(&store, &documents, &entry_token)
 }
 
@@ -474,7 +501,7 @@ pub fn trash_workspace_entry(window: WebviewWindow, store: State<'_, WorkspaceSt
     let grant = store.grant(&entry_token)?;
     if grant.path == grant.root { return Err("OUT_OF_SCOPE".into()); }
     let path = checked_path(&grant)?;
-    removing(&documents, &path, || move_to_trash(&path))?;
+    removing(&documents, &path, window.label(), || move_to_trash(&path))?;
     forget_within(&store, &documents, &path)
 }
 
@@ -582,7 +609,7 @@ mod tests {
         fs::write(dir.join("c.docx"), "mino").unwrap();
         fs::write(dir.join("d.pdf"), "%PDF-1.4 mino").unwrap();
         let store = WorkspaceStore::default();
-        let root = register_workspace(&store, dir.clone()).unwrap();
+        let root = register_workspace(&store, dir.clone(), "main").unwrap();
         let results = searched(&store, &root.token, "  mInO ");
         let found = results.hits.iter().map(|hit| (hit.path.as_str(), hit.line, hit.occurrence)).collect::<Vec<_>>();
         assert_eq!(found, vec![("a.md", 2, 0), ("a.md", 2, 1), ("子目录/b.markdown", 1, 0)]);
@@ -608,7 +635,7 @@ mod tests {
         big.set_len(MAX_SEARCH_DOCUMENT + 1).unwrap();
         fs::write(dir.join("visible.md"), "needle").unwrap();
         let store = WorkspaceStore::default();
-        let root = register_workspace(&store, dir.clone()).unwrap();
+        let root = register_workspace(&store, dir.clone(), "main").unwrap();
         let results = searched(&store, &root.token, "needle");
         assert_eq!(results.hits.iter().map(|hit| hit.path.as_str()).collect::<Vec<_>>(), vec!["visible.md"]);
         assert_eq!(results.skipped, 2);
@@ -623,7 +650,7 @@ mod tests {
         let utf16: Vec<u8> = [0xff, 0xfe].into_iter().chain("notes about 灯塔\n".encode_utf16().flat_map(u16::to_le_bytes)).collect();
         fs::write(dir.join("notes.log"), utf16).unwrap();
         let store = WorkspaceStore::default();
-        let root = register_workspace(&store, dir.clone()).unwrap();
+        let root = register_workspace(&store, dir.clone(), "main").unwrap();
         let results = searched(&store, &root.token, "灯塔");
         assert_eq!(results.hits.iter().map(|hit| (hit.path.as_str(), hit.line)).collect::<Vec<_>>(), vec![("config.yaml", 1), ("notes.log", 1), ("novel.txt", 2)]);
         assert_eq!(results.skipped, 0);
@@ -640,7 +667,7 @@ mod tests {
         std::os::unix::fs::symlink(&outside, dir.join("linked-dir")).unwrap();
         std::os::unix::fs::symlink(&dir, dir.join("loop")).unwrap();
         let store = WorkspaceStore::default();
-        let root = register_workspace(&store, dir.clone()).unwrap();
+        let root = register_workspace(&store, dir.clone(), "main").unwrap();
         assert_eq!(searched(&store, &root.token, "needle").hits.iter().map(|hit| hit.path.as_str()).collect::<Vec<_>>(), vec!["inside.md"]);
         let child = list_at(&store, &root.token, 0).unwrap().entries.remove(0);
         assert_eq!(search_at(&store, &child.token, "needle", || false).err(), Some("OUT_OF_SCOPE".to_owned()));
@@ -653,7 +680,7 @@ mod tests {
         let dir = temp();
         for index in 0..110 { fs::write(dir.join(format!("{index:03}.md")), "needle\n".repeat(9)).unwrap(); }
         let store = WorkspaceStore::default();
-        let root = register_workspace(&store, dir.clone()).unwrap();
+        let root = register_workspace(&store, dir.clone(), "main").unwrap();
         let results = searched(&store, &root.token, "needle");
         assert_eq!(results.hits.len(), MAX_SEARCH_HITS);
         assert!(results.truncated);
@@ -671,7 +698,7 @@ mod tests {
     fn search_fixture_timing() {
         let dir = fs::canonicalize(std::env::var("MINO_SEARCH_FIXTURES").unwrap()).unwrap();
         let store = WorkspaceStore::default();
-        let root = register_workspace(&store, dir).unwrap();
+        let root = register_workspace(&store, dir, "main").unwrap();
         for query in ["Synthetic", "不存在的查询内容"] {
             let started = std::time::Instant::now();
             let results = searched(&store, &root.token, query);
@@ -688,7 +715,7 @@ mod tests {
         for file in ["sub/a.md", "sub/deep/b.md", "c.md", "sub-other/d.md"] { fs::write(dir.join(file), "# x\n").unwrap(); }
         let store = WorkspaceStore::default();
         let documents = DocumentStore::default();
-        let root = register_workspace(&store, dir.clone()).unwrap();
+        let root = register_workspace(&store, dir.clone(), "main").unwrap();
         let token_of = |name: &str| store.0.lock().unwrap().iter().find(|(_, item)| item.path == dir.join(name)).map(|(token, _)| token.clone());
         list_at(&store, &root.token, 0).unwrap();
         let sub = token_of("sub").unwrap();
@@ -724,7 +751,7 @@ mod tests {
         for file in ["sub/a.md", "sub/deep/b.md", "sub-other/d.md"] { fs::write(dir.join(file), format!("# {file}\n")).unwrap(); }
         let store = WorkspaceStore::default();
         let documents = DocumentStore::default();
-        let root = register_workspace(&store, dir.clone()).unwrap();
+        let root = register_workspace(&store, dir.clone(), "main").unwrap();
         let token_of = |path: &Path| store.0.lock().unwrap().iter().find(|(_, item)| item.path == path).map(|(token, _)| token.clone());
         list_at(&store, &root.token, 0).unwrap();
         let sub = token_of(&dir.join("sub")).unwrap();
@@ -773,7 +800,7 @@ mod tests {
         fs::write(dir.join("b.md"), "![](assets/shared.png)\n").unwrap();
         let store = WorkspaceStore::default();
         let documents = DocumentStore::default();
-        let root = register_workspace(&store, dir.clone()).unwrap();
+        let root = register_workspace(&store, dir.clone(), "main").unwrap();
         list_at(&store, &root.token, 0).unwrap();
         let token_of = |path: &Path| store.0.lock().unwrap().iter().find(|(_, item)| item.path == path).map(|(token, _)| token.clone()).unwrap();
         let (a, boxed, clash) = (token_of(&dir.join("a.md")), token_of(&dir.join("box")), token_of(&dir.join("clash")));
@@ -837,7 +864,7 @@ mod tests {
         let store = WorkspaceStore::default();
         let documents = DocumentStore::default();
         if let Some(name) = open { open_granted_path(&documents, &dir.join(name)).unwrap(); }
-        let root = register_workspace(&store, base.clone()).unwrap();
+        let root = register_workspace(&store, base.clone(), "main").unwrap();
         list_at(&store, &root.token, 0).unwrap();
         let token_of = |path: &Path| store.0.lock().unwrap().iter().find(|(_, item)| item.path == path).map(|(token, _)| token.clone()).unwrap();
         list_at(&store, &token_of(&dir), 0).unwrap();
@@ -880,7 +907,7 @@ mod tests {
         crate::fs::atomic_write::commit(&dir.join("a.md"), b"![](assets/own.png)\nv1\n", Some(&crate::fs::sha256_hex(b"![](assets/own.png)\n"))).unwrap();
         let store = WorkspaceStore::default();
         let documents = DocumentStore::default();
-        let root = register_workspace(&store, dir.clone()).unwrap();
+        let root = register_workspace(&store, dir.clone(), "main").unwrap();
         list_at(&store, &root.token, 0).unwrap();
         let token_of = |path: &Path| store.0.lock().unwrap().iter().find(|(_, item)| item.path == path).map(|(token, _)| token.clone()).unwrap();
         open_granted_path(&documents, &dir.join("a.md")).unwrap();
@@ -922,8 +949,8 @@ mod tests {
         for file in ["sub/a.md", "sub/deep/b.md", "c.md", "box/c.md"] { fs::write(dir.join(file), format!("# {file}\n")).unwrap(); }
         let store = WorkspaceStore::default();
         let documents = DocumentStore::default();
-        let root = register_workspace(&store, dir.clone()).unwrap();
-        let second = register_workspace(&store, other.clone()).unwrap();
+        let root = register_workspace(&store, dir.clone(), "main").unwrap();
+        let second = register_workspace(&store, other.clone(), "main").unwrap();
         let token_of = |path: &Path| store.0.lock().unwrap().iter().find(|(_, item)| item.path == path).map(|(token, _)| token.clone());
         list_at(&store, &root.token, 0).unwrap();
         list_at(&store, &second.token, 0).unwrap();
@@ -977,7 +1004,7 @@ mod tests {
         fs::write(other.join("outer/opened/e.md"), "# e\n").unwrap();
         list_at(&store, &second.token, 0).unwrap();
         let outer = token_of(&other.join("outer")).unwrap();
-        let nested = register_workspace(&store, other.join("outer/opened")).unwrap();
+        let nested = register_workspace(&store, other.join("outer/opened"), "main").unwrap();
         list_at(&store, &nested.token, 0).unwrap();
         let e = token_of(&other.join("outer/opened/e.md")).unwrap();
         move_entry(&store, &documents, &outer, &inbox).unwrap();
@@ -1053,7 +1080,7 @@ mod tests {
         fs::create_dir(dir.join("sub")).unwrap();
         fs::write(dir.join("sub/note.md"), b"note").unwrap();
         let store = WorkspaceStore::default();
-        let root = register_workspace(&store, dir.clone()).unwrap();
+        let root = register_workspace(&store, dir.clone(), "main").unwrap();
         let child = list_at(&store, &root.token, 0).unwrap().entries.remove(0);
         let nested = list_at(&store, &child.token, 0).unwrap().entries.remove(0);
         fs::remove_file(dir.join("sub/note.md")).unwrap();
@@ -1067,14 +1094,26 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
     #[test]
+    fn a_folder_open_in_two_windows_stays_open_until_both_close_it() {
+        let dir = temp();
+        fs::write(dir.join("a.md"), "a").unwrap();
+        let store = WorkspaceStore::default();
+        let root = register_workspace(&store, dir.clone(), "main").unwrap();
+        assert_eq!(register_workspace(&store, dir.clone(), "workspace-2").unwrap().token, root.token);
+        release_for(&store, &root.token, "main").unwrap();
+        assert_eq!(list_at(&store, &root.token, 0).unwrap().entries.len(), 1, "the other window still shows it");
+        release_window(&store, "workspace-2");
+        assert_eq!(list_at(&store, &root.token, 0).err().as_deref(), Some("OUT_OF_SCOPE"));
+    }
+    #[test]
     fn several_folders_are_open_at_once_and_each_is_released_alone() {
         let (a, b) = (temp(), temp());
         fs::write(a.join("a.md"), "a").unwrap(); fs::write(b.join("b.md"), "b").unwrap();
         let store = WorkspaceStore::default();
-        let first = register_workspace(&store, a.clone()).unwrap();
-        let second = register_workspace(&store, b.clone()).unwrap();
+        let first = register_workspace(&store, a.clone(), "main").unwrap();
+        let second = register_workspace(&store, b.clone(), "main").unwrap();
         assert_ne!(first.token, second.token);
-        assert_eq!(register_workspace(&store, a.clone()).unwrap().token, first.token, "the same folder is not granted twice");
+        assert_eq!(register_workspace(&store, a.clone(), "main").unwrap().token, first.token, "the same folder is not granted twice");
         let in_a = list_at(&store, &first.token, 0).unwrap().entries; let in_b = list_at(&store, &second.token, 0).unwrap().entries;
         assert_eq!((in_a[0].name.as_str(), in_b[0].name.as_str()), ("a.md", "b.md"));
         store.0.lock().unwrap().retain(|_, entry| entry.workspace != first.token);

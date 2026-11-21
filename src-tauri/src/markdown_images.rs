@@ -80,7 +80,7 @@ pub fn rewrite_image_urls(markdown: &str, replacements: &HashMap<String, String>
         found.insert(url);
     }
     if found.len() != replacements.len() { return Err("INVALID_ASSET".into()); }
-    edits.sort_by(|a,b| b.0.start.cmp(&a.0.start));
+    edits.sort_by_key(|edit| std::cmp::Reverse(edit.0.start));
     let mut output = markdown.to_owned();
     for (range, value) in edits { output.replace_range(range, &value); }
     Ok(output)

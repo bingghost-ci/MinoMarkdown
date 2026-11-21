@@ -36,6 +36,11 @@ export type ReadingStyleSource = {
   ornament?: boolean
   /** Darkened page edges and corners, kept off the text area; scaled by the texture strength. */
   aging?: boolean
+  /**
+   * Colors of their own for heading levels and bold text (T123), for a style whose look is several quiet hues
+   * rather than one accent. Each must read at 4.5:1 on the paper.
+   */
+  levels?: Partial<Record<'h1' | 'h2' | 'h3' | 'h4' | 'strong', string>>
   /** Overrides for derived colors when the derivation does not suit a style. */
   overrides?: Partial<Omit<ReadingStyle, keyof ReadingStyleSource | 'ui'>> & { ui?: Partial<UiColors> }
 }
@@ -60,7 +65,7 @@ export type ReadingStyle = ReadingStyleSource & {
   ui: UiColors
 }
 
-export const styleIds = ['white', 'mist', 'paper', 'xuan', 'parchment', 'kraft', 'mint', 'charcoal', 'dark', 'gray', 'slate', 'dusk'] as const
+export const styleIds = ['white', 'mist', 'contrast', 'clay', 'paper', 'xuan', 'parchment', 'kraft', 'mint', 'charcoal', 'dark', 'gray', 'slate', 'pine', 'midnight', 'dusk'] as const
 export type StyleId = (typeof styleIds)[number]
 /** `system` follows the macOS appearance and picks the day or night style. */
 export type ThemeId = StyleId | 'system'
@@ -77,6 +82,10 @@ export const legacyStyleIds: Readonly<Record<string, StyleId>> = {
 const sources: ReadingStyleSource[] = [
   { id: 'white', name: '白', group: 'plain', dark: false, paper: '#ffffff', text: '#2a2d33', secondary: '#666c76', link: '#1a6fc4', texture: null, font: 'hei', codeTheme: 'light' },
   { id: 'mist', name: '灰白', group: 'plain', dark: false, paper: '#ebecee', text: '#26282c', secondary: '#575b63', link: '#3d5570', texture: null, font: 'song', codeTheme: 'light', overrides: { desk: '#dcdde1', edge: '#d3d4d8' } },
+  // T123: text and links at 7:1 or more, for tired eyes and bright rooms (after Legible's AAA values).
+  { id: 'contrast', name: '高对比', group: 'plain', dark: false, paper: '#ffffff', text: '#24272c', secondary: '#3f4852', link: '#0052a2', texture: null, font: 'hei', codeTheme: 'light', overrides: { quoteLine: '#747e89', rule: '#9aa2ab', tableLine: '#b5bcc4' } },
+  // T123: a warm white with one terracotta accent, quiet like a well-made notebook.
+  { id: 'clay', name: '陶土', group: 'plain', dark: false, paper: '#faf9f5', text: '#26241f', secondary: '#5a5852', link: '#9c4a2b', texture: null, font: 'song', codeTheme: 'warm', overrides: { quoteLine: '#d9a58f' } },
   { id: 'paper', name: '书页', group: 'paper', dark: false, paper: '#f6efe0', text: '#2e261d', secondary: '#6a5b4a', link: '#8a4a24', texture: 'paper', font: 'song', codeTheme: 'warm', quoteMark: true },
   { id: 'xuan', name: '宣纸', group: 'paper', dark: false, paper: '#f5f3ea', text: '#211f1b', secondary: '#5f5850', link: '#a8382a', texture: 'xuan', font: 'kai', codeTheme: 'warm', quoteMark: true, ornament: true },
   { id: 'parchment', name: '羊皮卷', group: 'paper', dark: false, paper: '#ead6a8', text: '#3b2a17', secondary: '#5e4829', link: '#6f3410', texture: 'parchment', font: 'song', codeTheme: 'warm', quoteMark: true, ornament: true, aging: true },
@@ -86,6 +95,10 @@ const sources: ReadingStyleSource[] = [
   { id: 'dark', name: '深灰', group: 'night', dark: true, paper: '#242427', text: '#d0d3d8', secondary: '#9a9fa8', link: '#8fc1f2', texture: null, font: 'hei', codeTheme: 'night' },
   { id: 'gray', name: '中灰', group: 'night', dark: true, paper: '#3a3c40', text: '#e3e5e9', secondary: '#b4b8bf', link: '#a3cdf6', texture: null, font: 'hei', codeTheme: 'night', overrides: { desk: '#2a2b2e', edge: '#47494e', ui: { sidebar: '#2d2e31', chrome: '#303134', raised: '#3f4044', line: '#434449', hover: '#3a3b3f' } } },
   { id: 'slate', name: '青灰', group: 'night', dark: true, paper: '#2a303a', text: '#d3d8e0', secondary: '#9fa8b5', link: '#8cc8e8', texture: null, font: 'hei', codeTheme: 'night' },
+  // T123: a pine-forest night in several low-saturation hues, one for each heading level (after Everpine).
+  { id: 'pine', name: '松林', group: 'night', dark: true, paper: '#1e2420', text: '#c9d3cc', secondary: '#939f98', link: '#a7c080', texture: null, font: 'hei', codeTheme: 'night', levels: { h1: '#aecb96', h2: '#a7c080', h3: '#83c092', h4: '#d295b2', strong: '#dbbc7f' } },
+  // T123: deep navy ink, for those who find gray nights too flat.
+  { id: 'midnight', name: '夜蓝', group: 'night', dark: true, paper: '#1a2230', text: '#cfd6e2', secondary: '#96a1b3', link: '#8ab8f0', texture: null, font: 'hei', codeTheme: 'night' },
   { id: 'dusk', name: '暖灰', group: 'night', dark: true, paper: '#2e2a26', text: '#dad3c9', secondary: '#a89e91', link: '#e2b17c', texture: null, font: 'song', codeTheme: 'night' },
 ]
 

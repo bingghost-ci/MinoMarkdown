@@ -22,6 +22,7 @@ import { renderHtmlImages } from './htmlImages'
 import { renderMermaidPreview } from '../diagrams/mermaid'
 import { remarkDemoteCurrencyPlugin } from './mathEditor'
 import { numericColumnsPlugin } from './numericColumns'
+import { alertsPlugin } from './alerts'
 import { CREPE_INLINE_MATH_RULE, STRICT_INLINE_MATH_RULE } from '../../core/markdown/math'
 import { isAssetUrl, relativeFromAssetUrl } from './assetUrl'
 import { findKey, findPlugin, setFind } from './find'
@@ -119,7 +120,7 @@ export class EditorAdapter {
       },
     })
     this.crepe.editor.use(remarkDemoteCurrencyPlugin).config((ctx) => {
-      ctx.update(prosePluginsCtx, (plugins) => plugins.concat(findPlugin, numericColumnsPlugin, proseKeymap({ 'Alt-ArrowUp': moveBlock(-1), 'Alt-ArrowDown': moveBlock(1), 'Mod-Shift-d': duplicateBlock })))
+      ctx.update(prosePluginsCtx, (plugins) => plugins.concat(findPlugin, numericColumnsPlugin, alertsPlugin, proseKeymap({ 'Alt-ArrowUp': moveBlock(-1), 'Alt-ArrowDown': moveBlock(1), 'Mod-Shift-d': duplicateBlock })))
       ctx.update(linkSchema.key, withLiteralLinks)
       // Raw HTML that is only layout around images (`<p align="center"><img …></p>`) is drawn as those images; the
       // node keeps its source untouched, so saving writes it back byte for byte.

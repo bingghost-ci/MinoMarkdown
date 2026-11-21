@@ -444,6 +444,39 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .style-swatch[aria-selected="true"] .style-swatch-chip { outline: 2px solid var(--accent); outline-offset: 2px; }
 .style-swatch[aria-selected="true"] { color: var(--ui-text); }
 .settings-content .style-swatches { grid-template-columns: repeat(9, minmax(0, 1fr)); margin-bottom: 8px; }
+/* T122–T124: thumbnails of the reading styles and the layouts, drawn from the style variables, never pictures. */
+.panel-segmented.is-tight button { min-width: 0; padding: 0 4px; }
+.style-gallery, .layout-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 14px 10px; margin: 4px 0 10px; }
+.layout-gallery { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.style-card, .layout-card { display: flex; flex-direction: column; align-items: stretch; gap: 6px; border: 0; padding: 0; background: none; color: var(--ui-secondary); font-size: 11.5px; text-align: center; cursor: default; }
+.style-card-page, .layout-card-page { position: relative; display: flex; flex-direction: column; gap: 4px; height: 84px; padding: 9px 10px; border-radius: 7px; overflow: hidden; background-color: var(--surface); background-image: var(--paper-texture); background-size: var(--paper-texture-size, auto); border: 1px solid var(--page-edge); box-shadow: 0 1px 2px #00000014, 0 4px 12px #00000012; transition: transform .15s ease, box-shadow .15s ease; }
+.style-card:hover .style-card-page, .layout-card:hover .layout-card-page { transform: translateY(-1px); box-shadow: 0 2px 4px #0000001a, 0 8px 18px #00000018; }
+.style-card[aria-selected="true"] .style-card-page, .layout-card[aria-selected="true"] .layout-card-page { box-shadow: 0 0 0 2px var(--chrome), 0 0 0 4px var(--accent); }
+.style-card[aria-selected="true"], .layout-card[aria-selected="true"] { color: var(--ui-text); font-weight: 600; }
+.style-card-page .thumb-title { display: flex; align-items: baseline; gap: 4px; margin-bottom: 2px; color: var(--title); font: 600 17px/1 var(--thumb-font); }
+.style-card-page .thumb-title i { color: var(--thumb-h3); font: italic 500 11px/1 Georgia, serif; }
+.thumb-line { display: block; height: 3px; border-radius: 2px; background: var(--text); opacity: .55; }
+.thumb-line.is-short { width: 62%; }
+.thumb-line.is-link { width: 40%; background: var(--link); opacity: .9; }
+.thumb-quote { display: block; padding: 2px 0 2px 6px; border-left: 2px solid var(--quote-line); }
+.thumb-quote .thumb-line { width: 80%; background: var(--secondary); }
+.layout-card-page { gap: 3px; padding: 8px 9px; }
+.layout-card-page .thumb-title { display: block; width: 58%; height: 6px; border-radius: 2px; margin-bottom: 3px; background: var(--title); }
+.thumb-head { display: flex; align-items: center; gap: 3px; margin-top: 2px; color: var(--title); font: 700 7.5px/1 var(--code-font); }
+.thumb-head b:empty { display: none; }
+.thumb-head .thumb-bar { flex: 0 0 38%; height: 4px; border-radius: 2px; background: var(--title); opacity: .85; }
+.thumb-head.is-minor .thumb-bar { flex-basis: 30%; opacity: .6; background: var(--heading); }
+.layout-thumb-academic .thumb-title, .layout-thumb-official .thumb-title { align-self: center; }
+.layout-thumb-academic .thumb-line.is-para, .layout-thumb-official .thumb-line.is-para { margin-left: 12%; }
+.layout-thumb-official .thumb-title { width: 64%; background: var(--text); box-shadow: 0 4px 0 -1px var(--surface), 0 5px 0 0 var(--alert-caution); }
+.layout-thumb-official .thumb-head { margin-left: 12%; color: var(--text); font-family: inherit; font-weight: 500; }
+.layout-thumb-official .thumb-head .thumb-bar { background: var(--text); opacity: .7; }
+.layout-thumb-technical .thumb-title { width: 100%; height: 5px; box-shadow: 0 3px 0 -1px var(--surface), 0 4px 0 0 var(--rule); margin-bottom: 4px; }
+.layout-thumb-technical .thumb-head b { color: var(--secondary); }
+.layout-thumb-typewriter .thumb-title { width: 46%; background: var(--title); }
+.layout-thumb-typewriter .thumb-head { margin-left: -2px; }
+.layout-thumb-typewriter .thumb-head b { color: var(--muted); font-weight: 400; }
+.layout-thumb-typewriter .thumb-line { height: 2px; opacity: .45; background-image: repeating-linear-gradient(90deg, var(--surface) 0 1px, transparent 1px 4px); }
 .font-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .font-grid-system { max-height: 230px; overflow-y: auto; padding: 2px; }
 .font-chip { height: 40px; border: 1px solid transparent; border-radius: 9px; padding: 0 8px; background: var(--raised); color: var(--ui-text); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; content-visibility: auto; contain-intrinsic-size: auto 40px; }

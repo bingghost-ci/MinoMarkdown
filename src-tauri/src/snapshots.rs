@@ -99,18 +99,28 @@ fn export_at(snapshot: &Snapshot, target: &Path, text_only: bool) -> Result<Expo
 #[allow(clippy::too_many_arguments)]
 pub fn create_snapshot(window: WebviewWindow, store: State<'_, SnapshotStore>, documents: State<'_, DocumentStore>, staging: State<'_, StagingStore>, markdown: String, title: String, assets: Vec<StagedAsset>, disk_assets: Vec<DiskAsset>, page_images: Option<Vec<DiskAsset>>, token: Option<String>, generation: u64, revision: u64) -> Result<String, String> {
     crate::require_workspace_window(&window)?;
+    // Counts are checked before anything is read, and reading stops at the byte budget, so a document with
+    // hundreds of images fails at once instead of after reading them all.
+    if assets.len() + disk_assets.len() > MAX_ASSETS || page_images.as_ref().is_some_and(|list| list.len() > MAX_ASSETS) { return Err("SNAPSHOT_TOO_LARGE".into()); }
     let mut assets = staging.take_all(assets)?;
+    let mut total: usize = assets.iter().map(|asset| asset.bytes.len()).sum();
     for asset in disk_assets {
+        if total > MAX_TOTAL_ASSETS { return Err("SNAPSHOT_TOO_LARGE".into()); }
         let token = token.as_deref().ok_or("EXPORT_RESOURCE_MISSING")?;
         let mime = asset_mime(&asset.relative).ok_or("EXPORT_RESOURCE_MISSING")?;
-        assets.push(SnapshotAsset { bytes: read_granted_asset(&documents, token, &asset.relative).map_err(|_| "EXPORT_RESOURCE_MISSING")?, url: asset.url, mime: mime.into() });
+        let bytes = read_granted_asset(&documents, token, &asset.relative).map_err(|_| "EXPORT_RESOURCE_MISSING")?;
+        total += bytes.len();
+        assets.push(SnapshotAsset { bytes, url: asset.url, mime: mime.into() });
     }
     // Images only an exported page shows (raw HTML `<img>`, SVG). One that is missing or not an image type shows its
     // alt text in the page instead of stopping the export.
     let page_images = match (&token, page_images) {
         (Some(token), Some(list)) => list.into_iter().filter_map(|image| {
+            if total > MAX_TOTAL_ASSETS { return None; }
             let mime = display_mime(&image.relative)?;
-            Some(SnapshotAsset { bytes: read_granted_asset(&documents, token, &image.relative).ok()?, url: image.url, mime: mime.into() })
+            let bytes = read_granted_asset(&documents, token, &image.relative).ok()?;
+            total += bytes.len();
+            Some(SnapshotAsset { bytes, url: image.url, mime: mime.into() })
         }).collect(),
         _ => Vec::new(),
     };

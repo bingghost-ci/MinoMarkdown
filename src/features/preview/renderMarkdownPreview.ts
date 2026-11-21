@@ -11,6 +11,7 @@ import { rehypeRenderMath, withMathClasses, type MathRenderer } from '../../core
 import { assetUrl, htmlImageSource } from '../editor/assetUrl'
 import { localAssetPath } from '../export/snapshot'
 import { rehypeFigures } from '../../core/markdown/figures'
+import { rehypeAlerts } from '../../core/markdown/alerts'
 import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
 import { rehypeHighlightCode, type CodeParsers } from '../../core/markdown/highlight'
 import { missingImageText, remarkHtmlImages } from '../../core/markdown/htmlImages'
@@ -70,6 +71,7 @@ export function renderMarkdownPreview(markdown: string, assetKey?: string, capti
     .use(rehypeSanitize, previewSchema)
     .use(rehypeRenderMath, math)
     .use(rehypeHighlightCode, { parsers })
+    .use(rehypeAlerts)
     .use(rehypeNumericColumns)
     .use(rehypeFigures, { captions })
     .use(rehypeStringify, { allowDangerousHtml: true })

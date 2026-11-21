@@ -40,8 +40,16 @@ impl StagingStore {
         assets.into_iter().map(|asset| Ok(HeldAsset { bytes: self.take(&asset.staged)?, url: asset.url, mime: asset.mime })).collect()
     }
     /// Stages each image for the webview to fetch, and returns the references to send in its place.
+    /// When one does not fit, the ones staged before it are taken back, so a failed call holds no budget.
     pub fn put_all(&self, assets: impl IntoIterator<Item = HeldAsset>) -> Result<Vec<StagedAsset>, String> {
-        assets.into_iter().map(|asset| Ok(StagedAsset { staged: self.put(asset.bytes)?, url: asset.url, mime: asset.mime })).collect()
+        let mut staged = Vec::new();
+        for asset in assets {
+            match self.put(asset.bytes) {
+                Ok(id) => staged.push(StagedAsset { staged: id, url: asset.url, mime: asset.mime }),
+                Err(code) => { for item in staged { let _ = self.take(&item.staged); } return Err(code); }
+            }
+        }
+        Ok(staged)
     }
     pub fn take(&self, id: &str) -> Result<Vec<u8>, String> {
         self.0.lock().map_err(|_| "IO_ERROR")?.remove(id).map(|(bytes, _)| bytes).ok_or("STAGED_NOT_FOUND".into())
@@ -71,6 +79,13 @@ mod tests {
         let id = store.put(vec![1, 2, 3]).unwrap();
         assert_eq!(store.take(&id).unwrap(), vec![1, 2, 3]);
         assert_eq!(store.take(&id).err().as_deref(), Some("STAGED_NOT_FOUND"));
+    }
+    #[test]
+    fn a_batch_that_does_not_fit_holds_nothing() {
+        let store = StagingStore::default();
+        let image = |len| HeldAsset { url: "u".into(), mime: "image/png".into(), bytes: vec![0; len] };
+        assert_eq!(store.put_all([image(MAX_TOTAL / 2), image(MAX_TOTAL / 2), image(2)]).err().as_deref(), Some("STAGING_BUDGET"));
+        store.put(vec![0; MAX_TOTAL]).unwrap();
     }
     #[test]
     fn budget_is_enforced() {

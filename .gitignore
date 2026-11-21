@@ -8,3 +8,6 @@ src-tauri/gen/schemas/
 doc/licenses/third-party-license-texts.txt
 Symbols/
 .Symbols.*
+
+# Third-party source kept for local reference only; never committed.
+/opensource/

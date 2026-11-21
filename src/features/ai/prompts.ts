@@ -257,6 +257,7 @@ export function aiErrorText(code: string): string {
     AI_DISABLED: 'AI 功能未开启，可在设置的“AI”页打开。',
     AI_NO_CONSENT: '尚未确认把文档内容发送到 AI 服务。',
     AI_NO_KEY: '尚未填写 API 密钥，可在设置的“AI”页填写。',
+    AI_KEY_ORIGIN: '服务地址已改变，原来的 API 密钥不会发送到新地址。请在设置的“AI”页为新地址重新填写密钥。',
     AI_TOO_LARGE: '发送的内容超过大小限制。',
     AI_BUSY: '同时进行的 AI 请求过多，请稍后重试。',
     AI_NETWORK: '无法连接 AI 服务，请检查网络和服务地址。',

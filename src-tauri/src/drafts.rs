@@ -5,12 +5,15 @@ use crate::fs::app_data::ensure_dir;
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "macos"))]
 use std::fs::OpenOptions;
-use std::{fs::{self, File}, io::Write, path::{Path, PathBuf}, sync::{atomic::{AtomicU64, Ordering}, Mutex}};
+use std::{collections::HashMap, fs::{self, File}, io::Write, path::{Path, PathBuf}, sync::{atomic::{AtomicU64, Ordering}, Mutex}};
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 
 const MAX_DOCUMENT: usize = crate::file_kinds::MAX_TEXT_BYTES as usize;
 const MAX_IMAGE: usize = crate::file_kinds::MAX_IMAGE_BYTES as usize;
 const MAX_ASSETS: usize = 64;
+/// The most image bytes a draft copies from beside its file. Restoring stages every image of a draft, so this
+/// stays well inside the staging budget (512 MiB), and a draft that could be written can always be restored.
+const MAX_DISK_ASSET_BYTES: usize = 256 * 1024 * 1024;
 const KEEP_SNAPSHOTS: usize = 3;
 static NEXT_SNAPSHOT: AtomicU64 = AtomicU64::new(1);
 static DRAFT_LOCK: Mutex<()> = Mutex::new(());
@@ -90,10 +93,11 @@ fn read_snapshot(path: &Path) -> Result<(Manifest, String, Vec<DraftAsset>), Str
     if hash(&body) != manifest.body_revision { return Err("CORRUPT_DRAFT".into()); }
     let markdown = String::from_utf8(body).map_err(|_| "CORRUPT_DRAFT")?;
     let mut assets = Vec::new();
+    // As on macOS: a missing or damaged image is left out, and the newest text still wins.
     for asset in &manifest.assets {
-        if !asset.filename.starts_with("asset-") || asset.filename.contains('/') || asset.filename.contains('\\') || !markdown.contains(&asset.url) { return Err("CORRUPT_DRAFT".into()); }
-        let bytes = read_no_follow(&path.join("assets").join(&asset.filename), MAX_IMAGE as u64).map_err(|_| "CORRUPT_DRAFT")?;
-        if hash(&bytes) != asset.sha256 { return Err("CORRUPT_DRAFT".into()); }
+        if !asset.filename.starts_with("asset-") || asset.filename.contains('/') || asset.filename.contains('\\') || !markdown.contains(&asset.url) { continue; }
+        let Ok(bytes) = read_no_follow(&path.join("assets").join(&asset.filename), MAX_IMAGE as u64) else { continue };
+        if hash(&bytes) != asset.sha256 { continue; }
         assets.push(DraftAsset { url: asset.url.clone(), mime: asset.mime.clone(), bytes });
     }
     Ok((manifest, markdown, assets))
@@ -233,16 +237,58 @@ fn write_at_macos(root: &Path, draft_id: &str, name: &str, target_path: Option<S
     Ok(())
 }
 
+/// Which window's tab writes each draft. A draft belongs to one tab: recovering it a second time, or recovering
+/// the draft of a document that is still open, would give two tabs one draft, each overwriting the other's.
+#[derive(Default)]
+pub struct DraftClaims(Mutex<HashMap<String, String>>);
+
+impl DraftClaims {
+    /// Gives draft `id` to window `label`, unless another window that is still open has it.
+    fn claim(&self, id: &str, label: &str, alive: impl Fn(&str) -> bool) -> Result<(), String> {
+        let mut claims = self.0.lock().map_err(|_| "IO_ERROR")?;
+        if claims.get(id).is_some_and(|holder| holder != label && alive(holder)) { return Err("DRAFT_IN_USE".into()); }
+        claims.insert(id.to_owned(), label.to_owned());
+        Ok(())
+    }
+    fn in_use(&self, id: &str, alive: impl Fn(&str) -> bool) -> bool {
+        self.0.lock().is_ok_and(|claims| claims.get(id).is_some_and(|holder| alive(holder)))
+    }
+    fn release(&self, id: &str) { if let Ok(mut claims) = self.0.lock() { claims.remove(id); } }
+    /// Moves draft `id` along with its tab to a new window.
+    pub(crate) fn hand_over(&self, id: &str, label: &str) { if let Ok(mut claims) = self.0.lock() { claims.insert(id.to_owned(), label.to_owned()); } }
+    pub(crate) fn release_window(&self, label: &str) { if let Ok(mut claims) = self.0.lock() { claims.retain(|_, holder| holder != label); } }
+}
+
+fn window_alive(app: &AppHandle) -> impl Fn(&str) -> bool + '_ { |label| app.get_webview_window(label).is_some() }
+
+/// The images on disk beside the file that a draft also keeps, after the ones pasted or already kept: as many as
+/// fit in the count and the byte limit. The others are still beside the file; the text is protected regardless.
+fn disk_copies(mut read: impl FnMut(&DiskAsset) -> Option<DraftAsset>, disk_assets: Vec<DiskAsset>, mut room: usize, mut bytes: usize) -> Vec<DraftAsset> {
+    let mut copies = Vec::new();
+    for asset in disk_assets {
+        if room == 0 || bytes >= MAX_DISK_ASSET_BYTES { break; }
+        // A missing attachment must not stop the text from being protected.
+        let Some(copy) = read(&asset) else { continue };
+        if bytes + copy.bytes.len() > MAX_DISK_ASSET_BYTES { continue; }
+        bytes += copy.bytes.len();
+        room -= 1;
+        copies.push(copy);
+    }
+    copies
+}
+
 #[tauri::command(async)]
-pub fn write_draft(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, draft_id: String, name: String, token: Option<String>, base_disk_revision: Option<String>, markdown: String, assets: Vec<StagedAsset>, disk_assets: Vec<DiskAsset>, retained: Vec<String>) -> Result<Vec<String>, String> {
+#[allow(clippy::too_many_arguments)]
+pub fn write_draft(app: AppHandle, window: WebviewWindow, store: State<'_, DocumentStore>, staging: State<'_, StagingStore>, claims: State<'_, DraftClaims>, draft_id: String, name: String, token: Option<String>, base_disk_revision: Option<String>, markdown: String, assets: Vec<StagedAsset>, disk_assets: Vec<DiskAsset>, retained: Vec<String>) -> Result<Vec<String>, String> {
     crate::require_workspace_window(&window)?;
+    if !valid_id(&draft_id) { return Err("INVALID_DRAFT".into()); }
+    claims.claim(&draft_id, window.label(), window_alive(&app))?;
     let mut uploads = staging.take_all(assets)?;
     if let Some(token) = &token {
-        for asset in disk_assets {
-            // A missing attachment must not stop the text from being protected.
-            let (Some(mime), Ok(bytes)) = (asset_mime(&asset.relative), read_granted_asset(&store, token, &asset.relative)) else { continue };
-            uploads.push(DraftAsset { url: asset.url, mime: mime.into(), bytes });
-        }
+        let room = MAX_ASSETS.saturating_sub(uploads.len() + retained.len());
+        let held = uploads.iter().map(|asset| asset.bytes.len()).sum();
+        let read = |asset: &DiskAsset| Some(DraftAsset { url: asset.url.clone(), mime: asset_mime(&asset.relative)?.into(), bytes: read_granted_asset(&store, token, &asset.relative).ok()? });
+        uploads.extend(disk_copies(read, disk_assets, room, held));
     }
     let target = match token { Some(token) => Some(draft_target(&store, &token)?), None => None };
     let stored = retained.iter().cloned().chain(uploads.iter().map(|asset| asset.url.clone())).collect();
@@ -250,11 +296,17 @@ pub fn write_draft(app: AppHandle, window: WebviewWindow, store: State<'_, Docum
     Ok(stored)
 }
 #[tauri::command(async)]
-pub fn list_drafts(app: AppHandle, window: WebviewWindow) -> Result<Vec<DraftSummary>, String> {
+pub fn list_drafts(app: AppHandle, window: WebviewWindow, claims: State<'_, DraftClaims>) -> Result<Vec<DraftSummary>, String> {
     crate::require_workspace_window(&window)?;
-    let root = root(&app)?;
+    let mut found = list_all(&root(&app)?)?;
+    // A draft a tab is still writing is not offered for recovery.
+    found.retain(|draft| !claims.in_use(&draft.draft_id, window_alive(&app)));
+    Ok(found)
+}
+
+fn list_all(root: &Path) -> Result<Vec<DraftSummary>, String> {
     #[cfg(target_os = "macos")]
-    return macos_read::list(&root);
+    return macos_read::list(root);
     #[cfg(not(target_os = "macos"))]
     {
     let Ok(entries) = fs::read_dir(root) else { return Ok(vec![]) };
@@ -273,9 +325,11 @@ pub fn list_drafts(app: AppHandle, window: WebviewWindow) -> Result<Vec<DraftSum
     }
 }
 #[tauri::command(async)]
-pub fn read_draft(app: AppHandle, window: WebviewWindow, staging: State<'_, StagingStore>, draft_id: String, include_assets: bool) -> Result<DraftContent, String> {
+pub fn read_draft(app: AppHandle, window: WebviewWindow, staging: State<'_, StagingStore>, claims: State<'_, DraftClaims>, draft_id: String, include_assets: bool) -> Result<DraftContent, String> {
     crate::require_workspace_window(&window)?;
     if !valid_id(&draft_id) { return Err("INVALID_DRAFT".into()); }
+    // Reading it with its images is recovering it: the recovering tab writes it from now on.
+    if include_assets { claims.claim(&draft_id, window.label(), window_alive(&app))?; }
     #[cfg(target_os = "macos")]
     let (manifest, markdown, assets) = macos_read::latest(&root(&app)?, &draft_id, include_assets)?;
     #[cfg(not(target_os = "macos"))]
@@ -322,11 +376,14 @@ mod macos_read {
         let markdown = String::from_utf8(body).map_err(|_| "CORRUPT_DRAFT")?;
         let mut assets = Vec::new();
         if with_assets && !manifest.assets.is_empty() {
-            let asset_dir = open_dir(snapshot, &name(OsStr::new("assets"))?)?;
+            // The text is what a draft protects. An image that is missing or damaged is left out, and the caller
+            // tells the user, rather than giving up this snapshot for an older one with older text.
+            let asset_dir = open_dir(snapshot, &name(OsStr::new("assets"))?).ok();
             for asset in &manifest.assets {
-                if !asset.filename.starts_with("asset-") || asset.filename.contains('/') || asset.filename.contains('\\') || !markdown.contains(&asset.url) { return Err("CORRUPT_DRAFT".into()); }
-                let bytes = read_file(&asset_dir, &name(OsStr::new(&asset.filename))?, MAX_IMAGE as u64)?;
-                if hash(&bytes) != asset.sha256 { return Err("CORRUPT_DRAFT".into()); }
+                if !asset.filename.starts_with("asset-") || asset.filename.contains('/') || asset.filename.contains('\\') || !markdown.contains(&asset.url) { continue; }
+                let Some(asset_dir) = &asset_dir else { break };
+                let Ok(bytes) = read_file(asset_dir, &name(OsStr::new(&asset.filename))?, MAX_IMAGE as u64) else { continue };
+                if hash(&bytes) != asset.sha256 { continue; }
                 assets.push(DraftAsset { url: asset.url.clone(), mime: asset.mime.clone(), bytes });
             }
         }
@@ -381,11 +438,13 @@ mod macos_read {
     }
 }
 #[tauri::command(async)]
-pub fn discard_draft(app: AppHandle, window: WebviewWindow, draft_id: String) -> Result<(), String> {
+pub fn discard_draft(app: AppHandle, window: WebviewWindow, claims: State<'_, DraftClaims>, draft_id: String) -> Result<(), String> {
     crate::require_workspace_window(&window)?;
     if !valid_id(&draft_id) { return Err("INVALID_DRAFT".into()); }
     let _guard = DRAFT_LOCK.lock().map_err(|_| "IO_ERROR")?;
-    discard_at(&root(&app)?, &draft_id)
+    discard_at(&root(&app)?, &draft_id)?;
+    claims.release(&draft_id);
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -539,6 +598,34 @@ mod tests {
     }
     #[cfg(target_os = "macos")]
     #[test]
+    fn a_draft_keeps_only_as_many_disk_images_as_fit() {
+        let disk = |count: usize| (0..count).map(|index| DiskAsset { url: format!("u{index}"), relative: format!("assets/{index}.png") }).collect::<Vec<_>>();
+        let read = |len: usize| move |asset: &DiskAsset| Some(DraftAsset { url: asset.url.clone(), mime: "image/png".into(), bytes: vec![0; len] });
+        // Many images: the draft is still written, with as many as the count allows.
+        assert_eq!(disk_copies(read(10), disk(100), MAX_ASSETS - 4, 0).len(), MAX_ASSETS - 4);
+        // Large images: no more than the byte limit, so restoring always fits in staging.
+        let big = disk_copies(read(MAX_IMAGE), disk(30), MAX_ASSETS, 0);
+        assert_eq!(big.len(), MAX_DISK_ASSET_BYTES / MAX_IMAGE);
+        // One that cannot be read is skipped, not fatal.
+        assert_eq!(disk_copies(|asset: &DiskAsset| (asset.url != "u1").then(|| DraftAsset { url: asset.url.clone(), mime: "image/png".into(), bytes: vec![1] }), disk(3), 64, 0).len(), 2);
+    }
+
+    #[test]
+    fn a_draft_belongs_to_one_open_window() {
+        let claims = DraftClaims::default();
+        let alive = |label: &str| label != "gone";
+        claims.claim("draft-0001", "main", alive).unwrap();
+        claims.claim("draft-0001", "main", alive).unwrap();
+        assert_eq!(claims.claim("draft-0001", "workspace-2", alive).err().as_deref(), Some("DRAFT_IN_USE"));
+        assert!(claims.in_use("draft-0001", alive));
+        claims.hand_over("draft-0001", "gone");
+        assert!(!claims.in_use("draft-0001", alive), "a window that closed holds nothing");
+        claims.claim("draft-0001", "workspace-2", alive).unwrap();
+        claims.release_window("workspace-2");
+        assert!(!claims.in_use("draft-0001", |_| true));
+    }
+
+    #[test]
     fn listing_reads_manifests_without_touching_bodies_or_images() {
         let root = temp(); let id = "draft-12345678";
         write_at(&root,id,"note",None,None,"body",vec![]).unwrap();
@@ -625,8 +712,10 @@ mod tests {
         fs::write(&stored, b"damaged").unwrap();
         let (manifest, body, assets) = macos_read::latest(&root, id, false).unwrap();
         assert_eq!((manifest.assets.len(), body.as_str(), assets.len()), (1, "text ![](blob:sample)", 0));
-        // A restore reads every image against its hash and refuses this snapshot.
-        assert_eq!(macos_read::latest(&root, id, true).err().as_deref(), Some("CORRUPT_DRAFT"));
+        // A restore checks every image against its hash and leaves the damaged one out, keeping the newest text
+        // rather than falling back to an older snapshot; the count tells the caller one is missing.
+        let (manifest, body, assets) = macos_read::latest(&root, id, true).unwrap();
+        assert_eq!((manifest.assets.len(), body.as_str(), assets.len()), (1, "text ![](blob:sample)", 0));
         fs::remove_dir_all(root).unwrap();
     }
     #[cfg(target_os = "macos")]

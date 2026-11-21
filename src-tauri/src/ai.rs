@@ -256,9 +256,32 @@ fn key_account(config: &AiConfig, provider: Option<&str>) -> Result<String, Stri
     }
 }
 
+/// The origin requests of `provider` would go to under `config`: the selected one's address; for another, the address
+/// it had when last selected, or its default, or (for `custom`, which has none) the current one it would start from.
+fn provider_origin(config: &AiConfig, provider: &str) -> Option<String> {
+    if provider == config.provider { return origin_of(&config.base_url); }
+    let remembered = config.providers.get(provider).map(|memory| memory.base_url.as_str());
+    origin_of(remembered.or_else(|| provider_defaults(provider).map(|(url, _)| url)).unwrap_or(&config.base_url))
+}
+
+/// A key is stored with the origin it was entered for (`origin` + newline + key), and is only ever sent there.
+/// Changing the address, from the settings or from a script that got into the page, cannot send it elsewhere:
+/// the user has to enter the key again for the new address.
+fn seal(origin: &str, key: &str) -> String { format!("{origin}\n{key}") }
+
+/// The origin a stored key is for, and the key. One stored before keys carried their origin is for its
+/// provider's default address; a `custom` one, which has none, for the address configured now.
+fn unseal<'a>(stored: &'a str, provider: &str) -> (Option<String>, &'a str) {
+    match stored.split_once('\n') {
+        Some((origin, key)) => (Some(origin.to_owned()), key),
+        None => (provider_defaults(provider).and_then(|(url, _)| origin_of(url)), stored),
+    }
+}
+
 fn store_key(config: AiConfig, secrets: &dyn SecretStore, provider: Option<&str>, key: &str) -> Result<AiConfigView, String> {
     let account = key_account(&config, provider)?;
-    secrets.set(&account, clean_key(key)?)?;
+    let origin = provider_origin(&config, &account).ok_or("AI_INVALID_CONFIG")?;
+    secrets.set(&account, &seal(&origin, clean_key(key)?))?;
     Ok(view(config, secrets))
 }
 
@@ -567,7 +590,15 @@ fn check_access(config: &AiConfig, secrets: &dyn SecretStore) -> Result<Option<S
     if !config.consented { return Err("AI_NO_CONSENT".into()); }
     let loopback = parse_base_url(&config.base_url).is_some_and(|url| is_loopback(&url));
     let key = match secrets.get(&config.provider) {
-        Ok(key) => key,
+        Ok(Some(stored)) => {
+            let (bound, key) = unseal(&stored, &config.provider);
+            let here = origin_of(&config.base_url);
+            if bound.is_none() || bound == here { Some(key.to_owned()) }
+            // A key for another address is never sent. A local model needs none, so it goes on without it.
+            else if loopback { None }
+            else { return Err("AI_KEY_ORIGIN".into()); }
+        }
+        Ok(None) => None,
         // A local model needs no key, so a keychain that cannot be read does not stop it.
         Err(_) if loopback => None,
         Err(code) => return Err(code),
@@ -1232,6 +1263,33 @@ mod tests {
     }
 
     #[test]
+    fn a_key_is_only_sent_to_the_address_it_was_entered_for() {
+        let state = memory_state();
+        let secrets = state.secrets.as_ref();
+        let on = patch(&AiConfig::default(), serde_json::json!({ "enabled": true, "consented": true, "provider": "custom", "baseUrl": "https://ai.example.com/v1" })).unwrap();
+        store_key(on.clone(), secrets, None, SECRET).unwrap();
+        assert_eq!(check_access(&on, secrets), Ok(Some(SECRET.into())));
+        // Another path on the same origin is the same service.
+        let same = patch(&on, serde_json::json!({ "baseUrl": "https://ai.example.com/v2" })).unwrap();
+        assert_eq!(check_access(&same, secrets), Ok(Some(SECRET.into())));
+        // A page script can move the address and give consent in one patch; the key still stays home.
+        let moved = patch(&on, serde_json::json!({ "baseUrl": "https://evil.example/v1", "consented": true })).unwrap();
+        assert_eq!(check_access(&moved, secrets), Err("AI_KEY_ORIGIN".into()));
+        // A local model goes on without it.
+        let local = patch(&on, serde_json::json!({ "baseUrl": "http://127.0.0.1:11434/v1", "consented": true })).unwrap();
+        assert_eq!(check_access(&local, secrets), Ok(None));
+        // Entering the key again for the new address sends it there.
+        store_key(moved.clone(), secrets, None, SECRET).unwrap();
+        assert_eq!(check_access(&moved, secrets), Ok(Some(SECRET.into())));
+        // A key stored before keys carried their origin is for its provider's default address.
+        secrets.set("openai", SECRET).unwrap();
+        let openai = patch(&AiConfig::default(), serde_json::json!({ "enabled": true, "consented": true, "provider": "openai" })).unwrap();
+        assert_eq!(check_access(&openai, secrets), Ok(Some(SECRET.into())));
+        let elsewhere = patch(&openai, serde_json::json!({ "baseUrl": "https://proxy.example/v1", "consented": true })).unwrap();
+        assert_eq!(check_access(&elsewhere, secrets), Err("AI_KEY_ORIGIN".into()));
+    }
+
+    #[test]
     fn keys_are_set_cleared_and_reported_per_provider() {
         let state = memory_state();
         let secrets = state.secrets.as_ref();
@@ -1242,12 +1300,12 @@ mod tests {
         // A key can be saved for a provider that is not selected.
         let shown = store_key(config.clone(), secrets, Some("openai"), &format!(" {SECRET} ")).unwrap();
         assert_eq!(status(&shown), (false, false, true, false));
-        assert_eq!(secrets.get("openai"), Ok(Some(SECRET.into())));
+        assert_eq!(secrets.get("openai"), Ok(Some(seal("https://api.openai.com", SECRET))));
         assert_eq!(secrets.get("deepseek"), Ok(None));
         // Without a provider the selected one is meant.
         let shown = store_key(config.clone(), secrets, None, "sk-deepseek-key").unwrap();
         assert_eq!(status(&shown), (true, true, true, false));
-        assert_eq!(secrets.get("deepseek"), Ok(Some("sk-deepseek-key".into())));
+        assert_eq!(secrets.get("deepseek"), Ok(Some(seal("https://api.deepseek.com", "sk-deepseek-key"))));
         let shown = store_key(config.clone(), secrets, Some("custom"), "local-key").unwrap();
         assert_eq!(status(&shown), (true, true, true, true));
 
@@ -1257,7 +1315,7 @@ mod tests {
         assert_eq!(status(&shown), (true, false, true, true));
         let shown = remove_key(openai.clone(), secrets, None).unwrap();
         assert_eq!(status(&shown), (false, false, false, true));
-        assert_eq!(secrets.get("custom"), Ok(Some("local-key".into())));
+        assert_eq!(secrets.get("custom"), Ok(Some(seal("https://api.deepseek.com", "local-key"))));
         // Clearing a key that is not there is not an error.
         assert_eq!(status(&remove_key(openai.clone(), secrets, Some("openai")).unwrap()), (false, false, false, true));
 

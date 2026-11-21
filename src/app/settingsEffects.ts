@@ -28,6 +28,8 @@ export function writeTypography(typography: Parameters<typeof typographyVariable
   for (const [name, value] of Object.entries(typographyVariables(typography, style))) root.style.setProperty(name, value)
   root.style.setProperty('--editor-font', typography.fontFamily)
   root.style.setProperty('--editor-font-size', `${typography.fontSize}px`)
+  // The layout's rules are all in the app stylesheet, chosen by this attribute (T122).
+  root.dataset.layout = typography.layout ?? 'standard'
 }
 
 /** The assistant's way to Rust from a window of the app: commands, and events sent to this window. */

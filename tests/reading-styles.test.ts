@@ -10,8 +10,8 @@ const rust = readFileSync('src-tauri/src/settings.rs', 'utf8')
 const typography = (style: ReadingStyle, overrides: Partial<Typography> = {}): Typography => ({ ...documentTypography(defaultReadingSettings, style), ...overrides })
 
 describe('reading styles', () => {
-  it('lists the 9 styles in order with every field filled in', () => {
-    expect(styleIds).toEqual(['white', 'mist', 'paper', 'xuan', 'parchment', 'kraft', 'mint', 'charcoal', 'dark', 'gray', 'slate', 'dusk'])
+  it('lists the 16 styles in order with every field filled in', () => {
+    expect(styleIds).toEqual(['white', 'mist', 'contrast', 'clay', 'paper', 'xuan', 'parchment', 'kraft', 'mint', 'charcoal', 'dark', 'gray', 'slate', 'pine', 'midnight', 'dusk'])
     expect(readingStyles.map((style) => style.id)).toEqual([...styleIds])
     expect(themeIds).toEqual(['system', ...styleIds])
     for (const style of readingStyles) {
@@ -21,8 +21,8 @@ describe('reading styles', () => {
       expect(style.title, `${style.id} title is the accent`).toBe(style.link)
       expect(style.ui.accent, `${style.id} accent`).toBe(style.link)
     }
-    expect(dayStyleIds).toEqual(['white', 'mist', 'paper', 'xuan', 'parchment', 'kraft', 'mint'])
-    expect(nightStyleIds).toEqual(['charcoal', 'dark', 'gray', 'slate', 'dusk'])
+    expect(dayStyleIds).toEqual(['white', 'mist', 'contrast', 'clay', 'paper', 'xuan', 'parchment', 'kraft', 'mint'])
+    expect(nightStyleIds).toEqual(['charcoal', 'dark', 'gray', 'slate', 'pine', 'midnight', 'dusk'])
   })
 
   it('maps every style ID of earlier versions to a style that exists', () => {
@@ -80,7 +80,11 @@ describe('reading styles', () => {
       const code = contrast(style.codeInk, style.codeBg)
       expect(code, `${style.id} code ink on code background ${code.toFixed(2)}`).toBeGreaterThanOrEqual(4.5)
       expect(contrast(style.heading, style.paper), `${style.id} heading`).toBeGreaterThanOrEqual(contrast(style.text, style.paper) - 0.01)
+      for (const [level, color] of Object.entries(style.levels ?? {})) expect(contrast(color, style.paper), `${style.id} ${level} ${color}`).toBeGreaterThanOrEqual(4.5)
     }
+    // The high-contrast style (T123) holds its secondary text and links to 7:1.
+    const high = readingStyle('contrast')
+    for (const field of ['secondary', 'link'] as const) expect(contrast(high[field], high.paper), field).toBeGreaterThanOrEqual(7)
   })
 
   // HSL saturation is ill-conditioned next to white (#f7f8fa is 3/255 off gray, yet reads as 0.23), so
@@ -141,7 +145,9 @@ describe('reading styles', () => {
     const textured = readingStyles.filter((style) => style.texture).map((style) => style.id)
     expect(textured).toEqual(['paper', 'xuan', 'parchment', 'kraft'])
     const css = appStylesheet()
-    expect(css).not.toMatch(/feTurbulence|svg\+xml/)
+    expect(css).not.toMatch(/feTurbulence/)
+    // The only SVG is the alert icons (T121), drawn as masks: no paper is made of generated SVG noise.
+    expect(css.match(/svg\+xml/g)?.length).toBe(css.match(/--alert-icon:url\("data:image\/svg\+xml/g)?.length)
     expect(css).not.toMatch(/https?:\/\//)
     for (const style of readingStyles) expect(css).toContain(`:root[data-theme="${style.id}"]`)
     expect(css).toContain(':root[data-theme="white"],:root:not([data-theme])')

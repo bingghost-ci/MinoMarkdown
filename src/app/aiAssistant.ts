@@ -22,10 +22,14 @@ export type AiSelection = { selection: string; before: string; after: string }
 export type AiDocument = { title: string; markdown: string }
 export type InsertPlacement = 'replace' | 'after'
 
+export type DocumentKey = number | string
+
 export type AiAssistantInput = {
   /** Null outside the desktop app, where no Rust commands exist. */
   transport: AiTransport | null
-  documentId: number
+  /** What a conversation belongs to. It must outlive a switch between source and visual mode or a reload, so the
+   * workspace passes the tab's draft id, not the document id that changes with them. */
+  documentId: DocumentKey
   language: AiLanguage
   getDocument: () => AiDocument
   /**
@@ -55,8 +59,8 @@ export function useAiAssistant(input: AiAssistantInput) {
   const [open, setOpen] = useState(false)
   const openAfterConsent = useRef(false)
   const [consentOpen, setConsentOpen] = useState(false)
-  const [conversations, setConversations] = useState<Map<number, AiTurn[]>>(() => new Map())
-  const [suggested, setSuggested] = useState<Map<number, string[]>>(() => new Map())
+  const [conversations, setConversations] = useState<Map<DocumentKey, AiTurn[]>>(() => new Map())
+  const [suggested, setSuggested] = useState<Map<DocumentKey, string[]>>(() => new Map())
   const [busy, setBusy] = useState(false)
   /** The models a service listed, kept with the provider and address they came from. */
   const [listed, setListed] = useState<{ source: string; ids: string[] } | null>(null)
@@ -64,7 +68,7 @@ export function useAiAssistant(input: AiAssistantInput) {
   const [modelsFailure, setModelsFailure] = useState<{ source: string; text: string } | null>(null)
   const modelsRequest = useRef(0)
   const modelSource = `${config.provider}|${config.baseUrl}`
-  const running = useRef<{ requestId: string | null; cancelled: boolean; documentId: number } | null>(null)
+  const running = useRef<{ requestId: string | null; cancelled: boolean; documentId: DocumentKey } | null>(null)
   const turns = conversations.get(documentId) ?? []
 
   useEffect(() => {
@@ -94,7 +98,7 @@ export function useAiAssistant(input: AiAssistantInput) {
     stream.retain(streaming)
   }, [conversations])
 
-  function updateTurn(forDocument: number, id: number, patch: Partial<AiTurn>) {
+  function updateTurn(forDocument: DocumentKey, id: number, patch: Partial<AiTurn>) {
     setConversations((current) => {
       const list = current.get(forDocument)
       if (!list) return current
@@ -104,12 +108,12 @@ export function useAiAssistant(input: AiAssistantInput) {
     })
   }
 
-  function appendTurns(forDocument: number, added: AiTurn[]) {
+  function appendTurns(forDocument: DocumentKey, added: AiTurn[]) {
     setConversations((current) => new Map(current).set(forDocument, [...(current.get(forDocument) ?? []), ...added]))
   }
 
   /** Earlier exchanges that finished: a question whose answer failed or was stopped is left out with it. */
-  function history(forDocument: number): ChatMessage[] {
+  function history(forDocument: DocumentKey): ChatMessage[] {
     const list = conversations.get(forDocument) ?? []
     const messages: ChatMessage[] = []
     for (let index = 0; index + 1 < list.length; index++) {
@@ -234,7 +238,7 @@ export function useAiAssistant(input: AiAssistantInput) {
   }
 
   /** Drops what is kept for a document that has left the window, and stops a request still running for it. */
-  function forget(forDocument: number) {
+  function forget(forDocument: DocumentKey) {
     if (running.current?.documentId === forDocument) void stop()
     setConversations((current) => { if (!current.has(forDocument)) return current; const next = new Map(current); next.delete(forDocument); return next })
     setSuggested((current) => { if (!current.has(forDocument)) return current; const next = new Map(current); next.delete(forDocument); return next })

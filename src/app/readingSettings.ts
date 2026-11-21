@@ -4,6 +4,7 @@ import { noCustomCodeColors, type CodeColors, type CustomCodeColors } from '../f
 import type { DocumentScript } from '../features/reading/script'
 import { readingStyle, resolveStyleId, type ReadingStyle, type StyleId, type ThemeId } from '../features/reading/styles'
 import { DEFAULT_EDITOR_FONT_SIZE } from './textZoom'
+import { isLayout, layoutFontPrefix, type LayoutId } from '../features/reading/layouts'
 import { noDiagramColors, type DiagramCustomColors } from '../features/diagrams/colorKey'
 import type { DiagramColorScheme, DiagramCurve, DiagramFill, DiagramFont, DiagramLine, DiagramLook } from '../features/diagrams/looks'
 
@@ -28,6 +29,8 @@ export type ReadingSettings = {
   textAlign: 'left' | 'justify'
   firstLineIndent: boolean
   tableStyle: TableStyle
+  /** How headings, quotes and rules are set, apart from the paper (T122). */
+  layout: LayoutId
   /** How Mermaid diagrams are drawn; every look takes its colors from the reading style. */
   diagramStyle: DiagramLook
   /** The pattern of plain edges; `auto` uses the look's own. */
@@ -57,7 +60,7 @@ export type ReadingSettings = {
 /** New installs; `settings.rs` fills missing fields of older files so their look does not change. */
 export const defaultReadingSettings: ReadingSettings = {
   theme: 'system', dayTheme: 'white', nightTheme: 'dark', cjkFont: 'auto', latinFont: 'auto', codeFont: 'auto', codeColors: 'auto', codeCustomColors: noCustomCodeColors, editorFontSize: DEFAULT_EDITOR_FONT_SIZE, editorLineHeight: 'comfortable',
-  paragraphSpacing: 'standard', measure: '36', textAlign: 'left', firstLineIndent: false, tableStyle: 'three-line', diagramStyle: 'page', diagramLine: 'auto', diagramCurve: 'auto', diagramFill: 'auto', diagramColors: 'auto', diagramCustomColors: noDiagramColors, diagramFont: 'auto', textureStrength: 60, latinLayout: 'auto',
+  paragraphSpacing: 'standard', measure: '36', textAlign: 'left', firstLineIndent: false, tableStyle: 'three-line', layout: 'standard', diagramStyle: 'page', diagramLine: 'auto', diagramCurve: 'auto', diagramFill: 'auto', diagramColors: 'auto', diagramCustomColors: noDiagramColors, diagramFont: 'auto', textureStrength: 60, latinLayout: 'auto',
   imageCaptions: true, imageDimming: true, openInReadingMode: true, exportStyle: 'current', pdfMode: 'print', pageSize: 'a4', pageMargin: 'standard',
 }
 
@@ -84,7 +87,7 @@ export function documentTypography(settings: ReadingSettings, style: ReadingStyl
   const latin = layoutScript(settings, script) === 'latin'
   const lineHeight = (latin ? latinLineHeights : lineHeights)[settings.editorLineHeight] ?? (latin ? latinLineHeights : lineHeights).comfortable
   return {
-    fontFamily: documentFontFamily(settings, style),
+    fontFamily: layoutFontPrefix(settings.layout) + documentFontFamily(settings, style),
     codeFontFamily: codeFontStack(settings.codeFont),
     codeColors: settings.codeColors,
     codeCustomColors: settings.codeCustomColors,
@@ -98,6 +101,7 @@ export function documentTypography(settings: ReadingSettings, style: ReadingStyl
     imageDimming: settings.imageDimming,
     tableStyle: settings.tableStyle === 'grid' ? 'grid' : 'three-line',
     textureStrength: settings.textureStrength,
+    layout: isLayout(settings.layout) ? settings.layout : 'standard',
     hyphens: latin && settings.textAlign === 'justify',
   }
 }

@@ -5,6 +5,7 @@ import { readingStyles, type ReadingStyle } from '../../features/reading/styles'
 import { FontPicker } from './FontPicker'
 import { Segmented } from './settingsControls'
 import { editorWidthOptions, lineHeightOptions } from '../readingSettings'
+import { layouts } from '../../features/reading/layouts'
 
 /** Round color chips, one per reading style: the page color with the accent as a dot of ink. */
 export function StyleSwatches({ workspace: w }: { workspace: Pick<DocumentWorkspace, 'pickStyle' | 'style' | 't'> }) {
@@ -39,6 +40,7 @@ export function AppearancePanel({ workspace: w }: { workspace: DocumentWorkspace
     </section>
     <section><h3>{t('版面')}</h3>
       <div className="panel-row"><span>{t('行距')}</span><Segmented className="panel-segmented" t={t} value={settings.editorLineHeight} onChange={(value) => update({ editorLineHeight: value })} options={lineHeightOptions} /></div>
+      <div className="panel-row"><span>{t('版式')}</span><Segmented className="panel-segmented is-tight" t={t} value={settings.layout} onChange={(value) => update({ layout: value })} options={layouts.map((layout) => [layout.id, layout.name] as const)} /></div>
       <div className="panel-row"><span>{t('显示')}</span><Segmented className="panel-segmented" t={t} value={settings.editorWidth} onChange={(value) => update({ editorWidth: value })} options={editorWidthOptions} /></div>
     </section>
     <section><h3>{t('字体')}</h3>

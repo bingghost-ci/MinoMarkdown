@@ -11,6 +11,7 @@ import { remarkDemoteCurrency } from '../../core/markdown/math'
 import { loadMathRenderer, rehypeRenderMath, withMathClasses } from '../../core/markdown/renderMath'
 import { rehypeEmbedDiagrams } from '../../core/markdown/diagrams'
 import { rehypeFigures } from '../../core/markdown/figures'
+import { rehypeAlerts } from '../../core/markdown/alerts'
 import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
 import { loadCodeParsers, rehypeHighlightCode } from '../../core/markdown/highlight'
 import { base64 } from './appAssets'
@@ -162,6 +163,7 @@ export async function renderExport(markdown: string, title: string, resolveImage
     .use(rehypeRenderMath, await loadMathRenderer(markdown), report)
     .use(rehypeEmbedDiagrams, { diagrams, report })
     .use(rehypeHighlightCode, { parsers: await loadCodeParsers(markdown) })
+    .use(rehypeAlerts)
     .use(rehypeNumericColumns)
     .use(rehypeFigures, { captions: page.captions ?? true })
     .use(rehypeStringify, { allowDangerousHtml: true })

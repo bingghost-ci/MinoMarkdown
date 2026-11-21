@@ -109,7 +109,7 @@ pub fn choose_recent_workspace(app: AppHandle, window: WebviewWindow, workspaces
     let path = PathBuf::from(entry.path);
     let meta = fs::symlink_metadata(&path).map_err(|_| "NOT_FOUND")?;
     if meta.file_type().is_symlink() || !meta.is_dir() { return Err("OUT_OF_SCOPE".into()); }
-    Ok(Some(register_workspace(&workspaces, path)?))
+    Ok(Some(register_workspace(&workspaces, path, window.label())?))
 }
 
 const MAX_SESSION_TABS: usize = 20;

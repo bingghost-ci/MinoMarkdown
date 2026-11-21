@@ -58,7 +58,7 @@ impl AssetDirectory {
                 crate::fs::ensure_directory_at(&parent, &assets_name, 0o755).map_err(|_| "ASSET_WRITE_FAILED")?;
             }
             let assets = crate::fs::open_directory_at(&parent, &assets_name).map_err(|error| if error.kind() == std::io::ErrorKind::NotFound { "ASSET_NOT_FOUND" } else { "OUT_OF_SCOPE" })?;
-            return Ok(Self { parent_path: canonical, parent, assets });
+            Ok(Self { parent_path: canonical, parent, assets })
         }
         #[cfg(not(target_os = "macos"))]
         {

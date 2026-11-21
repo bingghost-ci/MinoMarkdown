@@ -1,5 +1,6 @@
 import type { Options } from 'remark-stringify'
 import { mathValues } from '../../core/markdown/math'
+import { ALERT_MARKER } from '../../core/markdown/alerts'
 
 type Handler = NonNullable<NonNullable<Options['handlers']>['text']>
 type Parent = Parameters<Handler>[1]
@@ -32,7 +33,19 @@ function dollarsAreLiteral(node: InlineNode, parent: Parent): boolean {
 // the run: `\# x **b**` came back as a heading, `1\. x **b**` as a list, `\<b> **b**` as HTML, and pipes at the
 // end of a table cell's text broke the table. Only the trailing whitespace is written raw now; the text before
 // it is escaped as anywhere else, with the whitespace as what follows it.
-export const safeTextHandler: Handler = (node, parent, state, info) => {
+export const safeTextHandler: Handler = (node, parent, state, info) => keepAlertMarker(writeText(node, parent, state, info), node, parent, state)
+
+/**
+ * An alert's `[!NOTE]` (T121) opens the first paragraph of a block quote. Escaped as `\[!NOTE]` it would be a plain
+ * quote again in every reader, so there, and only there, the bracket is written as typed.
+ */
+function keepAlertMarker(written: string, node: Parameters<Handler>[0], parent: Parent, state: Parameters<Handler>[2]): string {
+  if (!written.startsWith('\\[!') || !state.stack.includes('blockquote')) return written
+  if ((parent as { children?: unknown[] } | undefined)?.children?.[0] !== node) return written
+  return ALERT_MARKER.test(written.slice(1)) ? written.slice(1) : written
+}
+
+const writeText: Handler = (node, parent, state, info) => {
   const value = node.value as string
   const keepDollars = value.includes('$') && dollarsAreLiteral(node, parent)
   const escape = (text: string, after: string): string => {

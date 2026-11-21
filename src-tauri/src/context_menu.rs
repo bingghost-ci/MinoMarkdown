@@ -172,7 +172,7 @@ pub fn rename_document(app: AppHandle, window: WebviewWindow, documents: State<'
 pub fn trash_document(window: WebviewWindow, documents: State<'_, DocumentStore>, entries: State<'_, WorkspaceStore>, token: String) -> Result<(), String> {
     crate::require_workspace_window(&window)?;
     let path = granted_file(&documents, &token)?;
-    removing(&documents, &path, || workspace::move_to_trash(&path))?;
+    removing(&documents, &path, window.label(), || workspace::move_to_trash(&path))?;
     workspace::forget_entries(&entries, &path)
 }
 

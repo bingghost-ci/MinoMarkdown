@@ -106,6 +106,9 @@ export class SourceEditor {
 
   focus(): void { this.view.focus() }
 
+  /** Whether an input method is composing: the marked text is in the document but not yet typed. */
+  get composing(): boolean { return this.view.composing }
+
   /** Scrolls the offset to the top of the viewport, leaving `marginLines` of context above it. */
   reveal(offset: number, marginLines: number): void {
     const position = offsetToPosition(this.view.state.doc, offset, this.endings)

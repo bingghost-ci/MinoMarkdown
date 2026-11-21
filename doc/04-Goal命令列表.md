@@ -736,6 +736,56 @@ G01–G29 分别对应 T01–T29，每项命令可独立复制到支持 Goals �
 /goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T120 换掉寒蝉活宋与苹方，加入寒蝉正楷」调整中文字体列表。先读 CLAUDE.md、doc/01-产品方案.md §3.29、doc/02-技术设计.md §40、doc/05-验收与发布.md §8U 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 node scripts/generate-font-table.mjs --check、npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
 ```
 
+## G121–G124 提示块、版式、新风格与缩略图
+
+2026-11-21 用户给出 Typora 主题库的截图，说“优秀的作品我们应该学习”，并在选项中选了提示块、版式、新增风格和风格缩略图四项，又补充“他们的 css 你也可以学习学习，然后改改属于你自己的风格”。对应 T121–T124，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G121 | T121 | T57、T96 | `> [!NOTE]` 等五种提示块在阅读、编辑和导出里显示为带图标和标题的卡片，文档不变 |
+| G122 | T122 | T62、T68 | 与纸张分开选择的五种版式：标准、学术、公文、技术、打字机 |
+| G123 | T123 | T74、T108 | 新增高对比、陶土、松林、夜蓝四种风格 |
+| G124 | T124 | T122、T123 | 设置里的风格和版式改为缩略图选择 |
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T121 提示块」实现提示块的识别、编辑器装饰、保存不转义和各风格的颜色。先读 CLAUDE.md、doc/01-产品方案.md §3.30、doc/02-技术设计.md §41、doc/05-验收与发布.md §8V 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T122 版式」实现版式设置、五种版式的样式规则和导出。先读 CLAUDE.md、doc/01-产品方案.md §3.30、doc/02-技术设计.md §41、doc/05-验收与发布.md §8V 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T123 新增四种风格」实现四种新风格与按标题级别的配色。先读 CLAUDE.md、doc/01-产品方案.md §3.30、doc/02-技术设计.md §41、doc/05-验收与发布.md §8V 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T124 风格与版式缩略图」实现风格和版式的缩略图选择，并保持入口包预算。先读 CLAUDE.md、doc/01-产品方案.md §3.30、doc/02-技术设计.md §41、doc/05-验收与发布.md §8V 和 doc/06-开发进度.md，并遵守本文件的通用约束。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
+## G125–G136 元素细节与排版（计划）
+
+2026-11-21 用户要求“把他优秀的设计 适合我们的风格，排版都学习过来，列一个开发计划吧”，并把参考源码下载到本地 `opensource/`（只作本地参考，已加入 `.gitignore`，不提交）。对应 T125–T136，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G125 | T125 | T121 | 行内与小块元素：`mark` 用纸张调和的淡暖色并跨行保持圆角（`box-decoration-break:clone`） |
+| G126 | T126 | T122 | 列表记号与链接：按层级换记号（•、–、∗ / 1.、(a)、i.，学术版式用 LaTeX 的一套），记号用次要色 |
+| G127 | T127 | T110 | 代码块语言标签：阅读、预览和导出的代码块右上角显示小号语言标签（`attr` 取语言，不占版面） |
+| G128 | T128 | T57 | 表格完善：新增第三种表格样式“圆角框”（外框画在外层，内部只有分隔线） |
+| G129 | T129 | T68、T122 | 中文段落与标题细则：中文段落 `line-break:strict` |
+| G130 | T130 | T122、T126 | 学术版式加深：题目下紧接的引用显示为“摘要”块（居中小标题、两侧缩进、小字） |
+| G131 | T131 | T122 | 引用样式设置：新设置“引用”：竖线、卡片、缩进三种，与纸张和版式独立 |
+| G132 | T132 | T62、T108 | 方格与点阵纸面：无纹理的浅色风格可加“纸面图案”：无、方格、点阵，用 CSS 渐变画出，透明度很低，打印时去掉 |
+| G133 | T133 | T122 | 目录块：独占一段的 `[TOC]` 在阅读、预览和导出里显示为目录卡片（标题“目录 / Contents”，版式编号时带编号、悬挂缩进），编辑器显示同样的卡片 |
+| G134 | T134 | T120 | 中西文字号匹配：为随包的西文字体测出与思源宋体、黑体字面的比例，生成 `@font-face` 时加 `size-adjust`，让中文里的西文和数字看起来一样大 |
+| G135 | T135 | T96 | 专注与当前标题：编辑器可选“专注模式”：当前段落以外淡化 |
+| G136 | T136 | T106、T122 | 打印与导出细则：`orphans`/`widows` 为 3，标题后不断页，表格、图片、提示块、代码块和图表不从中间断开 |
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的 T125–T136 依次实现元素细节与排版，顺序为第一批 T125、T127、T129、T136，第二批 T126、T128、T131、T130，第三批 T133、T134、T132、T135。先读 CLAUDE.md、doc/01-产品方案.md §3.31、doc/02-技术设计.md §42、doc/05-验收与发布.md §8W 和 doc/06-开发进度.md，并遵守本文件的通用约束。参考源码在 opensource/typora（只读，按 opensource/README.md 的许可只借鉴做法，不复制代码，不提交该目录）。每完成一项运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
 ## 连续开发总 Goal（逐项读取列表）
 
 此命令只负责开发阶段。每轮读取 G01–G29 的当前任务，依据代码依赖推进；已实现的任务先复核，不重复开发。最终原生验收层级与 Gate 留待集中测试，不能虚报 PASS。单项命令和本总 Goal 共用进度表，不创建嵌套 Goal。
