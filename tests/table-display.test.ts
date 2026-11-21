@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import { isNumericCell, numericColumns } from '../src/core/markdown/numericColumns'
@@ -41,6 +42,16 @@ describe('table display', () => {
     expect(lines['--table-edge']).toBe('1.5px solid var(--table-rule)')
     expect(grid['--table-cell']).toBe('1px solid var(--table-line)')
     expect(defaultReadingSettings.tableStyle).toBe('three-line')
+  })
+
+  it('draws the rounded table (T128) as one frame with thin rules inside, and falls back for an unknown style', () => {
+    const style = readingStyle('paper')
+    const rounded = typographyVariables(documentTypography({ ...defaultReadingSettings, tableStyle: 'rounded' }, style), style)
+    expect(rounded).toMatchObject({ '--table-collapse': 'separate', '--table-radius': '8px', '--table-cell-width': '0 1px 1px 0', '--table-end-width': '0', '--table-frame': '1px solid var(--table-line)' })
+    const grid = typographyVariables(documentTypography({ ...defaultReadingSettings, tableStyle: 'grid' }, style), style)
+    expect(grid).toMatchObject({ '--table-collapse': 'collapse', '--table-radius': '0', '--table-cell-width': '1px', '--table-end-width': '1px' })
+    expect(documentTypography({ ...defaultReadingSettings, tableStyle: 'dotted' as never }, style).tableStyle).toBe('three-line')
+    expect(readFileSync('src-tauri/src/settings.rs', 'utf8')).toContain('"three-line" | "grid" | "rounded"')
   })
 
   it('decorates number columns in the editor and leaves the Markdown unchanged', async () => {

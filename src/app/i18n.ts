@@ -77,6 +77,7 @@ const english: Record<string, string> = {
   "中灰": "Gray",
   "青灰": "Slate",
   "暖灰": "Warm gray",
+  "圆角框": "Rounded",
   "中文强调": "Chinese Emphasis",
   "*强调* 在中文文档里的样子；西文文档始终用斜体": "How *emphasis* looks in a Chinese document. Western documents always use italics.",
   "倾斜": "Slanted",

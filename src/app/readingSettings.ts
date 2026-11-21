@@ -1,5 +1,5 @@
 import { codeFontStack, fontStack } from '../features/reading/fonts'
-import type { Measure, PageMargin, PageSize, ParagraphSpacing, TableStyle, Typography } from '../features/reading/css'
+import { tableStyles, type Measure, type PageMargin, type PageSize, type ParagraphSpacing, type TableStyle, type Typography } from '../features/reading/css'
 import { noCustomCodeColors, type CodeColors, type CustomCodeColors } from '../features/reading/codeColors'
 import type { DocumentScript } from '../features/reading/script'
 import { readingStyle, resolveStyleId, type ReadingStyle, type StyleId, type ThemeId } from '../features/reading/styles'
@@ -101,7 +101,7 @@ export function documentTypography(settings: ReadingSettings, style: ReadingStyl
     textAlign: settings.textAlign,
     firstLineIndent: latin ? false : settings.firstLineIndent,
     imageDimming: settings.imageDimming,
-    tableStyle: settings.tableStyle === 'grid' ? 'grid' : 'three-line',
+    tableStyle: tableStyles.includes(settings.tableStyle) ? settings.tableStyle : 'three-line',
     textureStrength: settings.textureStrength,
     layout: isLayout(settings.layout) ? settings.layout : 'standard',
     // Western text keeps its italics: the choice is for Chinese.

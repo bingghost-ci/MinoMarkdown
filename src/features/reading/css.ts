@@ -44,7 +44,8 @@ export type Typography = {
   emphasis?: 'italic' | 'kai' | 'dot'
 }
 
-export type TableStyle = 'three-line' | 'grid'
+export type TableStyle = 'three-line' | 'grid' | 'rounded'
+export const tableStyles: readonly TableStyle[] = ['three-line', 'grid', 'rounded']
 
 export const paragraphGaps: Record<ParagraphSpacing, string> = { compact: '0.5em', standard: '0.9em', relaxed: '1.3em' }
 /** Horizontal padding of the page in page view; the measure is the text column inside it. */
@@ -155,9 +156,13 @@ export function documentElementCss(root: string): string {
     `${r} pre[data-lang]{position:relative}${r} pre[data-lang]::after{content:attr(data-lang);position:absolute;top:0;right:0;padding:.35em .8em .25em;border-radius:0 8px 0 6px;background:var(--code-bg);color:var(--muted);font:.74em/1.4 var(--code-font);letter-spacing:.06em;text-transform:uppercase;pointer-events:none;-webkit-user-select:none;user-select:none}`,
     syntaxRoles.map((role) => `${r} pre .${tokenClass(role)}{color:var(--syntax-${role})}`).join(''),
     `${r} hr{border:0;border-top:1px solid var(--rule);background:none;padding:0;height:0;margin:1.8em 0}`,
-    `${r} table{width:100%;border-collapse:collapse;margin:1.2em 0;font-size:.92em;line-height:1.55;text-align:left;text-indent:0;border:var(--table-frame);border-top:var(--table-edge);border-bottom:var(--table-edge)}`,
-    `${r} th,${r} td{border:var(--table-cell);padding:6px 12px;vertical-align:top}`,
+    `${r} table{width:100%;border-collapse:var(--table-collapse,collapse);border-spacing:0;border-radius:var(--table-radius,0);margin:1.2em 0;font-size:.92em;line-height:1.55;text-align:left;text-indent:0;border:var(--table-frame);border-top:var(--table-edge);border-bottom:var(--table-edge)}`,
+    `${r} th,${r} td{border:var(--table-cell);border-width:var(--table-cell-width,0);padding:6px 12px;vertical-align:top}`,
+    // The rounded frame (T128) is the table's own border; its cells rule only their right and lower sides, and the last ones none.
+    `${r} tr > :last-child{border-right-width:var(--table-end-width,0)}${r} tbody > tr:last-child > *{border-bottom-width:var(--table-end-width,0)}`,
     `${r} .mino-num{text-align:right!important;font-variant-numeric:tabular-nums}`,
+    // A row under the pointer is easier to read across; pages on paper and touch screens are left alone.
+    `@media (hover:hover){${r} tbody tr:hover{background:color-mix(in srgb,var(--link) 5%,transparent)}}`,
     `${r} thead th,${r} tr:first-child > th{border-bottom:1px solid var(--table-rule);font-weight:700;color:var(--heading)}`,
     `${r} ::selection{background:var(--selection)}`,
     alertCss(r),
@@ -236,9 +241,14 @@ export function typographyVariables(typography: Typography, style: ReadingStyle)
     '--em-mark': typography.emphasis === 'dot' ? 'filled dot' : 'none',
     '--image-filter': typography.imageDimming && style.dark ? 'brightness(.9)' : 'none',
     // Three-line tables: heavy top and bottom rules only. Grid: a thin line around every cell.
-    '--table-edge': typography.tableStyle === 'grid' ? '1px solid var(--table-line)' : '1.5px solid var(--table-rule)',
-    '--table-frame': typography.tableStyle === 'grid' ? '1px solid var(--table-line)' : '0',
-    '--table-cell': typography.tableStyle === 'grid' ? '1px solid var(--table-line)' : '0',
+    // Rounded (T128): one frame with round corners, thin rules inside.
+    '--table-edge': typography.tableStyle === 'three-line' ? '1.5px solid var(--table-rule)' : '1px solid var(--table-line)',
+    '--table-frame': typography.tableStyle === 'three-line' ? '0' : '1px solid var(--table-line)',
+    '--table-cell': typography.tableStyle === 'three-line' ? '0' : '1px solid var(--table-line)',
+    '--table-cell-width': typography.tableStyle === 'grid' ? '1px' : typography.tableStyle === 'rounded' ? '0 1px 1px 0' : '0',
+    '--table-end-width': typography.tableStyle === 'grid' ? '1px' : '0',
+    '--table-collapse': typography.tableStyle === 'rounded' ? 'separate' : 'collapse',
+    '--table-radius': typography.tableStyle === 'rounded' ? '8px' : '0',
   }
 }
 
@@ -318,6 +328,6 @@ export function exportStylesheet(options: ExportStyleOptions): string {
         `@media print{html{${PAGE_BACKGROUND};-webkit-print-color-adjust:exact;print-color-adjust:exact}}`,
     `@media print{body{padding:0}.mino-page{max-width:none;margin:0;padding:0;border:0;border-radius:0;box-shadow:none;background:none}thead{display:table-header-group}img,blockquote,tr,figure{break-inside:avoid}pre{break-inside:auto}}`,
     // T136: no line of a paragraph alone at the top or foot of a page, no heading left at the foot of one, and nothing short cut in two.
-    `@media print{${DOC_ROOT} p,${DOC_ROOT} li,${DOC_ROOT} dd{orphans:3;widows:3}${DOC_ROOT} :is(h1,h2,h3,h4,h5,h6){break-after:avoid-page;break-inside:avoid}${DOC_ROOT} :is(.mino-alert,.mermaid-diagram,.katex-display,dl,kbd){break-inside:avoid}${DOC_ROOT} .footnotes{break-before:avoid}${DOC_ROOT} a{text-decoration:none}}`,
+    `@media print{${DOC_ROOT} p,${DOC_ROOT} li,${DOC_ROOT} dd{orphans:3;widows:3}${DOC_ROOT} :is(h1,h2,h3,h4,h5,h6){break-after:avoid-page;break-inside:avoid}${DOC_ROOT} :is(.mino-alert,.mermaid-diagram,.katex-display,dl,kbd){break-inside:avoid}${DOC_ROOT} .footnotes{break-before:avoid}${DOC_ROOT} a{text-decoration:none}${DOC_ROOT} thead th{border-bottom-width:.5pt}}`,
   ].filter(Boolean).join('\n')
 }
