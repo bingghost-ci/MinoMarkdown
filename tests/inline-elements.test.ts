@@ -37,3 +37,18 @@ describe('inline and small elements (T125)', () => {
     expect(html).toContain('data-footnote-ref')
   })
 })
+
+describe('code block language labels (T127)', () => {
+  it('names the language on the block, and only a plain name', () => {
+    expect(renderMarkdownPreview('```rust\nfn main() {}\n```\n')).toContain('<pre data-lang="rust">')
+    expect(renderMarkdownPreview('```C++\nint x;\n```\n')).toContain('<pre data-lang="c++">')
+    expect(renderMarkdownPreview('```\nplain\n```\n')).toContain('<pre><code>')
+    expect(renderMarkdownPreview('```mermaid\ngraph TD\n```\n')).not.toContain('data-lang')
+    expect(renderMarkdownPreview('```a"b<c\nx\n```\n')).not.toContain('data-lang')
+  })
+
+  it('draws the label over the corner without taking room', () => {
+    const css = documentElementCss(DOC_ROOT)
+    expect(css).toContain('.mino-doc pre[data-lang]::after{content:attr(data-lang);position:absolute')
+  })
+})

@@ -141,6 +141,8 @@ export function documentElementCss(root: string): string {
     `${r} li{text-align:left}`,
     `${r} pre{margin:1.1em 0;padding:14px 16px;border-radius:8px;background:var(--code-bg);color:var(--text);font:.88em/1.6 var(--code-font);text-align:left;text-indent:0;white-space:pre-wrap;overflow-wrap:anywhere;-webkit-hyphens:manual;hyphens:manual}`,
     `${r} pre code{background:none;padding:0;color:inherit;font:inherit}`,
+    // T127: the language, small in the corner. It lies over the block's padding and takes no room; its own ground hides a long first line under it.
+    `${r} pre[data-lang]{position:relative}${r} pre[data-lang]::after{content:attr(data-lang);position:absolute;top:0;right:0;padding:.35em .8em .25em;border-radius:0 8px 0 6px;background:var(--code-bg);color:var(--muted);font:.74em/1.4 var(--code-font);letter-spacing:.06em;text-transform:uppercase;pointer-events:none;-webkit-user-select:none;user-select:none}`,
     syntaxRoles.map((role) => `${r} pre .${tokenClass(role)}{color:var(--syntax-${role})}`).join(''),
     `${r} hr{border:0;border-top:1px solid var(--rule);background:none;padding:0;height:0;margin:1.8em 0}`,
     `${r} table{width:100%;border-collapse:collapse;margin:1.2em 0;font-size:.92em;line-height:1.55;text-align:left;text-indent:0;border:var(--table-frame);border-top:var(--table-edge);border-bottom:var(--table-edge)}`,

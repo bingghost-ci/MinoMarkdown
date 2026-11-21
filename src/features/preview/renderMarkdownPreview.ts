@@ -14,7 +14,7 @@ import { rehypeFigures } from '../../core/markdown/figures'
 import { rehypeAlerts } from '../../core/markdown/alerts'
 import { remarkInlineTags, withInlineTags } from '../../core/markdown/inlineTags'
 import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
-import { rehypeHighlightCode, type CodeParsers } from '../../core/markdown/highlight'
+import { rehypeCodeLabels, rehypeHighlightCode, type CodeParsers } from '../../core/markdown/highlight'
 import { missingImageText, remarkHtmlImages } from '../../core/markdown/htmlImages'
 
 // Only a standalone, empty anchor immediately before a heading is promoted to
@@ -73,6 +73,7 @@ export function renderMarkdownPreview(markdown: string, assetKey?: string, capti
     .use(rehypeSanitize, previewSchema)
     .use(rehypeRenderMath, math)
     .use(rehypeHighlightCode, { parsers })
+    .use(rehypeCodeLabels)
     .use(rehypeAlerts)
     .use(rehypeNumericColumns)
     .use(rehypeFigures, { captions })

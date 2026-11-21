@@ -99,3 +99,27 @@ export function rehypeHighlightCode(options: { parsers?: CodeParsers }) {
     visit(tree)
   }
 }
+
+/** A language name short and plain enough to show as a label; it ends up in an attribute, never in markup. */
+const LABEL = /^[a-z0-9][a-z0-9+#.-]{0,19}$/
+
+/**
+ * Names the language on a code block (T127): `<pre data-lang="rust">`, which the stylesheet shows as a small
+ * label in the block's corner. Diagrams and formulas are drawn as something else and get none.
+ */
+export function rehypeCodeLabels() {
+  return (tree: Root) => {
+    const visit = (node: Node) => {
+      if (node.type !== 'element' && node.type !== 'root') return
+      const element = node as Element
+      if (element.tagName === 'pre') {
+        const code = element.children.find((child): child is Element => child.type === 'element' && (child as Element).tagName === 'code')
+        const language = code ? languageOf(code) : null
+        if (language && LABEL.test(language) && language !== 'mermaid' && language !== 'math') element.properties = { ...element.properties, 'data-lang': language }
+        return
+      }
+      for (const child of element.children ?? []) visit(child as Node)
+    }
+    visit(tree)
+  }
+}

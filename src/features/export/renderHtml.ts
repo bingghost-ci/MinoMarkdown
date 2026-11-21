@@ -14,7 +14,7 @@ import { rehypeFigures } from '../../core/markdown/figures'
 import { rehypeAlerts } from '../../core/markdown/alerts'
 import { remarkInlineTags, withInlineTags } from '../../core/markdown/inlineTags'
 import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
-import { loadCodeParsers, rehypeHighlightCode } from '../../core/markdown/highlight'
+import { loadCodeParsers, rehypeCodeLabels, rehypeHighlightCode } from '../../core/markdown/highlight'
 import { base64 } from './appAssets'
 import { collectImageNodes, type ImageNode } from './snapshot'
 import { escapeHtml } from '../text/textDocument'
@@ -165,6 +165,7 @@ export async function renderExport(markdown: string, title: string, resolveImage
     .use(rehypeRenderMath, await loadMathRenderer(markdown), report)
     .use(rehypeEmbedDiagrams, { diagrams, report })
     .use(rehypeHighlightCode, { parsers: await loadCodeParsers(markdown) })
+    .use(rehypeCodeLabels)
     .use(rehypeAlerts)
     .use(rehypeNumericColumns)
     .use(rehypeFigures, { captions: page.captions ?? true })
