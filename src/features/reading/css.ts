@@ -98,6 +98,8 @@ export function styleVariables(style: ReadingStyle, textureSource?: (file: strin
     '--danger': style.ui.danger,
     ...syntaxVariables('auto', style),
     ...alertVariables(style),
+    // A highlighter's yellow, toned toward the paper by day; a low amber glow at night, so the text keeps its ink.
+    '--mark': style.dark ? 'rgba(204,150,64,.36)' : mix('#ffe27a', style.paper, 0.3),
   }
 }
 
@@ -147,6 +149,18 @@ export function documentElementCss(root: string): string {
     `${r} thead th,${r} tr:first-child > th{border-bottom:1px solid var(--table-rule);font-weight:700;color:var(--heading)}`,
     `${r} ::selection{background:var(--selection)}`,
     alertCss(r),
+    // T125: the small inline and block elements, each in the style's own colors.
+    `${r} mark{background:var(--mark);color:inherit;border-radius:.22em;padding:.04em .22em;-webkit-box-decoration-break:clone;box-decoration-break:clone}`,
+    `${r} kbd{display:inline-block;padding:.05em .45em;border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px;background:var(--code-bg);color:var(--text);font:.82em/1.5 var(--code-font);text-indent:0;white-space:nowrap}`,
+    `${r} del{color:var(--secondary);text-decoration-color:color-mix(in srgb,var(--secondary) 70%,transparent)}`,
+    // A finished task steps back; the editor marks it on the item, the preview by its checked box.
+    `${r} .task-list-item:has(> input:checked),${r} li[data-item-type="task"][data-checked="true"]{color:var(--secondary);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--secondary) 45%,transparent)}`,
+    `${r} sup a[data-footnote-ref]{padding:0 .32em;border-radius:.7em;background:color-mix(in srgb,var(--link) 13%,transparent);text-decoration:none;font-variant-numeric:tabular-nums}`,
+    // The footnotes sit under a short rule, as in a printed book.
+    `${r} .footnotes{position:relative;margin-top:2.6em;padding-top:1em;color:var(--secondary);font-size:.86em;line-height:1.6}`,
+    `${r} .footnotes::before{content:"";position:absolute;top:0;left:0;width:40%;border-top:1px solid var(--table-rule)}`,
+    `${r} .footnotes .sr-only{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}`,
+    `${r} .footnotes ol{padding-left:1.4em;margin:0}${r} .footnotes li p{margin:.2em 0;text-indent:0}${r} .footnotes .data-footnote-backref{text-decoration:none}`,
     `@supports (text-autospace: normal){${r}{text-autospace:normal}}@supports (text-spacing-trim: normal){${r}{text-spacing-trim:normal}}`,
   ].join('\n')
 }

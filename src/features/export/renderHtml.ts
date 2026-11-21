@@ -12,6 +12,7 @@ import { loadMathRenderer, rehypeRenderMath, withMathClasses } from '../../core/
 import { rehypeEmbedDiagrams } from '../../core/markdown/diagrams'
 import { rehypeFigures } from '../../core/markdown/figures'
 import { rehypeAlerts } from '../../core/markdown/alerts'
+import { remarkInlineTags, withInlineTags } from '../../core/markdown/inlineTags'
 import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
 import { loadCodeParsers, rehypeHighlightCode } from '../../core/markdown/highlight'
 import { base64 } from './appAssets'
@@ -156,9 +157,10 @@ export async function renderExport(markdown: string, title: string, resolveImage
     .use(remarkMath)
     .use(remarkDemoteCurrency)
     .use(embedImages(resolveImage))
+    .use(remarkInlineTags)
     .use(countRawHtml(report))
     .use(remarkRehype)
-    .use(rehypeSanitize, withMathClasses({ ...defaultSchema, protocols: { ...defaultSchema.protocols, src: ['data'] } }))
+    .use(rehypeSanitize, withInlineTags(withMathClasses({ ...defaultSchema, protocols: { ...defaultSchema.protocols, src: ['data'] } })))
     .use(onlyEmbeddedImages)
     .use(rehypeRenderMath, await loadMathRenderer(markdown), report)
     .use(rehypeEmbedDiagrams, { diagrams, report })

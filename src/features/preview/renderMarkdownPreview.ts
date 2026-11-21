@@ -12,6 +12,7 @@ import { assetUrl, htmlImageSource } from '../editor/assetUrl'
 import { localAssetPath } from '../export/snapshot'
 import { rehypeFigures } from '../../core/markdown/figures'
 import { rehypeAlerts } from '../../core/markdown/alerts'
+import { remarkInlineTags, withInlineTags } from '../../core/markdown/inlineTags'
 import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
 import { rehypeHighlightCode, type CodeParsers } from '../../core/markdown/highlight'
 import { missingImageText, remarkHtmlImages } from '../../core/markdown/htmlImages'
@@ -52,7 +53,7 @@ function blockImages(assetKey?: string) {
 }
 
 // `data` reaches the sanitizer only from raw HTML images, and `remarkHtmlImages` lets through raster data alone.
-const previewSchema = withMathClasses({ ...defaultSchema, protocols: { ...defaultSchema.protocols, src: [...(defaultSchema.protocols?.src ?? []), 'mino-asset', 'data'] } })
+const previewSchema = withInlineTags(withMathClasses({ ...defaultSchema, protocols: { ...defaultSchema.protocols, src: [...(defaultSchema.protocols?.src ?? []), 'mino-asset', 'data'] } }))
 
 /**
  * `parsers` come from `loadCodeParsers` and `math` from `loadMathRenderer`; without them code blocks render as
@@ -66,6 +67,7 @@ export function renderMarkdownPreview(markdown: string, assetKey?: string, capti
     .use(remarkDemoteCurrency)
     .use(headingAnchors)
     .use(blockImages, assetKey)
+    .use(remarkInlineTags)
     .use(remarkHtmlImages((src) => htmlImageSource(src, assetKey ?? '')))
     .use(remarkRehype)
     .use(rehypeSanitize, previewSchema)

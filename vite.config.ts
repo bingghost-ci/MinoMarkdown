@@ -96,5 +96,7 @@ export default defineConfig({
     // worker thread and never reaches the page. Nothing else is ignored.
     onUnhandledError(error) { if (error.message === 'Worker was terminated' && String(error.stack).includes('pdf.worker')) return false },
     css: { include: [/katex\.min\.css/] },
+    // `opensource/` is third-party source kept locally for reference; its own tests are not ours to run.
+    include: ['tests/**/*.test.ts'],
   },
 })
