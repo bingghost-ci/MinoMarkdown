@@ -40,10 +40,29 @@ export type Typography = {
   hyphens: boolean
   /** How headings, quotes and rules are set (T122); `standard` when left out. */
   layout?: LayoutId
+  /** A faint ruling on a paper without a texture of its own (T132). */
+  paperPattern?: PaperPattern
   /** How block quotes are drawn (T131); the style's and the layout's own way when left out. */
   quoteStyle?: QuoteStyle
   /** Emphasis in Chinese text (T129): slanted, set in the Kai face, or marked with dots under the characters. */
   emphasis?: 'italic' | 'kai' | 'dot'
+}
+
+/** Rulings for a plain paper (T132); `settings.rs` lists the same IDs. */
+export const paperPatterns = ['none', 'grid', 'dots'] as const
+export type PaperPattern = (typeof paperPatterns)[number]
+
+/**
+ * The ruling as one small tile, in an ink a tenth of the way from the paper to the text: a notebook's squares or
+ * dots, seen when looked for and not while reading. It is inline data, so an exported page still loads nothing.
+ */
+export function paperPatternImage(pattern: PaperPattern | undefined, style: ReadingStyle): string | null {
+  if (style.texture || (pattern !== 'grid' && pattern !== 'dots')) return null
+  const ink = mix(style.text, style.paper, style.dark ? 0.92 : 0.9)
+  const tile = pattern === 'grid'
+    ? `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><path d="M24 .5H.5V24" fill="none" stroke="${ink}"/></svg>`
+    : `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="1" fill="${ink}"/></svg>`
+  return `url("data:image/svg+xml,${encodeURIComponent(tile)}")`
 }
 
 export type TableStyle = 'three-line' | 'grid' | 'rounded'
@@ -238,7 +257,8 @@ export function typographyVariables(typography: Typography, style: ReadingStyle)
     ...syntaxVariables(typography.codeColors, style, typography.codeCustomColors),
     '--doc-hyphens': typography.hyphens ? 'auto' : 'manual',
     '--doc-justify': typography.hyphens ? 'auto' : 'inter-character',
-    '--paper-veil': veil,
+    // A plain paper has no texture to veil, so its ruling takes that layer.
+    '--paper-veil': paperPatternImage(typography.paperPattern, style) ?? veil,
     '--page-aging': aging,
     '--doc-size': `${typography.fontSize}px`,
     '--doc-line-height': String(typography.lineHeight),
@@ -339,6 +359,8 @@ export function exportStylesheet(options: ExportStyleOptions): string {
       ? `@media print{:root{${declarations(printVars)}}html,body{background:#fff}}`
       : // WebKit leaves @page margins unpainted (T52), so the page color covers the printed area only.
         `@media print{html{${PAGE_BACKGROUND};-webkit-print-color-adjust:exact;print-color-adjust:exact}}`,
+    // A ruling is for the screen: paper that comes out of a printer has none.
+    paperPatternImage(options.typography.paperPattern, style) ? `@media print{:root{--paper-veil:none}}` : '',
     `@media print{body{padding:0}.mino-page{max-width:none;margin:0;padding:0;border:0;border-radius:0;box-shadow:none;background:none}thead{display:table-header-group}img,blockquote,tr,figure{break-inside:avoid}pre{break-inside:auto}}`,
     // T136: no line of a paragraph alone at the top or foot of a page, no heading left at the foot of one, and nothing short cut in two.
     `@media print{${DOC_ROOT} p,${DOC_ROOT} li,${DOC_ROOT} dd{orphans:3;widows:3}${DOC_ROOT} :is(h1,h2,h3,h4,h5,h6){break-after:avoid-page;break-inside:avoid}${DOC_ROOT} :is(.mino-alert,.mermaid-diagram,.katex-display,dl,kbd){break-inside:avoid}${DOC_ROOT} .footnotes{break-before:avoid}${DOC_ROOT} a{text-decoration:none}${DOC_ROOT} thead th{border-bottom-width:.5pt}}`,

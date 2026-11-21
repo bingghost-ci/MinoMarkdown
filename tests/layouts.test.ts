@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { appStylesheet, documentElementCss, exportStylesheet } from '../src/features/reading/css'
+import { appStylesheet, documentElementCss, exportStylesheet, paperPatterns, typographyVariables } from '../src/features/reading/css'
+import { contrast } from '../src/features/reading/color'
 import { isLayout, layoutIds, layoutRules, layouts } from '../src/features/reading/layouts'
 import { MONO_FAMILY } from '../src/features/reading/fonts'
 import { readingStyle } from '../src/features/reading/styles'
@@ -82,3 +83,29 @@ describe('layouts (T122)', () => {
   })
 })
 
+
+describe('paper rulings (T132)', () => {
+  const vars = (id: string, paperPattern: 'none' | 'grid' | 'dots') => typographyVariables(documentTypography({ ...defaultReadingSettings, paperPattern }, readingStyle(id)), readingStyle(id))
+
+  it('rules a plain paper faintly and leaves a textured one alone', () => {
+    expect(vars('white', 'none')['--paper-veil']).toBe('none')
+    expect(vars('white', 'grid')['--paper-veil']).toMatch(/^url\("data:image\/svg\+xml,/)
+    expect(vars('white', 'dots')['--paper-veil']).not.toBe(vars('white', 'grid')['--paper-veil'])
+    expect(vars('paper', 'grid')['--paper-veil']).toBe(vars('paper', 'none')['--paper-veil'])
+    expect(vars('midnight', 'dots')['--paper-veil']).toMatch(/^url\(/)
+    // The ink is barely off the paper: under 1.3:1.
+    for (const id of ['white', 'clay', 'mint', 'charcoal', 'pine']) {
+      const ink = /stroke%3D%22(%23[0-9a-f]{6})/i.exec(vars(id, 'grid')['--paper-veil'])![1].replace('%23', '#')
+      expect(contrast(ink, readingStyle(id).paper), id).toBeLessThan(1.3)
+      expect(contrast(ink, readingStyle(id).paper), id).toBeGreaterThan(1.05)
+    }
+  })
+
+  it('offers the same rulings as settings.rs, falls back for an unknown one, and prints none', () => {
+    expect(readFileSync('src-tauri/src/settings.rs', 'utf8')).toContain(`matches!(settings.paper_pattern.as_str(), ${paperPatterns.map((id) => `"${id}"`).join(' | ')})`)
+    expect(documentTypography({ ...defaultReadingSettings, paperPattern: 'stripes' as never }, readingStyle('white')).paperPattern).toBe('none')
+    const css = (paperPattern: 'none' | 'grid') => exportStylesheet({ styleId: 'white', exportStyle: 'current', pdfMode: 'screen', pageSize: 'a4', pageMargin: 'standard', fontFaces: '', typography: documentTypography({ ...defaultReadingSettings, paperPattern }, readingStyle('white')) })
+    expect(css('grid')).toContain('@media print{:root{--paper-veil:none}}')
+    expect(css('none')).not.toContain('@media print{:root{--paper-veil:none}}')
+  })
+})

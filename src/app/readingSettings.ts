@@ -1,5 +1,5 @@
 import { codeFontStack, fontStack, matchedForCjk } from '../features/reading/fonts'
-import { tableStyles, type Measure, type PageMargin, type PageSize, type ParagraphSpacing, type TableStyle, type Typography } from '../features/reading/css'
+import { paperPatterns, tableStyles, type PaperPattern, type Measure, type PageMargin, type PageSize, type ParagraphSpacing, type TableStyle, type Typography } from '../features/reading/css'
 import { noCustomCodeColors, type CodeColors, type CustomCodeColors } from '../features/reading/codeColors'
 import type { DocumentScript } from '../features/reading/script'
 import { readingStyle, resolveStyleId, type ReadingStyle, type StyleId, type ThemeId } from '../features/reading/styles'
@@ -31,6 +31,8 @@ export type ReadingSettings = {
   tableStyle: TableStyle
   /** How headings, quotes and rules are set, apart from the paper (T122). */
   layout: LayoutId
+  /** A faint grid or dots on a paper that has no texture (T132). */
+  paperPattern: PaperPattern
   /** How block quotes are drawn: by the style and layout, or one way everywhere (T131). */
   quoteStyle: QuoteStyle
   /** How emphasis is shown in a Chinese document, where slanted characters read poorly (T129). */
@@ -64,7 +66,7 @@ export type ReadingSettings = {
 /** New installs; `settings.rs` fills missing fields of older files so their look does not change. */
 export const defaultReadingSettings: ReadingSettings = {
   theme: 'system', dayTheme: 'white', nightTheme: 'dark', cjkFont: 'auto', latinFont: 'auto', codeFont: 'auto', codeColors: 'auto', codeCustomColors: noCustomCodeColors, editorFontSize: DEFAULT_EDITOR_FONT_SIZE, editorLineHeight: 'comfortable',
-  paragraphSpacing: 'standard', measure: '36', textAlign: 'left', firstLineIndent: false, tableStyle: 'three-line', layout: 'standard', cjkEmphasis: 'italic', quoteStyle: 'auto', diagramStyle: 'page', diagramLine: 'auto', diagramCurve: 'auto', diagramFill: 'auto', diagramColors: 'auto', diagramCustomColors: noDiagramColors, diagramFont: 'auto', textureStrength: 60, latinLayout: 'auto',
+  paragraphSpacing: 'standard', measure: '36', textAlign: 'left', firstLineIndent: false, tableStyle: 'three-line', layout: 'standard', cjkEmphasis: 'italic', quoteStyle: 'auto', paperPattern: 'none', diagramStyle: 'page', diagramLine: 'auto', diagramCurve: 'auto', diagramFill: 'auto', diagramColors: 'auto', diagramCustomColors: noDiagramColors, diagramFont: 'auto', textureStrength: 60, latinLayout: 'auto',
   imageCaptions: true, imageDimming: true, openInReadingMode: true, exportStyle: 'current', pdfMode: 'print', pageSize: 'a4', pageMargin: 'standard',
 }
 
@@ -108,6 +110,7 @@ export function documentTypography(settings: ReadingSettings, style: ReadingStyl
     textureStrength: settings.textureStrength,
     layout: isLayout(settings.layout) ? settings.layout : 'standard',
     quoteStyle: isQuoteStyle(settings.quoteStyle) ? settings.quoteStyle : 'auto',
+    paperPattern: paperPatterns.includes(settings.paperPattern) ? settings.paperPattern : 'none',
     // Western text keeps its italics: the choice is for Chinese.
     emphasis: latin ? 'italic' : settings.cjkEmphasis === 'kai' || settings.cjkEmphasis === 'dot' ? settings.cjkEmphasis : 'italic',
     hyphens: latin && settings.textAlign === 'justify',

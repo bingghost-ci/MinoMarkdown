@@ -242,6 +242,7 @@ export function SettingsDialog({ workspace: w, windowed = false, documentKind }:
           <div className="settings-section-heading"><strong>{t('阅读风格')}</strong><small>{t('窗口和标题栏带一点纸张的色调，颜色主要在纸面和标题上')}</small></div>
           <StyleGallery workspace={w} />
           {active.texture && <Row title={t('纸张纹理')} note={t('纸面纤维、压纹和做旧的明显程度')}><input type="range" aria-label={t('纸张纹理')} min={0} max={100} step={10} value={settings.textureStrength} onChange={(event) => update({ textureStrength: Number(event.target.value) })} /></Row>}
+          {!active.texture && <Row title={t('纸面图案')} note={t('很淡的方格或点阵，像笔记本的内页；打印时没有')}><Segmented t={t} value={settings.paperPattern} onChange={(value) => update({ paperPattern: value })} options={[['none', '无'], ['grid', '方格'], ['dots', '点阵']]} /></Row>}
           <div className="settings-section-heading"><strong>{t('版式')}</strong><small>{t('标题、编号、引用和分隔线的排法，与纸张分开选择；导出也用这里的选择')}</small></div>
           <LayoutGallery workspace={w} />
           <p className="settings-note">{t(layouts.find((layout) => layout.id === settings.layout)?.note ?? layouts[0].note)}</p>
