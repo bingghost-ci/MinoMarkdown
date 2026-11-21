@@ -69,7 +69,11 @@ function numbered(r: string, levels: readonly string[]): string {
     const below = levels.slice(index + 1).map((_, offset) => `mino-h${level + offset + 1}`).join(' ')
     rules.push(`${r} > h${level}{counter-increment:mino-h${level};${below ? `counter-reset:${below}` : ''}}`)
     rules.push(`${r} > h${level}::before{content:${content};font-weight:inherit;color:var(--layout-number,inherit)}`)
+    // The contents list (T133) counts its own entries the same way, so each carries its section's number.
+    const entry = content.replaceAll('mino-h', 'mino-t')
+    rules.push(`${r} .mino-toc-${level}{counter-increment:mino-t${level};${below ? `counter-reset:${below.replaceAll('mino-h', 'mino-t')}` : ''}}${r} .mino-toc-${level} > a::before{content:${entry}}`)
   })
+  rules.push(`${r} .mino-toc{counter-reset:${levels.map((_, index) => `mino-t${index + 2}`).join(' ')}}`)
   return rules.join('')
 }
 

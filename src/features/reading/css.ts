@@ -170,6 +170,12 @@ export function documentElementCss(root: string): string {
     `${r} thead th,${r} tr:first-child > th{border-bottom:1px solid var(--table-rule);font-weight:700;color:var(--heading)}`,
     `${r} ::selection{background:var(--selection)}`,
     alertCss(r),
+    // T133: the contents list, quiet beside a thin rule; the editor shows the `[TOC]` line itself as a labelled slip.
+    `${r} .mino-toc{margin:1.4em 0;padding:.2em 0 .3em 1.1em;border-left:2px solid var(--quote-line);text-indent:0;break-inside:avoid}`,
+    `${r} .mino-toc-title{margin:0 0 .35em;color:var(--secondary);font-size:.84em;font-weight:700;letter-spacing:.08em;text-indent:0}${r} .mino-toc-title::before{content:"目\\3000录"}${r} .mino-toc-title:lang(en)::before{content:"CONTENTS"}`,
+    `${r} .mino-toc ul{list-style:none;margin:0;padding:0}${r} .mino-toc li{margin:.12em 0;text-align:left}${r} .mino-toc a{color:var(--text);text-decoration:none}${r} .mino-toc a:hover{color:var(--link)}`,
+    `${r} .mino-toc-1{font-weight:700}${r} .mino-toc-3{padding-left:1.5em;font-size:.95em}${r} .mino-toc-4{padding-left:3em;font-size:.92em;color:var(--secondary)}`,
+    `${r} .mino-toc-source{padding:.3em .9em;border-left:2px solid var(--quote-line);color:var(--muted);font:.86em var(--code-font);text-indent:0}${r} .mino-toc-source::before{content:"目录";margin-right:.8em;color:var(--secondary);font:700 1em var(--doc-font);letter-spacing:.08em}${r} .mino-toc-source:lang(en)::before{content:"CONTENTS"}`,
     // T125: the small inline and block elements, each in the style's own colors.
     `${r} mark{background:var(--mark);color:inherit;border-radius:.22em;padding:.04em .22em;-webkit-box-decoration-break:clone;box-decoration-break:clone}`,
     `${r} kbd{display:inline-block;padding:.05em .45em;border:1px solid var(--rule);border-bottom-width:2px;border-radius:4px;background:var(--code-bg);color:var(--text);font:.82em/1.5 var(--code-font);text-indent:0;white-space:nowrap}`,

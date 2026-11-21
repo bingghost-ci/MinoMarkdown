@@ -1,6 +1,7 @@
 import type { Options } from 'remark-stringify'
 import { mathValues } from '../../core/markdown/math'
 import { ALERT_MARKER } from '../../core/markdown/alerts'
+import { isTocMarker } from '../../core/markdown/toc'
 
 type Handler = NonNullable<NonNullable<Options['handlers']>['text']>
 type Parent = Parameters<Handler>[1]
@@ -40,6 +41,8 @@ export const safeTextHandler: Handler = (node, parent, state, info) => keepAlert
  * quote again in every reader, so there, and only there, the bracket is written as typed.
  */
 function keepAlertMarker(written: string, node: Parameters<Handler>[0], parent: Parent, state: Parameters<Handler>[2]): string {
+  // A paragraph that is only `[TOC]` (T133) is the contents marker; escaped, no reader would take it for one.
+  if (written.startsWith('\\[') && isTocMarker(written.slice(1)) && (parent as { type?: string; children?: unknown[] } | undefined)?.type === 'paragraph' && (parent as { children: unknown[] }).children.length === 1) return written.slice(1)
   if (!written.startsWith('\\[!') || !state.stack.includes('blockquote')) return written
   if ((parent as { children?: unknown[] } | undefined)?.children?.[0] !== node) return written
   return ALERT_MARKER.test(written.slice(1)) ? written.slice(1) : written

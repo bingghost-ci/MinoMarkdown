@@ -2595,7 +2595,8 @@ export function useDocumentWorkspace() {
     }
     let id: string
     try { id = decodeURIComponent(href.slice(1)) } catch { return }
-    const destination = window.document.getElementById(`user-content-${id}`)
+    // The sanitizer prefixes the ids it lets through; the contents list (T133) links to ids as they are in the page.
+    const destination = window.document.getElementById(`user-content-${id}`) ?? window.document.getElementById(id)
     if (destination && previewRoot.current?.contains(destination)) destination.scrollIntoView({ block: 'start' })
   }
 

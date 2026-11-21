@@ -2,13 +2,14 @@ import { Plugin, PluginKey, type EditorState, type Transaction } from '@milkdown
 import type { Node as ProseNode } from '@milkdown/kit/prose/model'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import { alertMarker, QUOTE_TITLE_CLASS, type AlertType } from '../../core/markdown/alerts'
+import { isTocMarker } from '../../core/markdown/toc'
 
 /**
  * An alert block quote in the editor: where it is, where its `[!TYPE]` marker is, and its type. A `title` is the
  * opening paragraph of a plain quote when it is one run of bold with more after it (T131); `quote` and `end` are
  * then that paragraph's.
  */
-type FoundAlert = { quote: number; end: number; marker: number; markerEnd: number; type: AlertType | 'title' }
+type FoundAlert = { quote: number; end: number; marker: number; markerEnd: number; type: AlertType | 'title' | 'toc' }
 
 /**
  * Alert blocks in the editor (T121), drawn with decorations only, so the document is never changed. The quote
@@ -17,7 +18,9 @@ type FoundAlert = { quote: number; end: number; marker: number; markerEnd: numbe
  */
 export function findAlerts(doc: ProseNode): FoundAlert[] {
   const found: FoundAlert[] = []
-  doc.descendants((node, pos) => {
+  doc.descendants((node, pos, parent) => {
+    // A top-level paragraph that says only `[TOC]` (T133) is where reading and exports put the contents.
+    if (parent === doc && isTocParagraph(node)) found.push({ quote: pos, end: pos + node.nodeSize, marker: pos + 1, markerEnd: pos + 1, type: 'toc' })
     if (node.isTextblock) return false
     if (node.type.name !== 'blockquote') return true
     const first = node.firstChild
@@ -36,6 +39,7 @@ function decorations(state: EditorState, alerts: readonly FoundAlert[]): Decorat
   const head = state.selection.head
   const items: Decoration[] = []
   for (const alert of alerts) {
+    if (alert.type === 'toc') { items.push(Decoration.node(alert.quote, alert.end, { class: 'mino-toc-source' })); continue }
     if (alert.type === 'title') { items.push(Decoration.node(alert.quote, alert.end, { class: QUOTE_TITLE_CLASS })); continue }
     items.push(Decoration.node(alert.quote, alert.end, { class: `mino-alert mino-alert-${alert.type}` }))
     const editing = head >= alert.marker && head <= alert.markerEnd
@@ -44,12 +48,17 @@ function decorations(state: EditorState, alerts: readonly FoundAlert[]): Decorat
   return DecorationSet.create(state.doc, items)
 }
 
-/** Whether a transaction changed anything inside a block quote, or added or removed one. */
+function isTocParagraph(node: ProseNode): boolean {
+  return node.type.name === 'paragraph' && node.childCount === 1 && node.content.size <= 8 && isTocMarker(node.textContent)
+}
+
+/** Whether a transaction changed anything inside a block quote or a `[TOC]` line, or added or removed one. */
 function touchesQuote(tr: Transaction): boolean {
   let touched = false
   const inQuote = (doc: ProseNode, from: number, to: number) => {
     const start = doc.resolve(Math.min(from, doc.content.size))
     for (let depth = start.depth; depth > 0; depth--) if (start.node(depth).type.name === 'blockquote') return true
+    if (start.depth >= 1 && isTocParagraph(start.node(1))) return true
     let found = false
     doc.nodesBetween(from, Math.min(to, doc.content.size), (node) => { if (node.type.name === 'blockquote') found = true; return !found && !node.isTextblock })
     return found

@@ -12,6 +12,7 @@ import { loadMathRenderer, rehypeRenderMath, withMathClasses } from '../../core/
 import { rehypeEmbedDiagrams } from '../../core/markdown/diagrams'
 import { rehypeFigures } from '../../core/markdown/figures'
 import { rehypeAlerts } from '../../core/markdown/alerts'
+import { rehypeToc } from '../../core/markdown/toc'
 import { remarkInlineTags, withInlineTags } from '../../core/markdown/inlineTags'
 import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
 import { loadCodeParsers, rehypeCodeLabels, rehypeHighlightCode } from '../../core/markdown/highlight'
@@ -167,6 +168,7 @@ export async function renderExport(markdown: string, title: string, resolveImage
     .use(rehypeHighlightCode, { parsers: await loadCodeParsers(markdown) })
     .use(rehypeCodeLabels)
     .use(rehypeAlerts)
+    .use(rehypeToc)
     .use(rehypeNumericColumns)
     .use(rehypeFigures, { captions: page.captions ?? true })
     .use(rehypeStringify, { allowDangerousHtml: true })

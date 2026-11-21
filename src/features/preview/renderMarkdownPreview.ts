@@ -12,6 +12,7 @@ import { assetUrl, htmlImageSource } from '../editor/assetUrl'
 import { localAssetPath } from '../export/snapshot'
 import { rehypeFigures } from '../../core/markdown/figures'
 import { rehypeAlerts } from '../../core/markdown/alerts'
+import { rehypeToc } from '../../core/markdown/toc'
 import { remarkInlineTags, withInlineTags } from '../../core/markdown/inlineTags'
 import { rehypeNumericColumns } from '../../core/markdown/numericColumns'
 import { rehypeCodeLabels, rehypeHighlightCode, type CodeParsers } from '../../core/markdown/highlight'
@@ -75,6 +76,7 @@ export function renderMarkdownPreview(markdown: string, assetKey?: string, capti
     .use(rehypeHighlightCode, { parsers })
     .use(rehypeCodeLabels)
     .use(rehypeAlerts)
+    .use(rehypeToc)
     .use(rehypeNumericColumns)
     .use(rehypeFigures, { captions })
     .use(rehypeStringify, { allowDangerousHtml: true })
