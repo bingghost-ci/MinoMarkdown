@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AiClient, disabledConfig, type AiConfig, type AiProvider, type AiTransport } from '../features/ai/client'
+import { AiClient, disabledConfig, type AiConfig, type AiProvider, type AiTransport, type NewAiProvider } from '../features/ai/client'
 import { aiErrorText, answerReplacesSelection, askMessages, combinedSummaryMessages, CONTEXT_BUDGET, documentContext, insertableMarkdown, localSuggestions, noteFileName, noteMarkdown, parseSuggestions, partSummaryMessages, presets, selectionActions, selectionMessages, suggestionPrompt, summaryParts, type AiLanguage, type AiPresetId, type AiSelectionAction, type ChatMessage } from '../features/ai/prompts'
 
 export type AiTurn = {
@@ -280,7 +280,10 @@ export function useAiAssistant(input: AiAssistantInput) {
     catch (error) { inputRef.current.onStatus(aiErrorText(error instanceof Error ? error.message : String(error))); return false }
   }
 
-  const saveConfig = (patch: Partial<Pick<AiConfig, 'enabled' | 'consented' | 'baseUrl' | 'model'>> & { provider?: AiProvider }) => command('ai_set_config', { patch })
+  const saveConfig = (patch: Partial<Pick<AiConfig, 'enabled' | 'consented' | 'baseUrl' | 'model' | 'api'>> & { provider?: AiProvider }) => command('ai_set_config', { patch })
+  /** A provider of the user's own: added and selected, or removed together with its key. */
+  const addProvider = (provider: NewAiProvider) => command('ai_add_provider', { provider })
+  const removeProvider = (provider: AiProvider) => command('ai_remove_provider', { provider })
   /** Without a provider, the key of the selected one is meant. */
   const setKey = (key: string, provider?: AiProvider) => command('ai_set_key', provider ? { key, provider } : { key })
   const clearKey = (provider?: AiProvider) => command('ai_clear_key', provider ? { provider } : undefined)
@@ -333,7 +336,7 @@ export function useAiAssistant(input: AiAssistantInput) {
 
   // Heading-based questions are only worked out while the empty drawer shows them.
   const suggestions = !open || turns.length > 0 ? [] : suggested.get(documentId) ?? localSuggestions(input.getHeadings(), input.language)
-  return { stream, saveNote, available: transport !== null, config, open, setOpen, toggleOpen, consentOpen, setConsentOpen, confirmConsent, setEnabled, saveConfig, setKey, clearKey, pickModel, fetchModels, fetchedModels: listed?.source === modelSource ? listed.ids : null, modelsBusy, modelsError: modelsFailure?.source === modelSource ? modelsFailure.text : null, turns, busy, ask, runPreset, runSelection, stop, clear, forget, insertAnswer, suggestions, refreshSuggestions, canReplace: answerReplacesSelection }
+  return { stream, saveNote, available: transport !== null, config, open, setOpen, toggleOpen, consentOpen, setConsentOpen, confirmConsent, setEnabled, saveConfig, addProvider, removeProvider, setKey, clearKey, pickModel, fetchModels, fetchedModels: listed?.source === modelSource ? listed.ids : null, modelsBusy, modelsError: modelsFailure?.source === modelSource ? modelsFailure.text : null, turns, busy, ask, runPreset, runSelection, stop, clear, forget, insertAnswer, suggestions, refreshSuggestions, canReplace: answerReplacesSelection }
 }
 
 export type AiAssistant = ReturnType<typeof useAiAssistant>

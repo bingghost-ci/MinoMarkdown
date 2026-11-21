@@ -4,7 +4,12 @@ import { PaneResizer } from './PaneResizer'
 import { AI_MAX, AI_MIN } from '../readingSettings'
 import type { DocumentWorkspace } from '../useDocumentWorkspace'
 import type { AiTurn } from '../aiAssistant'
-import { providerLabels } from '../../features/ai/client'
+import { providersOf, type AiConfig } from '../../features/ai/client'
+
+/** The name of the selected provider: a built-in one's, or the one the user gave. */
+function providerName(config: AiConfig): string {
+  return providersOf(config).find((provider) => provider.id === config.provider)?.name ?? config.provider
+}
 import { presets, selectionActions } from '../../features/ai/prompts'
 import { ModalBackdrop } from './FocusTrap'
 
@@ -56,7 +61,7 @@ export function AiDrawer({ workspace: w }: { workspace: DocumentWorkspace }) {
       <button type="button" className="icon-button" title={t('清空对话')} aria-label={t('清空对话')} disabled={ai.turns.length === 0} onClick={ai.clear}><Eraser aria-hidden="true" /></button>
       <button type="button" className="icon-button" title={t('关闭')} aria-label={t('关闭')} onClick={() => ai.setOpen(false)}><X aria-hidden="true" /></button>
     </header>
-    <p className="ai-destination">{t('提问时，文档内容会发送到')} <strong>{t(providerLabels[ai.config.provider])}</strong> · <span className="ai-model" title={t('回答使用的模型，可在设置的“AI”页更换')}>{ai.config.model}</span> · {host(ai.config.baseUrl)}{!ai.config.hasKey && <> · <button type="button" className="ai-key-missing" onClick={() => { w.setSettingsTab('ai'); w.setSettingsOpen(true) }}>{t('尚未填写密钥，去设置')}</button></>}</p>
+    <p className="ai-destination">{t('提问时，文档内容会发送到')} <strong>{t(providerName(ai.config))}</strong> · <span className="ai-model" title={t('回答使用的模型，可在设置的“AI”页更换')}>{ai.config.model}</span> · {host(ai.config.baseUrl)}{!ai.config.hasKey && <> · <button type="button" className="ai-key-missing" onClick={() => { w.setSettingsTab('ai'); w.setSettingsOpen(true) }}>{t('尚未填写密钥，去设置')}</button></>}</p>
     <div ref={list} className="ai-turns" aria-live="polite">
       {ai.turns.length === 0 && <p className="ai-empty">{t('可以让 AI 概括这篇文档、解释选中的文字，或回答你的问题。')}<small>{t('为了节省用量，文档只在你提问时随问题一起发送；打开这个面板不会发送任何内容。')}</small></p>}
       {ai.turns.map((turn) => turn.role === 'user' ? <div key={turn.id} className="ai-turn ai-question">{t(turn.text)}</div> : <Answer key={turn.id} turn={turn} workspace={w} />)}
@@ -92,7 +97,7 @@ export function AiConsentDialog({ workspace: w }: { workspace: DocumentWorkspace
         <li>{t('当前文档的标题和正文（长文档会分段或截断）')}</li>
         <li>{t('你输入的问题，以及本次对话里之前的问答')}</li>
       </ul>
-      <p>{t('发送到：')}<strong>{t(providerLabels[ai.config.provider])}</strong> · {host(ai.config.baseUrl)}</p>
+      <p>{t('发送到：')}<strong>{t(providerName(ai.config))}</strong> · {host(ai.config.baseUrl)}</p>
       <p>{t('图片和其他文件不会发送。API 密钥保存在 macOS 钥匙串里。对方如何保存和使用这些内容，由该服务的条款决定。可随时在设置里关闭。')}</p>
       <div className="consent-actions"><button type="button" onClick={() => ai.setConsentOpen(false)}>{t('取消')}</button><button type="button" className="primary" autoFocus onClick={() => void ai.confirmConsent()}>{t('同意并开启')}</button></div>
     </section>

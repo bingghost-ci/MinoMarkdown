@@ -395,6 +395,10 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .settings-actions button, .consent-actions button, .settings-key button, .settings-model-tools button { height: 30px; border: 1px solid var(--line); border-radius: 7px; padding: 0 14px; background: var(--raised); color: var(--ui-text); font-size: 12px; }
 .settings-actions button.primary, .consent-actions button.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
 .settings-key { display: flex; align-items: center; gap: 6px; }
+/* The providers the user added (any number) wrap onto more rows; the form that adds one is set apart. */
+.settings-providers { flex-wrap: wrap; max-width: 420px; justify-content: flex-end; }
+.settings-add-provider { margin: 4px 0 12px; border: 1px solid var(--line); border-radius: 10px; padding: 2px 14px 0; background: var(--raised); }
+.settings-add-problem { margin-right: auto; align-self: center; color: var(--ui-secondary); font-size: 12px; }
 .settings-key input { min-width: 180px !important; }
 .settings-key button:disabled, .settings-model-tools button:disabled { opacity: .5; }
 .settings-model select { min-width: 0; width: 132px; }
@@ -474,8 +478,8 @@ button svg, summary svg { width: 16px; height: 16px; flex: none; stroke-width: 1
 .layout-thumb-technical .thumb-title { width: 100%; height: 5px; box-shadow: 0 3px 0 -1px var(--surface), 0 4px 0 0 var(--rule); margin-bottom: 4px; }
 .layout-thumb-technical .thumb-head b { color: var(--secondary); }
 .layout-thumb-typewriter .thumb-title { width: 46%; background: var(--title); }
-.layout-thumb-typewriter .thumb-head { margin-left: -2px; }
-.layout-thumb-typewriter .thumb-head b { color: var(--muted); font-weight: 400; }
+.layout-thumb-typewriter .thumb-title { box-shadow: 0 3px 0 -1px var(--surface), 0 4px 0 0 var(--rule), 0 6px 0 0 var(--surface), 0 7px 0 0 var(--rule); margin-bottom: 7px; }
+.layout-thumb-typewriter .thumb-head .thumb-bar { box-shadow: 0 3px 0 -1px var(--rule); }
 .layout-thumb-typewriter .thumb-line { height: 2px; opacity: .45; background-image: repeating-linear-gradient(90deg, var(--surface) 0 1px, transparent 1px 4px); }
 .font-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .font-grid-system { max-height: 230px; overflow-y: auto; padding: 2px; }

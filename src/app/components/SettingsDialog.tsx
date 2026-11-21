@@ -7,7 +7,8 @@ import { translateStatus, type Language } from '../i18n'
 import { readingStyles, type ReadingStyle } from '../../features/reading/styles'
 // The diagrams page brings the looks with it, so it loads when the page is opened, not with the window.
 const DiagramSettings = lazy(() => import('./DiagramSettings').then((module) => ({ default: module.DiagramSettings })))
-import { modelChoices, providerHasKey, providerIds, providerLabels, type AiProvider } from '../../features/ai/client'
+import { modelChoices, providerHasKey, providersOf, validModel, validProviderId, type AiApi, type AiProvider } from '../../features/ai/client'
+import { aiPresets, apiLabels, baseUrlHints, freeProviderId } from '../../features/ai/presets'
 import { codeColorIds, codeColorLabels, codePalette, noCustomCodeColors, syntaxRoleLabels, withCustomColor, type CodeColors, type CustomCodeColors } from '../../features/reading/codeColors'
 import type { SyntaxRole } from '../../core/markdown/syntaxRoleNames'
 import { LayoutGallery, StyleGallery } from './StyleGallery'
@@ -121,16 +122,60 @@ function isLoopback(baseUrl: string): boolean {
 }
 
 /** One provider's key: whether it is stored, and a field to save or remove it. The key itself is never read back. */
-function KeyRow({ workspace: w, provider }: { workspace: SettingsHost; provider: AiProvider }) {
+function KeyRow({ workspace: w, provider, name }: { workspace: SettingsHost; provider: AiProvider; name: string }) {
   const { ai, t } = w
   const [key, setKey] = useState('')
   const saved = providerHasKey(ai.config, provider)
-  const label = t(providerLabels[provider])
+  const label = t(name)
   const save = () => { const value = key.trim(); if (value) void ai.setKey(value, provider).then((done) => { if (done) setKey('') }) }
   return <div className="settings-row"><span>{label}{provider === ai.config.provider && <em className="settings-badge">{t('当前使用')}</em>}<small className="settings-key-status" data-saved={saved}>{saved ? t('已保存') : t('未设置')}</small></span>
     <span className="settings-key"><input type="password" value={key} autoComplete="off" spellCheck={false} placeholder={saved ? '••••••••' : 'sk-…'} aria-label={`${label} ${t('API 密钥')}`} onChange={(event) => setKey(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); save() } }} />
       <button type="button" disabled={!key.trim()} onClick={save}>{t('保存')}</button>
       <button type="button" disabled={!saved} onClick={() => void ai.clearKey(provider)}>{t('删除')}</button></span></div>
+}
+
+/**
+ * The form that adds a provider of the user's own: from a known service, where only the key is left to enter, or
+ * from any address that speaks one of the two protocols. The provider is written first and its key after it, so a
+ * key is never stored for a provider that was refused.
+ */
+function AddProvider({ workspace: w, onDone }: { workspace: SettingsHost; onDone: () => void }) {
+  const { ai, t } = w
+  const taken = providersOf(ai.config).map((provider) => provider.id)
+  const [preset, setPreset] = useState('')
+  const [id, setId] = useState(() => freeProviderId('my-api', taken))
+  const [name, setName] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
+  const [api, setApi] = useState<AiApi>('openai')
+  const [model, setModel] = useState('')
+  const [key, setKey] = useState('')
+  const [busy, setBusy] = useState(false)
+  const choose = (value: string) => {
+    setPreset(value)
+    const picked = aiPresets.find((item) => item.id === value)
+    if (!picked) { setId(freeProviderId('my-api', taken)); setName(''); setBaseUrl(''); setApi('openai'); setModel(''); return }
+    setId(freeProviderId(picked.id, taken)); setName(picked.name); setBaseUrl(picked.baseUrl); setApi(picked.api); setModel(picked.model)
+  }
+  const problem = !validProviderId(id.trim()) ? t('标识只能用小写字母、数字和连字符，以字母开头') : taken.includes(id.trim()) ? t('这个标识已经有了') : !name.trim() ? t('请填写名称') : !/^https?:\/\//i.test(baseUrl.trim()) ? t('接口地址须以 https:// 开头；本机地址可用 http://') : !validModel(model.trim()) ? t('请填写模型名称') : null
+  const add = async () => {
+    if (problem || busy) return
+    setBusy(true)
+    const provider = id.trim()
+    const added = await ai.addProvider({ id: provider, name: name.trim(), baseUrl: baseUrl.trim(), model: model.trim(), api })
+    if (added && key.trim()) await ai.setKey(key.trim(), provider)
+    setBusy(false)
+    if (added) onDone()
+  }
+  return <div className="settings-add-provider">
+    <label className="settings-row"><span>{t('从已知服务添加')}<small>{t('选一个，地址和协议自动填好；也可以选“自定义接口”全部自己填')}</small></span><select value={preset} onChange={(event) => choose(event.target.value)}><option value="">{t('自定义接口')}</option>{aiPresets.map((item) => <option key={item.id} value={item.id}>{t(item.name)}</option>)}</select></label>
+    <label className="settings-row"><span>{t('名称')}</span><input type="text" value={name} spellCheck={false} placeholder={t('例如：公司网关')} onChange={(event) => setName(event.target.value)} /></label>
+    <label className="settings-row"><span>{t('标识')}<small>{t('小写字母、数字和连字符；密钥按它存入钥匙串，添加后不能改')}</small></span><input type="text" value={id} spellCheck={false} onChange={(event) => setId(event.target.value)} /></label>
+    <Row title={t('接口协议')} note={t('多数服务是 OpenAI 兼容；Claude 和少数网关用 Anthropic')}><Segmented t={t} value={api} onChange={setApi} options={apiLabels} /></Row>
+    <label className="settings-row"><span>{t('接口地址')}<small>{t('须以 https:// 开头；本机地址可用 http://')}</small></span><input type="url" value={baseUrl} spellCheck={false} placeholder={baseUrlHints[api]} onChange={(event) => setBaseUrl(event.target.value)} /></label>
+    <label className="settings-row"><span>{t('模型')}<small>{t('先填一个能用的；添加后可以获取模型列表再选')}</small></span><input type="text" value={model} spellCheck={false} onChange={(event) => setModel(event.target.value)} /></label>
+    <label className="settings-row"><span>{t('API 密钥')}<small>{t('可以稍后再填；本机服务不需要')}</small></span><input type="password" value={key} autoComplete="off" spellCheck={false} placeholder="sk-…" onChange={(event) => setKey(event.target.value)} /></label>
+    <div className="settings-actions">{problem && <span className="settings-add-problem">{problem}</span>}<button type="button" onClick={onDone}>{t('取消')}</button><button type="button" className="primary" disabled={problem !== null || busy} onClick={() => void add()}>{t('添加服务商')}</button></div>
+  </div>
 }
 
 /** The AI page (T70, T73): off by default; keys go to the macOS Keychain and are never shown again. */
@@ -139,6 +184,7 @@ function AiSettings({ workspace: w }: { workspace: SettingsHost }) {
   const { config } = ai
   const [baseUrl, setBaseUrl] = useState(config.baseUrl)
   const [model, setModel] = useState(config.model)
+  const [adding, setAdding] = useState(false)
   const [synced, setSynced] = useState(`${config.provider}|${config.baseUrl}|${config.model}`)
   // Another window or a provider switch changed the saved values: show those.
   if (synced !== `${config.provider}|${config.baseUrl}|${config.model}`) { setSynced(`${config.provider}|${config.baseUrl}|${config.model}`); setBaseUrl(config.baseUrl); setModel(config.model) }
@@ -146,14 +192,25 @@ function AiSettings({ workspace: w }: { workspace: SettingsHost }) {
   const changed = baseUrl.trim() !== config.baseUrl || model.trim() !== config.model
   const save = () => void ai.saveConfig({ baseUrl: baseUrl.trim(), model: model.trim() })
   const suggested = modelChoices(config.provider)
+  const providers = providersOf(config)
+  const current = providers.find((provider) => provider.id === config.provider)
+  // The two fixed services have one address and one protocol; everything else is the user's to set.
+  const fixed = config.provider === 'deepseek' || config.provider === 'openai'
+  const api: AiApi = config.api ?? 'openai'
   const fetched = (ai.fetchedModels ?? []).filter((id) => !suggested.includes(id))
   // Fetching is a network request, so it needs what a question needs: AI switched on and a key (a local service needs none).
   const blocked = !config.enabled || !config.consented ? t('开启 AI 功能后才能获取') : !config.hasKey && !isLoopback(config.baseUrl) ? t('请先保存当前服务商的密钥') : null
   const modelsStatus = blocked ?? (ai.modelsBusy ? t('正在获取…') : ai.modelsError ? translateStatus(ai.modelsError, settings.language) : ai.fetchedModels ? `${t('已获取模型：')}${ai.fetchedModels.length}` : t('向当前服务商查询可用的模型，只发送密钥，不发送文档'))
   return <>
-    <ToggleRow title={t('开启 AI 功能')} note={t('默认关闭。关闭时 Mino 不发出任何网络请求。')} checked={config.enabled} onChange={(checked) => ai.setEnabled(checked)} />
-    <Row title={t('服务商')} note={t('提问时使用的服务；各服务商的模型和密钥分别记住')}><Segmented t={t} value={config.provider} onChange={(value: AiProvider) => void ai.saveConfig({ provider: value })} options={providerIds.map((id) => [id, providerLabels[id]] as const)} /></Row>
-    <label className="settings-row"><span>{t('接口地址')}<small>{t('须以 https:// 开头；本机地址可用 http://')}</small></span><input type="url" value={baseUrl} spellCheck={false} disabled={config.provider !== 'custom'} onChange={(event) => setBaseUrl(event.target.value)} /></label>
+    {/* Changing where requests go asks for consent again; until it is given, the switch reads off. */}
+    <ToggleRow title={t('开启 AI 功能')} note={config.enabled && !config.consented ? t('服务地址变了，需要重新确认：点开关再次同意后才会发出请求。') : t('默认关闭。关闭时 Mino 不发出任何网络请求。')} checked={config.enabled && config.consented} onChange={(checked) => ai.setEnabled(checked)} />
+    <Row title={t('服务商')} note={t('提问时使用的服务；各服务商的模型和密钥分别记住')}><Segmented className="settings-segmented settings-providers" t={t} value={config.provider} onChange={(value: AiProvider) => void ai.saveConfig({ provider: value })} options={providers.map((provider) => [provider.id, provider.name] as const)} /></Row>
+    <div className="settings-model-tools"><span>{current?.own ? t('这是你添加的服务商；删除时它的密钥一并删除') : t('可以添加任意数量的服务商：已知服务，或任何 OpenAI 兼容、Anthropic 协议的接口')}</span>
+      {current?.own && <button type="button" onClick={() => void ai.removeProvider(config.provider)}>{t('删除此服务商')}</button>}
+      <button type="button" aria-expanded={adding} onClick={() => setAdding(!adding)}>{t('添加服务商…')}</button></div>
+    {adding && <AddProvider workspace={w} onDone={() => setAdding(false)} />}
+    {!fixed && <Row title={t('接口协议')} note={t('多数服务是 OpenAI 兼容；Claude 和少数网关用 Anthropic')}><Segmented t={t} value={api} onChange={(value: AiApi) => void ai.saveConfig({ api: value })} options={apiLabels} /></Row>}
+    <label className="settings-row"><span>{t('接口地址')}<small>{t('须以 https:// 开头；本机地址可用 http://')}</small></span><input type="url" value={baseUrl} spellCheck={false} disabled={fixed} placeholder={baseUrlHints[api]} onChange={(event) => setBaseUrl(event.target.value)} /></label>
     <div className="settings-row"><span>{t('模型')}<small>{t('从列表选择，或输入任意模型名后按回车')}</small></span>
       <span className="settings-key settings-model">
         <input type="text" value={model} spellCheck={false} aria-label={t('模型')} onChange={(event) => setModel(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && model.trim()) { event.preventDefault(); save() } }} />
@@ -166,7 +223,7 @@ function AiSettings({ workspace: w }: { workspace: SettingsHost }) {
     <div className="settings-model-tools"><span role={ai.modelsError && !blocked ? 'alert' : 'status'} data-error={Boolean(ai.modelsError) && !blocked && !ai.modelsBusy}>{modelsStatus}</span><button type="button" disabled={blocked !== null || ai.modelsBusy} title={blocked ?? undefined} onClick={() => void ai.fetchModels()}>{t('获取模型列表')}</button></div>
     {changed && <div className="settings-actions"><button type="button" onClick={() => { setBaseUrl(config.baseUrl); setModel(config.model) }}>{t('取消')}</button><button type="button" className="primary" onClick={save}>{t('保存')}</button></div>}
     <div className="settings-section-heading"><strong>{t('API 密钥')}</strong><small>{t('每个服务商的密钥分开保存在 macOS 钥匙串中，不写入设置文件，保存后不会再次显示')}</small></div>
-    {providerIds.filter((id) => id !== 'custom' || config.provider === 'custom' || providerHasKey(config, 'custom')).map((id) => <KeyRow key={id} workspace={w} provider={id} />)}
+    {providers.filter(({ id }) => id !== 'custom' || config.provider === 'custom' || providerHasKey(config, 'custom')).map(({ id, name }) => <KeyRow key={id} workspace={w} provider={id} name={name} />)}
     <p className="settings-note">{t('提问时，当前文档的标题和正文、你的问题和本次对话会发送到当前选中的服务商；图片和其他文件不会发送。')}</p>
   </>
 }

@@ -81,7 +81,7 @@ The frontend never supplies arbitrary paths for reading or writing. Rust stores 
 
 ### AI assistant
 
-- Off by default. `src-tauri/src/ai.rs` is the only code that makes network requests: OpenAI-compatible streaming chat to the address in `ai.json`, with the API key in the macOS Keychain. The webview's CSP and capabilities stay closed, so never add a frontend `fetch` for it.
+- Off by default. `src-tauri/src/ai.rs` is the only code that makes network requests: streaming chat to the address in `ai.json`, over the OpenAI-compatible protocol or Anthropic's messages protocol, with each provider's API key in the macOS Keychain, bound to the address it was entered for. Besides DeepSeek, OpenAI and the old single `custom` slot, the user adds providers of their own (`ai_add_provider`, `ai_remove_provider`; presets in `features/ai/presets.ts`, loaded with the settings pages). The webview's CSP and capabilities stay closed, so never add a frontend `fetch` for it.
 - `src/features/ai/prompts.ts` builds messages and cuts or splits long documents; `src/app/aiAssistant.ts` holds the drawer state and receives its IPC from `useDocumentWorkspace.ts`. Answers are rendered through the preview renderer so they are sanitized like any document.
 - Tests use a local mock server (Rust) or a fake transport (Vitest). Never put a real key in code, logs, tests or documents.
 

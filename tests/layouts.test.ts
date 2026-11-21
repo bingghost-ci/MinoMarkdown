@@ -69,6 +69,8 @@ describe('layouts (T122)', () => {
     const academic = layoutRules('academic', '.mino-doc')
     expect(academic).toContain('@counter-style mino-paren-alpha')
     expect(academic).toContain('.mino-doc ul ul > li::marker{content:"\\2013\\2002"}')
+    // No layout draws anything that reads as Markdown left unrendered: no `#` before a heading, no `*` for a bullet or a rule.
+    for (const id of layoutIds) expect(layoutRules(id, '.mino-doc'), id).not.toMatch(/content:"[^"]*[#*]/)
     expect(academic).toContain('.mino-doc ol ol{list-style-type:mino-paren-alpha}')
   })
 

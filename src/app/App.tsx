@@ -12,7 +12,9 @@ import { EditorBody } from './components/EditorBody'
 import { DocumentRenameDialog, DraftsDialog } from './components/Dialogs'
 import { StatusBar, VerificationPanel } from './components/StatusBar'
 import { FloatingControls } from './components/FloatingControls'
-import { AiConsentDialog, AiDrawer } from './components/AiDrawer'
+// The assistant is off until the user turns it on, so its drawer and its consent dialog load when first shown.
+const AiDrawer = lazy(() => import('./components/AiDrawer').then((module) => ({ default: module.AiDrawer })))
+const AiConsentDialog = lazy(() => import('./components/AiDrawer').then((module) => ({ default: module.AiConsentDialog })))
 
 const SettingsDialog = lazy(() => import('./components/SettingsDialog').then((module) => ({ default: module.SettingsDialog })))
 
@@ -35,14 +37,14 @@ export function App() {
           <FloatingControls workspace={controller} />
         </section>
         <OutlinePanel workspace={controller} />
-        <AiDrawer workspace={controller} />
+        {controller.ai.open && controller.ai.config.enabled && <Suspense fallback={null}><AiDrawer workspace={controller} /></Suspense>}
       </div>
       <StatusBar workspace={controller} />
       <DocumentRenameDialog workspace={controller} />
       <DraftsDialog workspace={controller} />
       {/* Loaded when first opened: the settings pages are not needed to show a document (T124 kept the entry chunk in budget). */}
       {controller.settingsOpen && <Suspense fallback={null}><SettingsDialog workspace={controller} documentKind={controller.document.kind} /></Suspense>}
-      <AiConsentDialog workspace={controller} />
+      {controller.ai.consentOpen && <Suspense fallback={null}><AiConsentDialog workspace={controller} /></Suspense>}
       <DiffDialog workspace={controller} />
       <VerificationPanel workspace={controller} />
       {lightbox && <ZoomViewer lightbox={lightbox} onClose={() => setLightbox(null)} t={t} />}

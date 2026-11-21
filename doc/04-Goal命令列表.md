@@ -786,6 +786,18 @@ G01–G29 分别对应 T01–T29，每项命令可独立复制到支持 Goals �
 /goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的 T125–T136 依次实现元素细节与排版，顺序为第一批 T125、T127、T129、T136，第二批 T126、T128、T131、T130，第三批 T133、T134、T132、T135。先读 CLAUDE.md、doc/01-产品方案.md §3.31、doc/02-技术设计.md §42、doc/05-验收与发布.md §8W 和 doc/06-开发进度.md，并遵守本文件的通用约束。参考源码在 opensource/typora（只读，按 opensource/README.md 的许可只借鉴做法，不复制代码，不提交该目录）。每完成一项运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
 ```
 
+## G137 自己添加的 AI 服务商
+
+2026-11-21 用户试用后提出“AI 不应该只支持 OpenAI 和 DeepSeek，是不是也应该支持自定义的 AI API”，并指定参考 `/Users/bobby/Bobby/Jarvis/opensource/deepseek-harness`（MIT）的做法。对应 T137，完成条件见[开发计划](03-开发计划.md)，状态见[进度表](06-开发进度.md)。
+
+| Goal | 对应任务 | 依赖 | 目标 |
+| --- | --- | --- | --- |
+| G137 | T137 | T70、T73、T76 | 设置里可添加任意服务商（已知服务或自定义接口），支持 OpenAI 兼容与 Anthropic 两种协议，密钥各自存钥匙串 |
+
+```text
+/goal 在 /Users/bobby/Code/software/MinoMarkdown 中按 doc/03-开发计划.md 的「T137 自己添加的 AI 服务商」实现多服务商与 Anthropic 协议。先读 CLAUDE.md、doc/01-产品方案.md §3.32、doc/02-技术设计.md §43、doc/05-验收与发布.md §8X 和 doc/06-开发进度.md，并遵守本文件的通用约束。测试只用本机模拟服务，不写入任何真实密钥，不发出真实请求。完成后运行 npm run typecheck、npm run test、cargo test --lib --manifest-path src-tauri/Cargo.toml、cargo clippy --lib --tests --manifest-path src-tauri/Cargo.toml、npm run build，把实际结果写入进度表；实机项未执行记 PENDING，不虚报通过。
+```
+
 ## 连续开发总 Goal（逐项读取列表）
 
 此命令只负责开发阶段。每轮读取 G01–G29 的当前任务，依据代码依赖推进；已实现的任务先复核，不重复开发。最终原生验收层级与 Gate 留待集中测试，不能虚报 PASS。单项命令和本总 Goal 共用进度表，不创建嵌套 Goal。

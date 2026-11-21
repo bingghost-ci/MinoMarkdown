@@ -120,7 +120,7 @@ export type SettingsTab = 'appearance' | 'code' | 'diagrams' | 'typography' | 'r
  * `useSettingsWindow` when they fill the settings window (T113).
  */
 export type SettingsHost = Pick<DocumentWorkspace, 'loadSystemFonts' | 'pickStyle' | 'settings' | 'settingsOpen' | 'settingsTab' | 'setSettingsOpen' | 'setSettingsTab' | 'style' | 'systemFonts' | 't' | 'updateSettings'> & {
-  ai: Pick<DocumentWorkspace['ai'], 'available' | 'clearKey' | 'config' | 'fetchModels' | 'fetchedModels' | 'modelsBusy' | 'modelsError' | 'pickModel' | 'saveConfig' | 'setEnabled' | 'setKey'>
+  ai: Pick<DocumentWorkspace['ai'], 'addProvider' | 'available' | 'clearKey' | 'config' | 'fetchModels' | 'fetchedModels' | 'modelsBusy' | 'modelsError' | 'pickModel' | 'removeProvider' | 'saveConfig' | 'setEnabled' | 'setKey'>
 }
 export type FloatingPanel = 'appearance' | null
 type TabItem = { key: string; document: DocumentState; session: DocumentSession }
@@ -1617,7 +1617,17 @@ export function useDocumentWorkspace() {
     void rememberWorkspace(chosen.token).catch(() => undefined)
   }
 
+  /** The latest click on a file in the sidebar; an earlier one still waiting gives way to it. */
+  const openEntryRequest = useRef(0)
+
   async function openWorkspaceEntry(token: string) {
+    // A click made while something else finishes (the folder just dropped is still being read, a save is ending)
+    // used to be thrown away with a note, and the file opened only on a second click. It waits its turn now, for a
+    // few seconds at most, and only the latest click is kept.
+    const request = ++openEntryRequest.current
+    const deadline = Date.now() + 4000
+    while (busyRef.current && Date.now() < deadline) await new Promise((resolve) => window.setTimeout(resolve, 40))
+    if (request !== openEntryRequest.current) return
     if (busyRef.current) { noteBusy(); return }
     takeBusy()
     setStatus('正在打开文档…')

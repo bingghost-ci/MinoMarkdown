@@ -44,7 +44,7 @@ export function LayoutGallery({ workspace: w }: { workspace: GalleryHost }) {
 }
 
 function layoutThumb(id: LayoutId) {
-  const numbers: Record<LayoutId, [string, string]> = { standard: ['', ''], academic: ['1', '1.1'], official: ['一、', '（一）'], technical: ['1.', '1.1'], typewriter: ['##', '###'] }
+  const numbers: Record<LayoutId, [string, string]> = { standard: ['', ''], academic: ['1', '1.1'], official: ['一、', '（一）'], technical: ['1.', '1.1'], typewriter: ['', ''] }
   const [first, second] = numbers[id]
   return <>
     <span className="thumb-title" />

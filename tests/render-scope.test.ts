@@ -48,7 +48,8 @@ describe('render scope (T95)', { timeout: APP_TEST_TIMEOUT }, () => {
 
   it('renders only the answer being written while an answer streams in', async () => {
     await act(async () => { button(app, 'AI 问书').click() })
-    expect(app.container.querySelector('.ai-drawer')).not.toBeNull()
+    // The drawer's code loads when it is first opened.
+    await app.until(() => app.container.querySelector('.ai-drawer') !== null, 'the AI drawer to load')
     await act(async () => { button(app, '要点').click() })
     await app.until(() => backend.requestId !== '', 'the question to be sent')
     const before = Object.fromEntries(marks.map((name) => [name, count(name)]))

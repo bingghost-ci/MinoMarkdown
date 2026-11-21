@@ -230,6 +230,9 @@ pub fn run() {
                 if let Ok(mut active) = window.app_handle().state::<windows::ActiveWindow>().0.lock() { *active = window.label().into(); }
             }
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                // A drop from Finder leaves Finder in front, and macOS spends the next click on bringing this
+                // window forward instead of delivering it. The window that took the drop comes forward now.
+                let _ = window.set_focus();
                 if paths.is_empty() {
                     let _ = window.app_handle().emit_to(window.label(), "open-intents-empty-drop", ());
                 } else if open_intents::enqueue_dropped(&window.app_handle().state::<open_intents::IntentStore>(), paths, window.label()) {
@@ -309,7 +312,7 @@ pub fn run() {
             ai::ai_set_config,
             ai::ai_set_key,
             ai::ai_clear_key,
-            ai::ai_list_models,
+            ai::ai_add_provider, ai::ai_remove_provider, ai::ai_list_models,
             ai::ai_chat,
             ai::ai_cancel,
         ])

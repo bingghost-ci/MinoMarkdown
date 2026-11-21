@@ -13,7 +13,7 @@ export const layouts: readonly { id: LayoutId; name: string; note: string }[] = 
   { id: 'academic', name: '学术', note: '居中的题目，“1  1.1” 节号，段首缩进，引用缩进成小字' },
   { id: 'official', name: '公文', note: '参照 GB/T 9704：标题居中，“一、（一）1.（1）”层次，黑体、楷体分级，段首缩进两字' },
   { id: 'technical', name: '技术', note: '“1.  1.1  1.1.1” 编号，二级标题下有细线，代码块带边框，更紧凑' },
-  { id: 'typewriter', name: '打字机', note: '等宽字，标题前的 # 挂在页边，虚线分隔，像一页纯文本' },
+  { id: 'typewriter', name: '打字机', note: '等宽字，标题下画线，虚线分隔和引用框，像打字机打出的一页' },
 ]
 
 export function isLayout(value: unknown): value is LayoutId {
@@ -98,10 +98,10 @@ export function layoutRules(layout: LayoutId, root: string): string {
       // Figures are numbered through the document, as a paper's are.
       `${r}{counter-reset:mino-h2 mino-h3 mino-h4 mino-figure}${r} figure.mino-figure{counter-increment:mino-figure}`,
       `${r} figure.mino-figure figcaption::before{content:"图 " counter(mino-figure) "\\3000"}${r} figure.mino-figure figcaption:lang(en)::before{content:"Figure " counter(mino-figure) ". "}`,
-      // LaTeX's labels by depth: a dash and an asterisk under the bullet, (a) and i. under the number.
+      // Labels by depth: a dash and a ring under the bullet, (a) and i. under the number.
       `@counter-style mino-paren-alpha{system:extends lower-alpha;prefix:"(";suffix:") "}`,
-      `${r} ul ul > li::marker{content:"\\2013\\2002"}${r} ul ul ul > li::marker{content:"\\2217\\2002"}${r} ol ol{list-style-type:mino-paren-alpha}${r} ol ol ol{list-style-type:lower-roman}`,
-      `${r} hr{border:0;height:1.4em;margin:1.6em 0;text-align:center;overflow:visible}${r} hr::before{content:"*\\2003*\\2003*";display:block;color:var(--secondary);line-height:1.4em}`,
+      `${r} ul ul > li::marker{content:"\\2013\\2002"}${r} ul ul ul > li::marker{content:"\\25E6\\2002"}${r} ol ol{list-style-type:mino-paren-alpha}${r} ol ol ol{list-style-type:lower-roman}`,
+      `${r} hr{border:0;height:1px;width:28%;margin:2.2em auto;background:var(--table-rule)}${r} hr::before{content:none}`,
     ].join('\n')
     case 'official': return [
       `${r}{--layout-number:inherit}`,
@@ -127,12 +127,13 @@ export function layoutRules(layout: LayoutId, root: string): string {
     case 'typewriter': return [
       `${r} h1,${r} h2,${r} h3,${r} h4,${r} h5,${r} h6{position:relative;font-size:1em;font-weight:700;letter-spacing:0;color:var(--title)}`,
       `${r} h1{font-size:1.25em;margin:.2em 0 1em}`,
-      // The marks hang in the margin, outside the text column, so the heading text lines up with the paragraphs.
-      ...[1, 2, 3, 4, 5, 6].map((level) => `${r} > h${level}::before{content:"${'#'.repeat(level)} ";position:absolute;right:100%;white-space:pre;color:var(--muted);font-weight:400}`),
+      // A typewriter has one size and no bold to spare, so it rules its headings: a double line under the title, a
+      // single one under a section. Nothing here may look like Markdown left unrendered (no `#`, no `*`).
+      `${r} h1{padding-bottom:.45em;border-bottom:3px double var(--rule)}${r} h2{margin:1.8em 0 .7em;padding-bottom:.3em;border-bottom:1px dashed var(--rule)}`,
       `${r} em{font-style:normal;text-decoration:underline 1px;text-underline-offset:3px}`,
       `${r} hr{border:0;height:1px;background:repeating-linear-gradient(90deg,var(--secondary) 0 .6ch,transparent .6ch 1.2ch)}`,
       `${r} blockquote:not(.mino-alert){border-left:0;padding:.4em 0 .4em 1.2em;outline:1px dashed var(--quote-line);outline-offset:.4em;color:var(--secondary)}${r} blockquote:not(.mino-alert)::before{content:none}`,
-      `${r} ul > li::marker{content:"* "}${r} ul.contains-task-list > li::marker{content:none}`,
+      `${r} ul > li::marker{content:"\\2013\\2002"}${r} ul.contains-task-list > li::marker{content:none}`,
       `${r} pre{border-radius:0;border-left:2px solid var(--rule)}`,
     ].join('\n')
   }

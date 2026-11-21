@@ -10,7 +10,7 @@ import { TextSelection, NodeSelection, type Command, type EditorState, type Tran
 import { keymap as proseKeymap } from '@milkdown/kit/prose/keymap'
 import { Fragment, Slice, type Node as ProseNode } from '@milkdown/kit/prose/model'
 import { Prec, type Extension } from '@codemirror/state'
-import { keymap as codeKeymap } from '@codemirror/view'
+import { EditorView as CodeView, keymap as codeKeymap } from '@codemirror/view'
 import { deleteRow, deleteColumn } from '@milkdown/kit/prose/tables'
 import { insertTableCommand, addRowAfterCommand, addColAfterCommand, setAlignCommand } from '@milkdown/kit/preset/gfm'
 import { linkSchema, toggleLinkCommand, updateLinkCommand, updateImageCommand } from '@milkdown/kit/preset/commonmark'
@@ -92,7 +92,8 @@ export class EditorAdapter {
           // as is, and the theme goes in with the extensions, which have no default.
           theme: null as unknown as Extension,
           renderPreview: renderMermaidPreview,
-          extensions: [readingCodeTheme, Prec.high(codeKeymap.of([
+          // A long line wraps, as it does in reading mode and in every export: nothing of a code block lies off the page.
+          extensions: [readingCodeTheme, CodeView.lineWrapping, Prec.high(codeKeymap.of([
             // Inside a code block these keys would otherwise never reach the document.
             { key: 'Alt-ArrowUp', run: () => this.runBlockCommand(moveBlock(-1)) },
             { key: 'Alt-ArrowDown', run: () => this.runBlockCommand(moveBlock(1)) },

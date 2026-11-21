@@ -9,17 +9,37 @@ export type AiTransport = {
   listen<T>(event: string, handler: (payload: T) => void): Promise<() => void>
 }
 
-export type AiProvider = 'deepseek' | 'openai' | 'custom'
-/** `hasKey` is about the selected provider; `keys` says which providers have a key stored. The keys themselves stay in Rust. */
-export type AiConfig = { enabled: boolean; consented: boolean; provider: AiProvider; baseUrl: string; model: string; hasKey: boolean; keys: Record<AiProvider, boolean> }
+/** `deepseek`, `openai`, the single `custom` slot of earlier versions, or the id of a provider the user added. */
+export type AiProvider = string
+/** The wire protocol of a provider: OpenAI's chat completions, which most services speak, or Anthropic's messages. */
+export type AiApi = 'openai' | 'anthropic'
+/**
+ * `hasKey` is about the selected provider; `keys` says which providers have a key stored. The keys themselves stay in
+ * Rust. `customProviders` are the ones the user added, by id, with the name shown for each; `api` is the selected
+ * provider's protocol. Both are left out by a configuration that has neither.
+ */
+export type AiConfig = { enabled: boolean; consented: boolean; provider: AiProvider; baseUrl: string; model: string; api?: AiApi; hasKey: boolean; keys: Record<AiProvider, boolean>; customProviders?: Record<string, string> }
+/** What `ai_add_provider` takes; ai.rs checks every field again. */
+export type NewAiProvider = { id: string; name: string; baseUrl: string; model: string; api: AiApi }
 export type AiStreamEvent = { requestId: string; kind: 'delta' | 'done' | 'error'; text?: string; code?: string }
 export type AiChat = { requestId: string; done: Promise<string> }
 
 export const disabledConfig: AiConfig = { enabled: false, consented: false, provider: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', hasKey: false, keys: { deepseek: false, openai: false, custom: false } }
 export const providerLabels: Record<AiProvider, string> = { deepseek: 'DeepSeek', openai: 'OpenAI', custom: '自定义' }
+/** The providers every configuration has; `providersOf` adds the user's own. */
 export const providerIds = Object.keys(providerLabels) as AiProvider[]
 /** A few common models per provider, offered as a starting point. Any model name the service accepts can be typed instead. */
 export const suggestedModels: Record<AiProvider, readonly string[]> = { deepseek: ['deepseek-chat', 'deepseek-reasoner'], openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1', 'gpt-4.1-mini'], custom: [] }
+
+/** Every provider of a configuration, the built-in ones first, each with the name to show. */
+export function providersOf(config: AiConfig): { id: AiProvider; name: string; own: boolean }[] {
+  return [...providerIds.map((id) => ({ id, name: providerLabels[id], own: false })), ...Object.entries(config.customProviders ?? {}).map(([id, name]) => ({ id, name, own: true }))]
+}
+
+/** The same shape `valid_provider_id` in ai.rs accepts: lower-case words joined by hyphens, not a built-in name. */
+export function validProviderId(id: string): boolean {
+  return id.length <= 32 && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(id) && !providerIds.includes(id)
+}
 
 /** The same shape `valid_model` in ai.rs accepts. */
 export function validModel(model: string): boolean {
@@ -33,7 +53,7 @@ export function providerHasKey(config: AiConfig, provider: AiProvider): boolean 
 
 /** The models to offer for a provider: its suggestions first, then what the service listed, without repeats. */
 export function modelChoices(provider: AiProvider, fetched: readonly string[] = []): string[] {
-  return [...new Set([...suggestedModels[provider], ...fetched])].filter(validModel)
+  return [...new Set([...(suggestedModels[provider] ?? []), ...fetched])].filter(validModel)
 }
 
 function errorCode(error: unknown): string {

@@ -33,32 +33,40 @@ pub struct AiConfig {
     provider: String,
     base_url: String,
     model: String,
+    /// The wire protocol of the selected provider: `openai` (chat completions) or `anthropic` (messages).
+    #[serde(default = "default_api", skip_serializing_if = "is_default_api")]
+    api: String,
     /// The address and model of providers that are not selected, so that switching back restores them.
     /// A provider that is still on its defaults has no entry, and files written before this field read as empty.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     providers: BTreeMap<String, ProviderMemory>,
+    /// Providers the user added, by id, with the name shown for each. Their address, model and protocol are kept
+    /// like any other provider's: in the fields above while selected, in `providers` otherwise.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    custom_providers: BTreeMap<String, String>,
 }
+
+fn default_api() -> String { "openai".into() }
+/// The default is left out of the file, so one written before protocols could be chosen stays as it was.
+fn is_default_api(api: &str) -> bool { api == "openai" }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 struct ProviderMemory {
     base_url: String,
     model: String,
+    #[serde(default = "default_api", skip_serializing_if = "is_default_api")]
+    api: String,
 }
 
 impl Default for AiConfig {
     fn default() -> Self {
-        Self { schema_version: 1, enabled: false, consented: false, provider: "deepseek".into(), base_url: "https://api.deepseek.com/v1".into(), model: "deepseek-chat".into(), providers: BTreeMap::new() }
+        Self { schema_version: 1, enabled: false, consented: false, provider: "deepseek".into(), base_url: "https://api.deepseek.com/v1".into(), model: "deepseek-chat".into(), api: default_api(), providers: BTreeMap::new(), custom_providers: BTreeMap::new() }
     }
 }
 
 /// Which providers have a key stored. The keys themselves never leave the secret store.
-#[derive(Clone, Serialize, PartialEq, Eq, Debug)]
-pub struct KeyStatus {
-    deepseek: bool,
-    openai: bool,
-    custom: bool,
-}
+type KeyStatus = BTreeMap<String, bool>;
 
 #[derive(Clone, Serialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -78,9 +86,27 @@ struct AiConfigPatch {
     provider: Option<String>,
     base_url: Option<String>,
     model: Option<String>,
+    api: Option<String>,
 }
 
-fn is_provider(id: &str) -> bool { matches!(id, "deepseek" | "openai" | "custom") }
+const BUILT_IN: [&str; 3] = ["deepseek", "openai", "custom"];
+const MAX_CUSTOM_PROVIDERS: usize = 24;
+const MAX_PROVIDER_NAME_CHARS: usize = 40;
+
+fn is_built_in(id: &str) -> bool { BUILT_IN.contains(&id) }
+fn is_provider(config: &AiConfig, id: &str) -> bool { is_built_in(id) || config.custom_providers.contains_key(id) }
+fn is_api(api: &str) -> bool { matches!(api, "openai" | "anthropic") }
+
+/// The id of a provider the user adds: lower-case words joined by hyphens, starting with a letter. It names the
+/// provider's keychain item, so the built-in names are not available.
+fn valid_provider_id(id: &str) -> bool {
+    (1..=32).contains(&id.len()) && !is_built_in(id) && id.as_bytes()[0].is_ascii_lowercase()
+        && id.split('-').all(|word| !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
+}
+
+fn valid_provider_name(name: &str) -> bool {
+    !name.is_empty() && name.trim() == name && name.chars().count() <= MAX_PROVIDER_NAME_CHARS && !name.chars().any(char::is_control)
+}
 
 /// The base URL and model a provider starts with. `custom` has none and keeps what is configured.
 fn provider_defaults(provider: &str) -> Option<(&'static str, &'static str)> {
@@ -113,8 +139,12 @@ fn valid_model(model: &str) -> bool {
 }
 
 fn valid(config: &AiConfig) -> bool {
-    config.schema_version == 1 && is_provider(&config.provider) && parse_base_url(&config.base_url).is_some() && valid_model(&config.model)
-        && config.providers.iter().all(|(id, memory)| is_provider(id) && parse_base_url(&memory.base_url).is_some() && valid_model(&memory.model))
+    config.schema_version == 1 && is_provider(config, &config.provider) && parse_base_url(&config.base_url).is_some() && valid_model(&config.model) && is_api(&config.api)
+        // The two fixed services speak one protocol; only an address the user chose can speak the other.
+        && (config.api == "openai" || !matches!(config.provider.as_str(), "deepseek" | "openai"))
+        && config.providers.iter().all(|(id, memory)| is_provider(config, id) && parse_base_url(&memory.base_url).is_some() && valid_model(&memory.model) && is_api(&memory.api))
+        && config.custom_providers.len() <= MAX_CUSTOM_PROVIDERS
+        && config.custom_providers.iter().all(|(id, name)| valid_provider_id(id) && valid_provider_name(name))
 }
 
 /// Scheme, host and port of a base URL, as requests to it would reach them.
@@ -127,27 +157,63 @@ fn apply_patch(current: &AiConfig, patch: serde_json::Value) -> Result<AiConfig,
     if let Some(consented) = patch.consented { next.consented = consented; }
     if let Some(provider) = patch.provider {
         if provider != next.provider {
-            if !is_provider(&provider) { return Err("AI_INVALID_CONFIG".into()); }
-            // The provider being left keeps its address and model for the next time it is selected.
+            if !is_provider(&next, &provider) { return Err("AI_INVALID_CONFIG".into()); }
+            // The provider being left keeps its address, model and protocol for the next time it is selected.
             let leaving = std::mem::replace(&mut next.provider, provider);
             if provider_defaults(&leaving) == Some((next.base_url.as_str(), next.model.as_str())) { next.providers.remove(&leaving); }
-            else { next.providers.insert(leaving, ProviderMemory { base_url: next.base_url.clone(), model: next.model.clone() }); }
+            else { next.providers.insert(leaving, ProviderMemory { base_url: next.base_url.clone(), model: next.model.clone(), api: next.api.clone() }); }
             // The new one returns to what it was last set to, or starts from its own defaults, unless the
             // same patch names the values. `custom` has no defaults and starts from the current values.
             if let Some(memory) = next.providers.remove(&next.provider) {
                 next.base_url = memory.base_url;
                 next.model = memory.model;
+                next.api = memory.api;
             } else if let Some((base_url, model)) = provider_defaults(&next.provider) {
                 next.base_url = base_url.into();
                 next.model = model.into();
+                next.api = default_api();
             }
         }
     }
     if let Some(base_url) = patch.base_url { next.base_url = base_url.trim().into(); }
     if let Some(model) = patch.model { next.model = model.trim().into(); }
+    if let Some(api) = patch.api { next.api = api; }
     // Consent is given for the service it was asked for. When requests would go to another origin (another
     // provider or another address), it has to be given again, unless this same patch gives it.
     if origin_of(&current.base_url) != origin_of(&next.base_url) && patch.consented != Some(true) { next.consented = false; }
+    if valid(&next) { Ok(next) } else { Err("AI_INVALID_CONFIG".into()) }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NewProvider {
+    id: String,
+    name: String,
+    base_url: String,
+    model: String,
+    api: String,
+}
+
+/// Adds a provider of the user's own and selects it. Selecting it moves requests to its address, so consent is
+/// asked again, as for any change of address.
+fn add_provider(current: &AiConfig, spec: serde_json::Value) -> Result<AiConfig, String> {
+    let spec: NewProvider = serde_json::from_value(spec).map_err(|_| "AI_INVALID_CONFIG")?;
+    let (id, name) = (spec.id.trim(), spec.name.trim());
+    if !valid_provider_id(id) || !valid_provider_name(name) { return Err("AI_INVALID_CONFIG".into()); }
+    if current.custom_providers.contains_key(id) { return Err("AI_PROVIDER_EXISTS".into()); }
+    if current.custom_providers.len() >= MAX_CUSTOM_PROVIDERS { return Err("AI_TOO_MANY_PROVIDERS".into()); }
+    let mut next = current.clone();
+    next.custom_providers.insert(id.into(), name.into());
+    next.providers.insert(id.into(), ProviderMemory { base_url: spec.base_url.trim().into(), model: spec.model.trim().into(), api: spec.api });
+    apply_patch(&next, serde_json::json!({ "provider": id }))
+}
+
+/// Removes a provider the user added. If it is the selected one, DeepSeek is selected in its place.
+fn remove_provider(current: &AiConfig, id: &str) -> Result<AiConfig, String> {
+    if !current.custom_providers.contains_key(id) { return Err("AI_INVALID_CONFIG".into()); }
+    let mut next = if current.provider == id { apply_patch(current, serde_json::json!({ "provider": "deepseek" }))? } else { current.clone() };
+    next.custom_providers.remove(id);
+    next.providers.remove(id);
     if valid(&next) { Ok(next) } else { Err("AI_INVALID_CONFIG".into()) }
 }
 
@@ -164,8 +230,13 @@ fn write_at(path: &Path, config: &AiConfig) -> Result<(), String> {
 }
 
 fn update_at(path: &Path, patch: serde_json::Value) -> Result<AiConfig, String> {
+    change_at(path, |current| apply_patch(current, patch))
+}
+
+/// Reads the configuration, changes it and writes it back, one writer at a time.
+fn change_at(path: &Path, change: impl FnOnce(&AiConfig) -> Result<AiConfig, String>) -> Result<AiConfig, String> {
     let _lock = CONFIG_LOCK.lock().map_err(|_| "IO_ERROR")?;
-    let next = apply_patch(&read_at(path), patch)?;
+    let next = change(&read_at(path))?;
     write_at(path, &next)?;
     Ok(next)
 }
@@ -234,16 +305,18 @@ impl SecretStore for MemoryStore {
     }
 }
 
-/// A key is trimmed and must be 1–400 printable ASCII characters.
+/// A key is trimmed and must be 1–400 printable ASCII characters without spaces or quotes. A pasted
+/// `NAME=value` line from an env file is refused too: sent as it is, the service would only answer 401.
 fn clean_key(key: &str) -> Result<&str, String> {
     let key = key.trim();
-    if key.is_empty() || key.len() > MAX_KEY_CHARS || !key.bytes().all(|b| (0x20..=0x7e).contains(&b)) { return Err("AI_INVALID_KEY".into()); }
+    if key.is_empty() || key.len() > MAX_KEY_CHARS || !key.bytes().all(|b| (0x21..=0x7e).contains(&b) && b != b'"' && b != b'\'') { return Err("AI_INVALID_KEY".into()); }
+    if key.split_once('=').is_some_and(|(name, _)| !name.is_empty() && name.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')) { return Err("AI_INVALID_KEY".into()); }
     Ok(key)
 }
 
 fn view(config: AiConfig, secrets: &dyn SecretStore) -> AiConfigView {
-    let keys = KeyStatus { deepseek: secrets.has("deepseek"), openai: secrets.has("openai"), custom: secrets.has("custom") };
-    let has_key = match config.provider.as_str() { "deepseek" => keys.deepseek, "openai" => keys.openai, _ => keys.custom };
+    let keys: KeyStatus = BUILT_IN.iter().copied().chain(config.custom_providers.keys().map(String::as_str)).map(|id| (id.to_owned(), secrets.has(id))).collect();
+    let has_key = keys.get(&config.provider).copied().unwrap_or(false);
     AiConfigView { config, has_key, keys }
 }
 
@@ -251,7 +324,7 @@ fn view(config: AiConfig, secrets: &dyn SecretStore) -> AiConfigView {
 fn key_account(config: &AiConfig, provider: Option<&str>) -> Result<String, String> {
     match provider {
         None => Ok(config.provider.clone()),
-        Some(id) if is_provider(id) => Ok(id.into()),
+        Some(id) if is_provider(config, id) => Ok(id.into()),
         Some(_) => Err("AI_INVALID_CONFIG".into()),
     }
 }
@@ -394,6 +467,8 @@ const TIMING: Timing = Timing { connect: Duration::from_secs(15), idle: Duration
 struct ChatCall {
     base_url: String,
     model: String,
+    /// `openai` or `anthropic`: which endpoint, headers, body and stream events the service speaks.
+    api: String,
     key: Option<String>,
     messages: Vec<ChatMessage>,
     temperature: Option<f32>,
@@ -428,6 +503,8 @@ struct SseParser {
     line: Vec<u8>,
     saw_data: bool,
     done: bool,
+    /// Events are Anthropic's (`content_block_delta` … `message_stop`), not chat-completion chunks.
+    anthropic: bool,
 }
 
 impl SseParser {
@@ -465,6 +542,16 @@ impl SseParser {
         let value: serde_json::Value = serde_json::from_str(data).map_err(|_| "AI_BAD_RESPONSE")?;
         if !value.is_object() || value.get("error").is_some_and(|error| !error.is_null()) { return Err("AI_BAD_RESPONSE".into()); }
         self.saw_data = true;
+        if self.anthropic {
+            match value.get("type").and_then(|kind| kind.as_str()) {
+                Some("error") => return Err("AI_BAD_RESPONSE".into()),
+                Some("message_stop") => self.done = true,
+                // Only the text of the answer is taken; thinking and tool blocks carry other delta types.
+                Some("content_block_delta") => if let Some(text) = value.pointer("/delta/text").and_then(|text| text.as_str()) { out.push_str(text); },
+                _ => {}
+            }
+            return Ok(());
+        }
         if let Some(text) = value.pointer("/choices/0/delta/content").and_then(|content| content.as_str()) { out.push_str(text); }
         Ok(())
     }
@@ -510,11 +597,41 @@ fn http_agent(loopback: bool, timing: Timing, total: Option<Duration>) -> ureq::
     config.build().into()
 }
 
+const ANTHROPIC_VERSION: &str = "2023-06-01";
+/// Anthropic's API requires a ceiling on the answer; this leaves room for a long rewrite of a document section.
+const ANTHROPIC_MAX_TOKENS: u32 = 8192;
+
+/// How each protocol carries the key: a bearer token, or Anthropic's own header beside the API version.
+fn auth_headers(anthropic: bool, key: Option<&str>) -> Vec<(&'static str, String)> {
+    let mut headers = Vec::new();
+    if anthropic { headers.push(("anthropic-version", ANTHROPIC_VERSION.to_owned())); }
+    if let Some(key) = key { headers.push(if anthropic { ("x-api-key", key.to_owned()) } else { ("Authorization", format!("Bearer {key}")) }); }
+    headers
+}
+
+/// The address of an endpoint under a base URL. An OpenAI-style base ends in its version (`…/v1`) and the path
+/// follows it. Anthropic's base is the host, with or without `/v1`, and the path always goes under `/v1`.
+fn endpoint(url: &Url, anthropic: bool, path: &str) -> String {
+    let base = url.as_str().trim_end_matches('/');
+    if anthropic { format!("{}/v1/{path}", base.strip_suffix("/v1").unwrap_or(base)) } else { format!("{base}/{path}") }
+}
+
+/// The body of an Anthropic messages request: system text apart, the conversation after it.
+fn anthropic_body(model: &str, messages: &[ChatMessage], temperature: Option<f32>) -> serde_json::Value {
+    let system = messages.iter().filter(|message| message.role == "system").map(|message| message.content.as_str()).collect::<Vec<_>>().join("\n\n");
+    let turns: Vec<&ChatMessage> = messages.iter().filter(|message| message.role != "system").collect();
+    let mut body = serde_json::json!({ "model": model, "max_tokens": ANTHROPIC_MAX_TOKENS, "messages": turns, "stream": true });
+    if !system.is_empty() { body["system"] = system.into(); }
+    if let Some(temperature) = temperature { body["temperature"] = temperature.into(); }
+    body
+}
+
 /// Sends the request and forwards the raw response body. Runs on its own thread because socket reads block.
-fn http_worker(endpoint: &str, loopback: bool, key: Option<&str>, body: &[u8], timing: Timing, stop: &AtomicBool, sender: &mpsc::SyncSender<Wire>) -> Result<(), String> {
+#[allow(clippy::too_many_arguments)]
+fn http_worker(endpoint: &str, anthropic: bool, loopback: bool, key: Option<&str>, body: &[u8], timing: Timing, stop: &AtomicBool, sender: &mpsc::SyncSender<Wire>) -> Result<(), String> {
     let agent = http_agent(loopback, timing, None);
     let mut request = agent.post(endpoint).header("Content-Type", "application/json").header("Accept", "text/event-stream");
-    if let Some(key) = key { request = request.header("Authorization", format!("Bearer {key}")); }
+    for (name, value) in auth_headers(anthropic, key) { request = request.header(name, value); }
     let response = request.send(body).map_err(|error| transport_code(&error))?;
     let status = response.status().as_u16();
     // The body of a failed response is dropped unread: it may quote the key or the prompt.
@@ -543,9 +660,11 @@ fn stream_chat(call: ChatCall, timing: Timing, cancel: &AtomicBool, sink: &mut d
     if cancel.load(Ordering::SeqCst) { return Err("AI_CANCELLED".into()); }
     let url = parse_base_url(&call.base_url).ok_or("AI_INVALID_CONFIG")?;
     let loopback = is_loopback(&url);
+    let anthropic = call.api == "anthropic";
     // The normalized form is sent, so the host that was validated is the host that is contacted.
-    let endpoint = format!("{}/chat/completions", url.as_str().trim_end_matches('/'));
-    let body = serde_json::to_vec(&WireBody { model: &call.model, messages: &call.messages, stream: true, temperature: call.temperature }).map_err(|_| "AI_BAD_RESPONSE")?;
+    let endpoint = endpoint(&url, anthropic, if anthropic { "messages" } else { "chat/completions" });
+    let body = if anthropic { serde_json::to_vec(&anthropic_body(&call.model, &call.messages, call.temperature)) }
+        else { serde_json::to_vec(&WireBody { model: &call.model, messages: &call.messages, stream: true, temperature: call.temperature }) }.map_err(|_| "AI_BAD_RESPONSE")?;
     let key = call.key;
     let stop = Arc::new(AtomicBool::new(false));
     let _stop_on_return = StopOnDrop(stop.clone());
@@ -553,11 +672,11 @@ fn stream_chat(call: ChatCall, timing: Timing, cancel: &AtomicBool, sink: &mut d
     let live = LiveThread::new(call.threads.clone());
     std::thread::Builder::new().name("mino-ai-http".into()).spawn(move || {
         let _live = live;
-        let last = match http_worker(&endpoint, loopback, key.as_deref(), &body, timing, &stop, &sender) { Ok(()) => Wire::End, Err(code) => Wire::Fail(code) };
+        let last = match http_worker(&endpoint, anthropic, loopback, key.as_deref(), &body, timing, &stop, &sender) { Ok(()) => Wire::End, Err(code) => Wire::Fail(code) };
         let _ = sender.send(last);
     }).map_err(|_| "AI_NETWORK")?;
 
-    let mut parser = SseParser::default();
+    let mut parser = SseParser { anthropic, ..SseParser::default() };
     let mut pending = String::new();
     let mut last_flush = Instant::now();
     let mut last_activity = Instant::now();
@@ -614,21 +733,29 @@ fn check_gates(config: &AiConfig, secrets: &dyn SecretStore, messages: &[ChatMes
     Ok(key)
 }
 
-/// Reads the ids out of an OpenAI-style model list: sorted, without repeats, and only ids a config accepts.
+/// Reads the ids out of a model list: sorted, without repeats, and only ids a config accepts. The list is the
+/// `data` array of OpenAI and Anthropic, or, as some gateways answer, a `models` array or an object keyed by id.
 fn parse_models(body: &[u8]) -> Result<Vec<String>, String> {
     let value: serde_json::Value = serde_json::from_slice(body).map_err(|_| "AI_BAD_RESPONSE")?;
-    let data = value.get("data").and_then(|data| data.as_array()).ok_or("AI_BAD_RESPONSE")?;
-    let ids: BTreeSet<&str> = data.iter().filter_map(|model| model.get("id")?.as_str()).filter(|id| valid_model(id)).collect();
-    Ok(ids.into_iter().take(MAX_MODELS).map(str::to_owned).collect())
+    let id_of = |model: &'_ serde_json::Value| -> Option<String> { model.get("id").and_then(|id| id.as_str()).map(str::to_owned) };
+    let listed: Vec<String> = match (value.get("data"), value.get("models")) {
+        (Some(serde_json::Value::Array(rows)), _) | (_, Some(serde_json::Value::Array(rows))) => rows.iter().filter_map(id_of).collect(),
+        (_, Some(serde_json::Value::Object(rows))) => rows.keys().cloned().collect(),
+        _ => return Err("AI_BAD_RESPONSE".into()),
+    };
+    let ids: BTreeSet<String> = listed.into_iter().filter(|id| valid_model(id)).collect();
+    Ok(ids.into_iter().take(MAX_MODELS).collect())
 }
 
 /// Asks the service which models it offers. Only the key is sent; no document content is involved.
-fn fetch_models(base_url: &str, key: Option<&str>, timing: Timing) -> Result<Vec<String>, String> {
+fn fetch_models(base_url: &str, api: &str, key: Option<&str>, timing: Timing) -> Result<Vec<String>, String> {
     let url = parse_base_url(base_url).ok_or("AI_INVALID_CONFIG")?;
-    let endpoint = format!("{}/models", url.as_str().trim_end_matches('/'));
+    let anthropic = api == "anthropic";
+    // Anthropic pages its list; one large page holds every model it has.
+    let endpoint = endpoint(&url, anthropic, if anthropic { "models?limit=1000" } else { "models" });
     let agent = http_agent(is_loopback(&url), timing, Some(timing.connect + timing.idle));
     let mut request = agent.get(&endpoint).header("Accept", "application/json");
-    if let Some(key) = key { request = request.header("Authorization", format!("Bearer {key}")); }
+    for (name, value) in auth_headers(anthropic, key) { request = request.header(name, value); }
     let response = request.call().map_err(|error| transport_code(&error))?;
     let status = response.status().as_u16();
     // As with chat, the body of a failed response is dropped unread.
@@ -642,7 +769,7 @@ fn fetch_models(base_url: &str, key: Option<&str>, timing: Timing) -> Result<Vec
 /// The whole of `ai_list_models` apart from reading the config file.
 fn list_models(config: &AiConfig, secrets: &dyn SecretStore, timing: Timing) -> Result<Vec<String>, String> {
     let key = check_access(config, secrets)?;
-    fetch_models(&config.base_url, key.as_deref(), timing)
+    fetch_models(&config.base_url, &config.api, key.as_deref(), timing)
 }
 
 /// The whole of `ai_chat` apart from reading the config file and emitting events.
@@ -650,7 +777,7 @@ fn run_chat(config: &AiConfig, state: &AiState, ticket: &Ticket, request: ChatRe
     if !valid_shape(&request) { return Err("AI_INVALID_REQUEST".into()); }
     let key = check_gates(config, state.secrets.as_ref(), &request.messages)?;
     if state.active() > MAX_CONCURRENT || state.http_threads.load(Ordering::SeqCst) >= MAX_CONCURRENT { return Err("AI_BUSY".into()); }
-    let call = ChatCall { base_url: config.base_url.clone(), model: config.model.clone(), key, messages: request.messages, temperature: request.temperature, threads: state.http_threads.clone() };
+    let call = ChatCall { base_url: config.base_url.clone(), model: config.model.clone(), api: config.api.clone(), key, messages: request.messages, temperature: request.temperature, threads: state.http_threads.clone() };
     stream_chat(call, timing, &ticket.cancel, sink)
 }
 
@@ -687,6 +814,25 @@ pub fn ai_clear_key(app: AppHandle, window: WebviewWindow, state: tauri::State<A
     crate::require_app_window(&window)?;
     let cleared = remove_key(read_at(&path(&app)?), state.secrets.as_ref(), provider.as_deref())?;
     Ok(publish(&app, cleared))
+}
+
+/// Adds a provider of the user's own (an id, a name, an address, a model and a protocol) and selects it.
+#[tauri::command(async)]
+pub fn ai_add_provider(app: AppHandle, window: WebviewWindow, state: tauri::State<AiState>, provider: serde_json::Value) -> Result<AiConfigView, String> {
+    crate::require_app_window(&window)?;
+    let next = change_at(&path(&app)?, |current| add_provider(current, provider))?;
+    Ok(publish(&app, view(next, state.secrets.as_ref())))
+}
+
+/// Removes a provider the user added: its key first, so no key is left behind without a provider, then its entry.
+#[tauri::command(async)]
+pub fn ai_remove_provider(app: AppHandle, window: WebviewWindow, state: tauri::State<AiState>, provider: String) -> Result<AiConfigView, String> {
+    crate::require_app_window(&window)?;
+    let file = path(&app)?;
+    if !read_at(&file).custom_providers.contains_key(&provider) { return Err("AI_INVALID_CONFIG".into()); }
+    state.secrets.delete(&provider)?;
+    let next = change_at(&file, |current| remove_provider(current, &provider))?;
+    Ok(publish(&app, view(next, state.secrets.as_ref())))
 }
 
 /// The model ids the selected provider offers, sorted. Passes the same gates as a chat and sends no document content.
@@ -784,7 +930,7 @@ mod tests {
     fn delta(text: &str) -> String { format!("data: {}\n\n", serde_json::json!({ "id": "c1", "choices": [{ "index": 0, "delta": { "content": text } }] })) }
     fn message(role: &str, content: &str) -> ChatMessage { ChatMessage { role: role.into(), content: content.into() } }
     fn call(base_url: &str, key: Option<&str>) -> ChatCall {
-        ChatCall { base_url: base_url.into(), model: "deepseek-chat".into(), key: key.map(str::to_owned), messages: vec![message("system", "简洁回答"), message("user", "你好")], temperature: None, threads: Arc::default() }
+        ChatCall { base_url: base_url.into(), model: "deepseek-chat".into(), api: "openai".into(), key: key.map(str::to_owned), messages: vec![message("system", "简洁回答"), message("user", "你好")], temperature: None, threads: Arc::default() }
     }
     fn collect(call: ChatCall, timing: Timing, cancel: &AtomicBool) -> (Result<(), String>, Vec<String>) {
         let mut deltas = Vec::new();
@@ -797,7 +943,7 @@ mod tests {
     fn patch(current: &AiConfig, value: serde_json::Value) -> Result<AiConfig, String> { apply_patch(current, value) }
     fn memory_state() -> AiState { AiState { secrets: Box::new(MemoryStore::default()), requests: Mutex::new(HashMap::new()), http_threads: Arc::default() } }
     fn ready_config(base_url: &str) -> AiConfig {
-        AiConfig { schema_version: 1, enabled: true, consented: true, provider: "custom".into(), base_url: base_url.into(), model: "local-model".into(), providers: BTreeMap::new() }
+        AiConfig { schema_version: 1, enabled: true, consented: true, provider: "custom".into(), base_url: base_url.into(), model: "local-model".into(), api: default_api(), providers: BTreeMap::new(), custom_providers: BTreeMap::new() }
     }
     fn request(messages: Vec<ChatMessage>) -> ChatRequest { ChatRequest { request_id: "r1".into(), messages, temperature: None } }
     fn run(config: &AiConfig, state: &AiState, request: ChatRequest) -> (Result<(), String>, String) {
@@ -875,6 +1021,154 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(deltas.concat(), (0..40).map(|index| index.to_string()).collect::<String>());
         assert!(deltas.len() < 10, "{}", deltas.len());
+    }
+
+    #[test]
+    fn anthropic_requests_use_its_endpoint_headers_and_body_and_its_stream_is_read() {
+        let (sender, receiver) = mpsc::channel();
+        let base = serve(move |mut stream| {
+            sender.send(read_request(&mut stream)).unwrap();
+            let event = |value: serde_json::Value| format!("event: {}\ndata: {value}\n\n", value["type"].as_str().unwrap());
+            write_pieces(&mut stream, &[
+                SSE_HEAD.as_bytes(),
+                event(serde_json::json!({ "type": "message_start", "message": { "id": "m1" } })).as_bytes(),
+                event(serde_json::json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "thinking_delta", "thinking": "不该出现" } })).as_bytes(),
+                event(serde_json::json!({ "type": "content_block_delta", "index": 1, "delta": { "type": "text_delta", "text": "你" } })).as_bytes(),
+                b"event: ping\ndata: {\"type\":\"ping\"}\n\n",
+                event(serde_json::json!({ "type": "content_block_delta", "index": 1, "delta": { "type": "text_delta", "text": "好" } })).as_bytes(),
+                event(serde_json::json!({ "type": "message_stop" })).as_bytes(),
+                event(serde_json::json!({ "type": "content_block_delta", "index": 1, "delta": { "type": "text_delta", "text": "之后的不读" } })).as_bytes(),
+            ]);
+        });
+        // The base may be the host or end in `/v1`: the request goes to `/v1/messages` either way.
+        let mut anthropic = call(&base, Some(SECRET));
+        anthropic.api = "anthropic".into();
+        anthropic.model = "claude-test".into();
+        anthropic.temperature = Some(0.5);
+        let (result, deltas) = collect(anthropic, FAST, &AtomicBool::new(false));
+        assert_eq!((result, deltas.concat().as_str()), (Ok(()), "你好"));
+        let (head, body) = receiver.recv().unwrap();
+        assert!(head.starts_with("POST /v1/messages HTTP/1.1\r\n"), "{head}");
+        let head = head.to_ascii_lowercase();
+        assert!(head.contains(&format!("\r\nx-api-key: {}\r\n", SECRET.to_ascii_lowercase())), "{head}");
+        assert!(head.contains("\r\nanthropic-version: 2023-06-01\r\n"), "{head}");
+        assert!(!head.contains("authorization"), "{head}");
+        let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(body, serde_json::json!({ "model": "claude-test", "max_tokens": 8192, "stream": true, "temperature": 0.5, "system": "简洁回答", "messages": [{ "role": "user", "content": "你好" }] }));
+
+        let url = |raw: &str| parse_base_url(raw).unwrap();
+        assert_eq!(endpoint(&url("https://api.anthropic.com"), true, "messages"), "https://api.anthropic.com/v1/messages");
+        assert_eq!(endpoint(&url("https://api.anthropic.com/v1/"), true, "messages"), "https://api.anthropic.com/v1/messages");
+        assert_eq!(endpoint(&url("https://gateway.example/anthropic"), true, "models?limit=1000"), "https://gateway.example/anthropic/v1/models?limit=1000");
+        assert_eq!(endpoint(&url("https://api.openai.com/v1"), false, "chat/completions"), "https://api.openai.com/v1/chat/completions");
+
+        // An error event ends the stream with the fixed code, and its text is not passed on.
+        let base = serve(move |mut stream| {
+            read_request(&mut stream);
+            write_pieces(&mut stream, &[SSE_HEAD.as_bytes(), b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"secret detail\"}}\n\n"]);
+        });
+        let mut failing = call(&base, Some(SECRET));
+        failing.api = "anthropic".into();
+        let (result, deltas) = collect(failing, FAST, &AtomicBool::new(false));
+        assert_eq!((result, deltas.len()), (Err("AI_BAD_RESPONSE".into()), 0));
+
+        // The model list is asked for with the same headers.
+        let (sender, receiver) = mpsc::channel();
+        let base = serve(move |mut stream| {
+            sender.send(read_request(&mut stream).0).unwrap();
+            write_pieces(&mut stream, &[json_response("200 OK", r#"{"data":[{"id":"claude-b","type":"model"},{"id":"claude-a"}],"has_more":false}"#).as_bytes()]);
+        });
+        assert_eq!(fetch_models(&base, "anthropic", Some(SECRET), FAST), Ok(vec!["claude-a".to_owned(), "claude-b".to_owned()]));
+        let head = receiver.recv().unwrap();
+        assert!(head.starts_with("GET /v1/models?limit=1000 HTTP/1.1\r\n"), "{head}");
+        assert!(head.to_ascii_lowercase().contains("\r\nx-api-key: "), "{head}");
+    }
+
+    #[test]
+    fn model_lists_of_gateways_are_read_in_their_other_shapes() {
+        assert_eq!(parse_models(br#"{"models":[{"id":"b"},{"id":"a"},{"name":"no-id"}]}"#), Ok(vec!["a".to_owned(), "b".to_owned()]));
+        assert_eq!(parse_models(br#"{"models":{"z/one":{"limit":1},"bad id":{}}}"#), Ok(vec!["z/one".to_owned()]));
+        assert_eq!(parse_models(br#"{"object":"list"}"#), Err("AI_BAD_RESPONSE".into()));
+    }
+
+    #[test]
+    fn providers_of_the_users_own_are_added_selected_and_removed() {
+        let spec = |id: &str, url: &str, api: &str| serde_json::json!({ "id": id, "name": "我的网关", "baseUrl": url, "model": "m-1", "api": api });
+        let start = AiConfig { enabled: true, consented: true, ..AiConfig::default() };
+        let added = add_provider(&start, spec("my-gateway", "https://gateway.example/v1", "openai")).unwrap();
+        assert_eq!((added.provider.as_str(), added.base_url.as_str(), added.model.as_str(), added.api.as_str()), ("my-gateway", "https://gateway.example/v1", "m-1", "openai"));
+        assert_eq!(added.custom_providers.get("my-gateway").map(String::as_str), Some("我的网关"));
+        // Requests now go to another address, so consent is asked again; AI itself stays on.
+        assert!(added.enabled && !added.consented);
+        assert!(valid(&added));
+
+        // A second one with Anthropic's protocol; the first keeps its address, model and protocol while away.
+        let both = add_provider(&added, spec("claude", "https://api.anthropic.com", "anthropic")).unwrap();
+        assert_eq!((both.provider.as_str(), both.api.as_str()), ("claude", "anthropic"));
+        assert_eq!(both.providers.get("my-gateway"), Some(&ProviderMemory { base_url: "https://gateway.example/v1".into(), model: "m-1".into(), api: "openai".into() }));
+        let back = apply_patch(&both, serde_json::json!({ "provider": "my-gateway" })).unwrap();
+        assert_eq!((back.base_url.as_str(), back.api.as_str()), ("https://gateway.example/v1", "openai"));
+        assert_eq!(back.providers.get("claude").map(|memory| memory.api.as_str()), Some("anthropic"));
+        // A built-in service returns to the one protocol it speaks.
+        let deepseek = apply_patch(&both, serde_json::json!({ "provider": "deepseek" })).unwrap();
+        assert_eq!(deepseek.api, "openai");
+        assert_eq!(apply_patch(&deepseek, serde_json::json!({ "api": "anthropic" })), Err("AI_INVALID_CONFIG".into()));
+        assert_eq!(apply_patch(&both, serde_json::json!({ "api": "gemini" })), Err("AI_INVALID_CONFIG".into()));
+        // The protocol of the user's own providers, and of the old single `custom` slot, can be changed.
+        assert_eq!(apply_patch(&back, serde_json::json!({ "api": "anthropic" })).unwrap().api, "anthropic");
+        assert_eq!(apply_patch(&start, serde_json::json!({ "provider": "custom", "api": "anthropic" })).unwrap().api, "anthropic");
+
+        // What is refused: a taken or reserved id, a malformed one, a bad address, model, protocol or name.
+        assert_eq!(add_provider(&both, spec("claude", "https://x.example/v1", "openai")), Err("AI_PROVIDER_EXISTS".into()));
+        for id in ["openai", "custom", "deepseek", "My-Gateway", "9lives", "a--b", "-a", "a-", "", "has space", &"a".repeat(33)] {
+            assert_eq!(add_provider(&start, spec(id, "https://x.example/v1", "openai")), Err("AI_INVALID_CONFIG".into()), "{id}");
+        }
+        assert_eq!(add_provider(&start, spec("ok", "http://x.example/v1", "openai")), Err("AI_INVALID_CONFIG".into()));
+        assert_eq!(add_provider(&start, spec("ok", "https://x.example/v1", "gemini")), Err("AI_INVALID_CONFIG".into()));
+        assert_eq!(add_provider(&start, serde_json::json!({ "id": "ok", "name": " ", "baseUrl": "https://x.example/v1", "model": "m", "api": "openai" })), Err("AI_INVALID_CONFIG".into()));
+        assert_eq!(add_provider(&start, serde_json::json!({ "id": "ok", "name": "n", "baseUrl": "https://x.example/v1", "model": "bad model", "api": "openai" })), Err("AI_INVALID_CONFIG".into()));
+        assert!(add_provider(&start, spec("local", "http://127.0.0.1:11434/v1", "openai")).is_ok());
+        let mut full = start.clone();
+        for index in 0..MAX_CUSTOM_PROVIDERS { full = add_provider(&full, spec(&format!("p{index}"), "https://x.example/v1", "openai")).unwrap(); }
+        assert_eq!(add_provider(&full, spec("one-more", "https://x.example/v1", "openai")), Err("AI_TOO_MANY_PROVIDERS".into()));
+        assert!(serde_json::to_vec(&full).unwrap().len() < CONFIG_LIMIT_BYTES as usize);
+
+        // Removing the selected one falls back to DeepSeek; removing another leaves the selection alone.
+        let removed = remove_provider(&both, "claude").unwrap();
+        assert_eq!((removed.provider.as_str(), removed.base_url.as_str(), removed.api.as_str()), ("deepseek", "https://api.deepseek.com/v1", "openai"));
+        assert!(!removed.custom_providers.contains_key("claude") && !removed.providers.contains_key("claude"));
+        let other = remove_provider(&both, "my-gateway").unwrap();
+        assert_eq!(other.provider, "claude");
+        assert!(!other.providers.contains_key("my-gateway"));
+        assert_eq!(remove_provider(&both, "openai"), Err("AI_INVALID_CONFIG".into()));
+        assert_eq!(remove_provider(&both, "missing"), Err("AI_INVALID_CONFIG".into()));
+
+        // A file written before any of this reads as before, and one with these fields round-trips.
+        let old: AiConfig = serde_json::from_str(r#"{"schemaVersion":1,"enabled":true,"consented":true,"provider":"openai","baseUrl":"https://api.openai.com/v1","model":"gpt-4o"}"#).unwrap();
+        assert!(valid(&old) && old.api == "openai" && old.custom_providers.is_empty());
+        let again: AiConfig = serde_json::from_slice(&serde_json::to_vec(&both).unwrap()).unwrap();
+        assert_eq!(again, both);
+    }
+
+    #[test]
+    fn each_provider_of_the_users_own_has_its_own_key_bound_to_its_address() {
+        let secrets = MemoryStore::default();
+        let spec = |id: &str, url: &str| serde_json::json!({ "id": id, "name": id, "baseUrl": url, "model": "m", "api": "openai" });
+        let config = add_provider(&add_provider(&AiConfig::default(), spec("one", "https://one.example/v1")).unwrap(), spec("two", "https://two.example/v1")).unwrap();
+        // `two` is selected; the key for `one` is saved by name and sealed with the address `one` was given.
+        let shown = store_key(config.clone(), &secrets, Some("one"), SECRET).unwrap();
+        assert_eq!((shown.has_key, shown.keys["one"], shown.keys["two"], shown.keys["deepseek"]), (false, true, false, false));
+        assert_eq!(secrets.get("one").unwrap().as_deref(), Some(seal("https://one.example", SECRET).as_str()));
+        assert_eq!(store_key(config.clone(), &secrets, Some("three"), SECRET), Err("AI_INVALID_CONFIG".into()));
+        // Selected and consented, its key is sent to its own address and to no other.
+        let one = AiConfig { enabled: true, consented: true, ..apply_patch(&config, serde_json::json!({ "provider": "one" })).unwrap() };
+        assert_eq!(check_access(&one, &secrets), Ok(Some(SECRET.to_owned())));
+        let moved = AiConfig { consented: true, ..apply_patch(&one, serde_json::json!({ "baseUrl": "https://elsewhere.example/v1" })).unwrap() };
+        assert_eq!(check_access(&moved, &secrets), Err("AI_KEY_ORIGIN".into()));
+
+        // Keys that would only earn a 401: with spaces, in quotes, or a line pasted from an env file.
+        for key in ["sk has space", "\"sk-quoted\"", "'sk-quoted'", "OPENAI_API_KEY=sk-abc", "KEY=sk"] { assert_eq!(clean_key(key), Err("AI_INVALID_KEY".into()), "{key}"); }
+        for key in ["sk-abc=def", "  sk-trimmed  ", "a.b-c_d/e+f=="] { assert!(clean_key(key).is_ok(), "{key}"); }
     }
 
     #[test]
@@ -1133,7 +1427,7 @@ mod tests {
         assert_eq!(read_at(&file), defaults);
 
         let saved = update_at(&file, serde_json::json!({ "enabled": true, "consented": true, "provider": "custom", "baseUrl": " http://127.0.0.1:11434/v1 ", "model": "qwen2.5:7b" })).unwrap();
-        assert_eq!(saved, AiConfig { schema_version: 1, enabled: true, consented: true, provider: "custom".into(), base_url: "http://127.0.0.1:11434/v1".into(), model: "qwen2.5:7b".into(), providers: BTreeMap::new() });
+        assert_eq!(saved, AiConfig { schema_version: 1, enabled: true, consented: true, provider: "custom".into(), base_url: "http://127.0.0.1:11434/v1".into(), model: "qwen2.5:7b".into(), api: default_api(), providers: BTreeMap::new(), custom_providers: BTreeMap::new() });
         assert_eq!(read_at(&file), saved);
         // A second write replaces the first and a rejected patch leaves the file alone.
         assert_eq!(update_at(&file, serde_json::json!({ "enabled": false })).unwrap().model, "qwen2.5:7b");
@@ -1199,7 +1493,7 @@ mod tests {
         assert!(patch(&consent, serde_json::json!({ "baseUrl": "https://other.example/v1", "consented": true })).unwrap().consented);
 
         // Each provider comes back as it was left: DeepSeek → OpenAI → DeepSeek → OpenAI.
-        let memory = |base_url: &str, model: &str| ProviderMemory { base_url: base_url.into(), model: model.into() };
+        let memory = |base_url: &str, model: &str| ProviderMemory { base_url: base_url.into(), model: model.into(), api: default_api() };
         let reasoner = patch(&defaults, serde_json::json!({ "model": "deepseek-reasoner" })).unwrap();
         let first_openai = patch(&reasoner, serde_json::json!({ "provider": "openai" })).unwrap();
         assert_eq!((first_openai.base_url.as_str(), first_openai.model.as_str()), ("https://api.openai.com/v1", "gpt-4o-mini"));
@@ -1294,7 +1588,7 @@ mod tests {
         let state = memory_state();
         let secrets = state.secrets.as_ref();
         let config = AiConfig::default();
-        let status = |shown: &AiConfigView| (shown.has_key, shown.keys.deepseek, shown.keys.openai, shown.keys.custom);
+        let status = |shown: &AiConfigView| (shown.has_key, shown.keys["deepseek"], shown.keys["openai"], shown.keys["custom"]);
         assert_eq!(status(&view(config.clone(), secrets)), (false, false, false, false));
 
         // A key can be saved for a provider that is not selected.
@@ -1329,7 +1623,7 @@ mod tests {
         // The view names which keys exist and never what they are.
         store_key(config.clone(), secrets, Some("openai"), SECRET).unwrap();
         let shown = serde_json::to_string(&view(openai, secrets)).unwrap();
-        assert!(shown.contains(r#""hasKey":true,"keys":{"deepseek":false,"openai":true,"custom":true}"#), "{shown}");
+        assert!(shown.contains(r#""hasKey":true,"keys":{"custom":true,"deepseek":false,"openai":true}"#), "{shown}");
         assert!(!shown.contains(SECRET) && !shown.contains("local-key"));
     }
 
@@ -1390,7 +1684,7 @@ mod tests {
             let body = format!(r#"{{"data":[{{"id":"m"}}],"padding":"{}"}}"#, "x".repeat(MAX_MODELS_BYTES));
             let _ = stream.write_all(json_response("200 OK", &body).as_bytes());
         });
-        assert_eq!(fetch_models(&base, None, FAST), Err("AI_BAD_RESPONSE".into()));
+        assert_eq!(fetch_models(&base, "openai", None, FAST), Err("AI_BAD_RESPONSE".into()));
     }
 
     #[test]
@@ -1420,7 +1714,7 @@ mod tests {
         secrets.set("openai", SECRET).unwrap();
         assert_eq!(list_models(&remote, secrets, FAST), Err("AI_NO_KEY".into()));
         // An address that is not allowed is refused before a connection as well.
-        assert_eq!(fetch_models("http://example.com/v1", Some(SECRET), FAST), Err("AI_INVALID_CONFIG".into()));
+        assert_eq!(fetch_models("http://example.com/v1", "openai", Some(SECRET), FAST), Err("AI_INVALID_CONFIG".into()));
     }
 
     #[test]
@@ -1429,14 +1723,14 @@ mod tests {
             read_request(&mut stream);
             write_pieces(&mut stream, &[json_response("401 Unauthorized", &format!("{{\"error\":{{\"message\":\"Incorrect API key provided: {SECRET}\"}}}}")).as_bytes()]);
         });
-        assert_eq!(fetch_models(&base, Some(SECRET), FAST), Err("AI_HTTP_401".into()));
+        assert_eq!(fetch_models(&base, "openai", Some(SECRET), FAST), Err("AI_HTTP_401".into()));
 
-        for body in ["not json", "", "[]", "null", r#"{"models":[{"id":"m"}]}"#, r#"{"data":{"id":"m"}}"#, r#"{"data":[{"id":"m"}"#, r#"{"error":{"message":"overloaded"}}"#] {
+        for body in ["not json", "", "[]", "null", r#"{"models":"m"}"#, r#"{"data":{"id":"m"}}"#, r#"{"data":[{"id":"m"}"#, r#"{"error":{"message":"overloaded"}}"#] {
             let base = serve(move |mut stream| {
                 read_request(&mut stream);
                 write_pieces(&mut stream, &[json_response("200 OK", body).as_bytes()]);
             });
-            assert_eq!(fetch_models(&base, Some(SECRET), FAST), Err("AI_BAD_RESPONSE".into()), "{body}");
+            assert_eq!(fetch_models(&base, "openai", Some(SECRET), FAST), Err("AI_BAD_RESPONSE".into()), "{body}");
         }
 
         let (other, followed) = tripwire();
@@ -1444,18 +1738,18 @@ mod tests {
             read_request(&mut stream);
             write_pieces(&mut stream, &[format!("HTTP/1.1 302 Found\r\nLocation: {other}/models\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()]);
         });
-        assert_eq!(fetch_models(&base, Some(SECRET), FAST), Err("AI_HTTP_302".into()));
+        assert_eq!(fetch_models(&base, "openai", Some(SECRET), FAST), Err("AI_HTTP_302".into()));
         thread::sleep(Duration::from_millis(100));
         assert!(!followed.load(Ordering::SeqCst));
 
         let closed = { let listener = TcpListener::bind("127.0.0.1:0").unwrap(); format!("http://127.0.0.1:{}/v1", listener.local_addr().unwrap().port()) };
-        assert_eq!(fetch_models(&closed, Some(SECRET), FAST), Err("AI_NETWORK".into()));
+        assert_eq!(fetch_models(&closed, "openai", Some(SECRET), FAST), Err("AI_NETWORK".into()));
 
         // A server that accepts and then says nothing is given up on.
         let (release, hold) = mpsc::channel::<()>();
         let base = serve(move |mut stream| { read_request(&mut stream); let _ = hold.recv(); });
         let started = Instant::now();
-        assert_eq!(fetch_models(&base, None, Timing { idle: Duration::from_millis(300), ..FAST }), Err("AI_NETWORK".into()));
+        assert_eq!(fetch_models(&base, "openai", None, Timing { idle: Duration::from_millis(300), ..FAST }), Err("AI_NETWORK".into()));
         assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
         drop(release);
     }
