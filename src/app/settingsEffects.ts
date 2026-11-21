@@ -30,6 +30,7 @@ export function writeTypography(typography: Parameters<typeof typographyVariable
   root.style.setProperty('--editor-font-size', `${typography.fontSize}px`)
   // The layout's rules are all in the app stylesheet, chosen by this attribute (T122).
   root.dataset.layout = typography.layout ?? 'standard'
+  root.dataset.quote = typography.quoteStyle ?? 'auto'
 }
 
 /** The assistant's way to Rust from a window of the app: commands, and events sent to this window. */

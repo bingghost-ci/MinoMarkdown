@@ -50,6 +50,10 @@ describe('alert blocks in the editor and on the page (T121)', () => {
     const doc = parse('正文\n\n> [!WARNING]\n> 小心\n\n> 普通引用\n\n> [!NOTE]\n>\n> 说明\n')
     const found = findAlerts(doc)
     expect(found.map((alert) => alert.type)).toEqual(['warning', 'note'])
+    // A quote that opens with a line of bold alone is a titled excerpt (T131); bold followed by text is not.
+    const titled = findAlerts(parse('> **出处**\n>\n> 引文\n\n> **不是** 标题\n>\n> 引文\n\n> **只有一段**\n'))
+    expect(titled.map((item) => item.type)).toEqual(['title'])
+    expect(parse('> **出处**\n>\n> 引文\n').nodeAt(titled[0].quote)?.type.name).toBe('paragraph')
     for (const alert of found) {
       expect(doc.nodeAt(alert.quote)?.type.name).toBe('blockquote')
       expect(doc.textBetween(alert.marker, alert.markerEnd)).toMatch(/^\[!(WARNING|NOTE)\]$/)
@@ -72,3 +76,33 @@ describe('alert blocks in the editor and on the page (T121)', () => {
     expect(css).toContain('content:"Warning"')
   })
 })
+
+describe('quote styles and titled quotes (T131)', () => {
+  it('marks the opening bold line of a quote as its title in the preview', () => {
+    expect(renderMarkdownPreview('> **出处**\n>\n> 引文\n')).toContain('<p class="mino-quote-title"><strong>出处</strong></p>')
+    expect(renderMarkdownPreview('> **不是** 标题\n>\n> 引文\n')).not.toContain('mino-quote-title')
+    expect(renderMarkdownPreview('> **只有一段**\n')).not.toContain('mino-quote-title')
+  })
+
+  it('offers the same quote styles as settings.rs and scopes each by the attribute on <html>', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { quoteStyleIds, quoteRules, quoteStyles } = await import('../src/features/reading/layouts')
+    const { appStylesheet, exportStylesheet } = await import('../src/features/reading/css')
+    const { defaultReadingSettings, documentTypography } = await import('../src/app/readingSettings')
+    const { readingStyle } = await import('../src/features/reading/styles')
+    const ids = /const QUOTE_STYLE_IDS: &\[&str\] = &\[([^\]]*)\]/.exec(readFileSync('src-tauri/src/settings.rs', 'utf8'))?.[1]
+    expect(Array.from(ids!.matchAll(/"([^"]+)"/g), (match) => match[1])).toEqual([...quoteStyleIds])
+    expect(quoteStyles.map(([id]) => id)).toEqual([...quoteStyleIds])
+    expect(defaultReadingSettings.quoteStyle).toBe('auto')
+    expect(quoteRules('auto', '.mino-doc')).toBe('')
+    const app = appStylesheet()
+    for (const id of ['bar', 'card', 'indent']) expect(app).toContain(`:root[data-quote="${id}"] .mino-doc blockquote:not(.mino-alert){`)
+    // The reader's choice comes after the layout's rules, in the app and in an export.
+    expect(app.lastIndexOf('data-quote="card"')).toBeGreaterThan(app.lastIndexOf('data-layout="typewriter"'))
+    const style = readingStyle('paper')
+    const css = exportStylesheet({ styleId: 'paper', exportStyle: 'current', pdfMode: 'print', pageSize: 'a4', pageMargin: 'standard', fontFaces: '', typography: documentTypography({ ...defaultReadingSettings, quoteStyle: 'card', layout: 'academic' }, style) })
+    expect(css).toContain('.mino-doc blockquote:not(.mino-alert){position:static;margin:1.1em 0;padding:.65em 1.1em')
+    expect(css).not.toContain('data-quote')
+  })
+})
+

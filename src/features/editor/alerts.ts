@@ -1,10 +1,14 @@
 import { Plugin, PluginKey, type EditorState, type Transaction } from '@milkdown/kit/prose/state'
 import type { Node as ProseNode } from '@milkdown/kit/prose/model'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
-import { alertMarker, type AlertType } from '../../core/markdown/alerts'
+import { alertMarker, QUOTE_TITLE_CLASS, type AlertType } from '../../core/markdown/alerts'
 
-/** An alert block quote in the editor: where it is, where its `[!TYPE]` marker is, and its type. */
-type FoundAlert = { quote: number; end: number; marker: number; markerEnd: number; type: AlertType }
+/**
+ * An alert block quote in the editor: where it is, where its `[!TYPE]` marker is, and its type. A `title` is the
+ * opening paragraph of a plain quote when it is one run of bold with more after it (T131); `quote` and `end` are
+ * then that paragraph's.
+ */
+type FoundAlert = { quote: number; end: number; marker: number; markerEnd: number; type: AlertType | 'title' }
 
 /**
  * Alert blocks in the editor (T121), drawn with decorations only, so the document is never changed. The quote
@@ -21,6 +25,7 @@ export function findAlerts(doc: ProseNode): FoundAlert[] {
     const marker = lead?.isText ? alertMarker(lead.text ?? '') : null
     // Two levels in: the quote's opening and its paragraph's opening.
     if (marker) found.push({ quote: pos, end: pos + node.nodeSize, marker: pos + 2, markerEnd: pos + 2 + marker.length, type: marker.type })
+    else if (first && lead?.isText && node.childCount > 1 && first.childCount === 1 && lead.marks.some((mark) => mark.type.name === 'strong')) found.push({ quote: pos + 1, end: pos + 1 + first.nodeSize, marker: pos + 2, markerEnd: pos + 2, type: 'title' })
     return true
   })
   return found
@@ -31,6 +36,7 @@ function decorations(state: EditorState, alerts: readonly FoundAlert[]): Decorat
   const head = state.selection.head
   const items: Decoration[] = []
   for (const alert of alerts) {
+    if (alert.type === 'title') { items.push(Decoration.node(alert.quote, alert.end, { class: QUOTE_TITLE_CLASS })); continue }
     items.push(Decoration.node(alert.quote, alert.end, { class: `mino-alert mino-alert-${alert.type}` }))
     const editing = head >= alert.marker && head <= alert.markerEnd
     items.push(Decoration.inline(alert.marker, alert.markerEnd, { class: editing ? 'mino-alert-marker is-editing' : 'mino-alert-marker' }))

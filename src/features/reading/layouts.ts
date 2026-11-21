@@ -20,6 +20,31 @@ export function isLayout(value: unknown): value is LayoutId {
   return typeof value === 'string' && (layoutIds as readonly string[]).includes(value)
 }
 
+/**
+ * How block quotes are drawn (T131), apart from the paper and the layout: `auto` leaves it to those two, the
+ * others replace their choice. `settings.rs` lists the same IDs.
+ */
+export const quoteStyleIds = ['auto', 'bar', 'card', 'indent'] as const
+export type QuoteStyle = (typeof quoteStyleIds)[number]
+export const quoteStyles: readonly (readonly [QuoteStyle, string])[] = [['auto', '随风格'], ['bar', '竖线'], ['card', '卡片'], ['indent', '缩进']]
+
+export function isQuoteStyle(value: unknown): value is QuoteStyle {
+  return typeof value === 'string' && (quoteStyleIds as readonly string[]).includes(value)
+}
+
+/** The rules of a chosen quote style for one document root; `auto` has none. */
+export function quoteRules(quote: QuoteStyle, root: string): string {
+  const q = `${root} blockquote:not(.mino-alert)`
+  const plain = `${q}::before{content:none}`
+  switch (quote) {
+    case 'auto': return ''
+    case 'bar': return `${q}{position:static;margin:1.1em 0;padding:0 0 0 1em;border:0;border-left:3px solid var(--quote-line);border-radius:0;background:none;outline:0;font-size:inherit;color:var(--secondary)}${plain}`
+    // The wash is translucent, so a quote inside a quote is a shade deeper and a table inside one leaves no hole.
+    case 'card': return `${q}{position:static;margin:1.1em 0;padding:.65em 1.1em;border:0;border-left:3px solid var(--quote-line);border-radius:3px 9px 9px 3px;background:color-mix(in srgb,var(--text) 5%,transparent);outline:0;font-size:inherit;color:var(--secondary)}${plain}`
+    case 'indent': return `${q}{position:static;margin:1.1em 0;padding:0 2em;border:0;border-radius:0;background:none;outline:0;font-size:.95em;color:var(--secondary)}${plain}`
+  }
+}
+
 /** The font a layout sets the text in, before the reader's own; only the typewriter has one. */
 export function layoutFontPrefix(layout: LayoutId | undefined): string {
   return layout === 'typewriter' ? `'${MONO_FAMILY}', ` : ''

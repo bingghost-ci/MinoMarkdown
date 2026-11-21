@@ -40,7 +40,7 @@ export function rehypeAlerts() {
         visit(element)
         if (element.tagName !== 'blockquote') continue
         const type = takeMarker(element)
-        if (!type) continue
+        if (!type) { markQuoteTitle(element); continue }
         element.tagName = 'div'
         element.properties = { ...element.properties, className: ['mino-alert', `mino-alert-${type}`] }
         const title: Element = { type: 'element', tagName: 'p', properties: { className: ['mino-alert-title'] }, children: [] }
@@ -49,6 +49,18 @@ export function rehypeAlerts() {
     }
     visit(tree)
   }
+}
+
+/** The class of a quote's opening paragraph when it is one run of bold and more follows (T131): the quote's small heading. */
+export const QUOTE_TITLE_CLASS = 'mino-quote-title'
+
+function markQuoteTitle(quote: Element): void {
+  const blocks = quote.children.filter((child) => !(child.type === 'text' && (child as Text).value.trim() === ''))
+  const first = blocks[0] as Element | undefined
+  if (blocks.length < 2 || first?.type !== 'element' || first.tagName !== 'p') return
+  const only = first.children.length === 1 ? first.children[0] as Element : undefined
+  if (only?.type !== 'element' || only.tagName !== 'strong') return
+  first.properties = { ...first.properties, className: [QUOTE_TITLE_CLASS] }
 }
 
 /** Removes the marker from the first paragraph and returns its type; a paragraph left empty goes too. */

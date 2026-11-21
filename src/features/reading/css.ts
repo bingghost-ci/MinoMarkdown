@@ -4,7 +4,7 @@ import { readingStyle, readingStyles, type ReadingStyle } from './styles'
 import { syntaxVariables, type CustomCodeColors } from './codeColors'
 import { textureBackground } from './textures'
 import { alertCss, alertVariables } from './alertCss'
-import { layoutIds, layoutPageMargin, layoutRules, type LayoutId } from './layouts'
+import { layoutIds, layoutPageMargin, layoutRules, quoteRules, quoteStyleIds, type LayoutId, type QuoteStyle } from './layouts'
 import { syntaxRoles, tokenClass } from '../../core/markdown/syntaxRoleNames'
 
 /**
@@ -40,6 +40,8 @@ export type Typography = {
   hyphens: boolean
   /** How headings, quotes and rules are set (T122); `standard` when left out. */
   layout?: LayoutId
+  /** How block quotes are drawn (T131); the style's and the layout's own way when left out. */
+  quoteStyle?: QuoteStyle
   /** Emphasis in Chinese text (T129): slanted, set in the Kai face, or marked with dots under the characters. */
   emphasis?: 'italic' | 'kai' | 'dot'
 }
@@ -139,6 +141,8 @@ export function documentElementCss(root: string): string {
     `${r} em{font-style:var(--em-style,italic);font-family:var(--em-font,inherit);-webkit-text-emphasis:var(--em-mark,none);text-emphasis:var(--em-mark,none);-webkit-text-emphasis-position:under right;text-emphasis-position:under right}`,
     `${r} blockquote{margin:1.1em 0;padding:0 0 0 1em;border-left:3px solid var(--quote-line);color:var(--secondary)}`,
     `${r} blockquote p{text-indent:0}`,
+    // T131: a quote that opens with a line of bold alone is a titled excerpt; that line is its small heading.
+    `${r} blockquote > .mino-quote-title{margin:0 0 .45em;padding-bottom:.3em;border-bottom:1px solid var(--quote-line);font-size:.92em;color:var(--heading)}`,
     `${r} ul,${r} ol{padding-left:1.6em;margin:0 0 var(--doc-gap)}${r} li{text-indent:0}${r} li::marker{color:var(--secondary)}`,
     // T126: numbers in tabular figures, so 9. and 10. line up on the text; a nested numbered list counts in letters, then roman numerals.
     `${r} li::marker{font-variant-numeric:tabular-nums}${r} ol ol{list-style-type:lower-alpha}${r} ol ol ol{list-style-type:lower-roman}`,
@@ -258,7 +262,9 @@ export function appStylesheet(): string {
   const decorations = readingStyles.map((style) => decorationRules(style, (root) => `:root[data-theme="${style.id}"] ${root}`, [EDITOR_ROOT, DOC_ROOT]))
   // Layouts come last: they set headings and quotes over the style's own decoration.
   const layouts = layoutIds.map((id) => [EDITOR_ROOT, DOC_ROOT].map((root) => layoutRules(id, `:root[data-layout="${id}"] ${root}`)).join('\n'))
-  return [...blocks, documentElementCss(EDITOR_ROOT), documentElementCss(DOC_ROOT), documentImageCss(DOC_ROOT), plainDocumentCss(DOC_ROOT), ...decorations, ...layouts].filter(Boolean).join('\n')
+  // A chosen quote style is the reader's word on quotes, over both the style and the layout.
+  const quotes = quoteStyleIds.map((id) => [EDITOR_ROOT, DOC_ROOT].map((root) => quoteRules(id, `:root[data-quote="${id}"] ${root}`)).join('\n'))
+  return [...blocks, documentElementCss(EDITOR_ROOT), documentElementCss(DOC_ROOT), documentImageCss(DOC_ROOT), plainDocumentCss(DOC_ROOT), ...decorations, ...layouts, ...quotes].filter(Boolean).join('\n')
 }
 
 export type PageSize = 'a4' | 'letter'
@@ -316,6 +322,7 @@ export function exportStylesheet(options: ExportStyleOptions): string {
     plainDocumentCss(DOC_ROOT),
     decorationRules(style, (root) => root, [DOC_ROOT]),
     layoutRules(options.typography.layout ?? 'standard', DOC_ROOT),
+    quoteRules(options.typography.quoteStyle ?? 'auto', DOC_ROOT),
     `${DOC_ROOT} img{max-height:240mm;object-fit:contain}`,
     // A diagram fits the width of the page, on screen and on paper alike: nothing of it may lie outside.
     `.mermaid-diagram{margin:1.2em 0;text-align:center;break-inside:avoid}.mermaid-diagram svg{max-width:100%;height:auto}`,

@@ -11,7 +11,7 @@ import { modelChoices, providerHasKey, providerIds, providerLabels, type AiProvi
 import { codeColorIds, codeColorLabels, codePalette, noCustomCodeColors, syntaxRoleLabels, withCustomColor, type CodeColors, type CustomCodeColors } from '../../features/reading/codeColors'
 import type { SyntaxRole } from '../../core/markdown/syntaxRoleNames'
 import { LayoutGallery, StyleGallery } from './StyleGallery'
-import { layouts } from '../../features/reading/layouts'
+import { layouts, quoteStyles } from '../../features/reading/layouts'
 import { FontPicker } from './FontPicker'
 import { ColorPalette } from './ColorPalette'
 import { Row, Segmented, ToggleRow } from './settingsControls'
@@ -272,6 +272,7 @@ export function SettingsDialog({ workspace: w, windowed = false, documentKind }:
           <Row title={t('对齐')}><Segmented t={t} value={settings.textAlign} onChange={(value) => update({ textAlign: value })} options={[['left', '左对齐'], ['justify', '两端对齐']]} /></Row>
           <Row title={t('首行缩进')} note={t('只作用于正文段落')}><Segmented t={t} value={settings.firstLineIndent} onChange={(value) => update({ firstLineIndent: value })} options={[[false, '无'], [true, '2 字']]} /></Row>
           <Row title={t('中文强调')} note={t('*强调* 在中文文档里的样子；西文文档始终用斜体')}><Segmented t={t} value={settings.cjkEmphasis} onChange={(value) => update({ cjkEmphasis: value })} options={[['italic', '倾斜'], ['kai', '楷体'], ['dot', '着重号']]} /></Row>
+          <Row title={t('引用')} note={t('“随风格”由纸张和版式决定；其余三种在任何纸张和版式下都一样')}><Segmented t={t} value={settings.quoteStyle} onChange={(value) => update({ quoteStyle: value })} options={quoteStyles} /></Row>
           <Row title={t('表格')} note={t('只含数字的列自动右对齐，不改动文档')}><Segmented t={t} value={settings.tableStyle} onChange={(value) => update({ tableStyle: value })} options={[['three-line', '三线表'], ['grid', '全框线'], ['rounded', '圆角框']]} /></Row>
           <div className="settings-preview mino-doc"><p>{t('清晰的文字和合适的间距，让注意力留在内容上。好的排版让眼睛在行与行之间自然移动，读长文也不觉得累。')}</p><p>{t('English words mix in with 中文 naturally.')}</p></div>
         </>}
