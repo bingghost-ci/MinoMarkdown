@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { appStylesheet, exportStylesheet } from '../src/features/reading/css'
+import { appStylesheet, documentElementCss, exportStylesheet } from '../src/features/reading/css'
 import { isLayout, layoutIds, layoutRules, layouts } from '../src/features/reading/layouts'
 import { MONO_FAMILY } from '../src/features/reading/fonts'
 import { readingStyle } from '../src/features/reading/styles'
@@ -60,4 +60,15 @@ describe('layouts (T122)', () => {
     expect(exportCss('official')).toContain('@page{size:A4;margin:37mm 26mm 35mm 28mm}')
     expect(exportCss('academic')).toContain('@page{size:A4;margin:18mm}')
   })
+
+  it('labels nested lists by depth, with LaTeX’s set in the academic layout (T126)', () => {
+    const css = documentElementCss('.mino-doc')
+    expect(css).toContain('.mino-doc ol ol{list-style-type:lower-alpha}')
+    expect(css).toContain('.mino-doc li::marker{font-variant-numeric:tabular-nums}')
+    const academic = layoutRules('academic', '.mino-doc')
+    expect(academic).toContain('@counter-style mino-paren-alpha')
+    expect(academic).toContain('.mino-doc ul ul > li::marker{content:"\\2013\\2002"}')
+    expect(academic).toContain('.mino-doc ol ol{list-style-type:mino-paren-alpha}')
+  })
 })
+

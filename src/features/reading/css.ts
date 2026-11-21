@@ -139,6 +139,10 @@ export function documentElementCss(root: string): string {
     `${r} blockquote{margin:1.1em 0;padding:0 0 0 1em;border-left:3px solid var(--quote-line);color:var(--secondary)}`,
     `${r} blockquote p{text-indent:0}`,
     `${r} ul,${r} ol{padding-left:1.6em;margin:0 0 var(--doc-gap)}${r} li{text-indent:0}${r} li::marker{color:var(--secondary)}`,
+    // T126: numbers in tabular figures, so 9. and 10. line up on the text; a nested numbered list counts in letters, then roman numerals.
+    `${r} li::marker{font-variant-numeric:tabular-nums}${r} ol ol{list-style-type:lower-alpha}${r} ol ol ol{list-style-type:lower-roman}`,
+    // The editor draws its own labels (Crepe's list items), always as numbers; they take the same quiet color.
+    `${r} .milkdown-list-item-block .label-wrapper .label{color:var(--secondary);font-variant-numeric:tabular-nums}`,
     `${r} li p{margin:.15em 0}${r} th p,${r} td p{margin:0}${r} blockquote p:last-child{margin-bottom:0}`,
     `${r} input[type="checkbox"]{accent-color:var(--link)}`,
     `${r} ul.contains-task-list{list-style:none;padding-left:.2em}${r} .task-list-item > input[type="checkbox"]{margin:0 .55em 0 0;vertical-align:-.1em}`,

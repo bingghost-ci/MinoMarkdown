@@ -62,6 +62,9 @@ export function layoutRules(layout: LayoutId, root: string): string {
       `${r} > :is(h1,h2,h3,h4,h5,h6,hr) + p:lang(en){text-indent:0}`,
       `${r} blockquote:not(.mino-alert){border-left:0;padding:0 2em;font-size:.94em;color:var(--secondary)}`,
       `${r} blockquote:not(.mino-alert)::before{content:none}`,
+      // LaTeX's labels by depth: a dash and an asterisk under the bullet, (a) and i. under the number.
+      `@counter-style mino-paren-alpha{system:extends lower-alpha;prefix:"(";suffix:") "}`,
+      `${r} ul ul > li::marker{content:"\\2013\\2002"}${r} ul ul ul > li::marker{content:"\\2217\\2002"}${r} ol ol{list-style-type:mino-paren-alpha}${r} ol ol ol{list-style-type:lower-roman}`,
       `${r} hr{border:0;height:1.4em;margin:1.6em 0;text-align:center;overflow:visible}${r} hr::before{content:"*\\2003*\\2003*";display:block;color:var(--secondary);line-height:1.4em}`,
     ].join('\n')
     case 'official': return [
