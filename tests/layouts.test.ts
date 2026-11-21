@@ -70,5 +70,15 @@ describe('layouts (T122)', () => {
     expect(academic).toContain('.mino-doc ul ul > li::marker{content:"\\2013\\2002"}')
     expect(academic).toContain('.mino-doc ol ol{list-style-type:mino-paren-alpha}')
   })
+
+  it('sets the quote under the title as the abstract and numbers figures in the academic layout only (T130)', () => {
+    const academic = layoutRules('academic', '.mino-doc')
+    expect(academic).toContain('.mino-doc > h1 + blockquote:not(.mino-alert)::before{content:"摘\\3000要"')
+    expect(academic).toContain('.mino-doc > h1 + blockquote:not(.mino-alert):lang(en)::before{content:"Abstract"}')
+    expect(academic).toContain('counter-increment:mino-figure')
+    // The figure counter is reset together with the section counters: a second `counter-reset` would replace the first.
+    expect(academic).toContain('counter-reset:mino-h2 mino-h3 mino-h4 mino-figure')
+    for (const id of ['official', 'technical', 'typewriter'] as const) expect(layoutRules(id, '.mino-doc')).not.toContain('mino-figure')
+  })
 })
 
