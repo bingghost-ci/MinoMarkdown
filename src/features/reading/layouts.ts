@@ -1,4 +1,4 @@
-import { KAI_FAMILY, MONO_FAMILY, SANS_FAMILY } from './fonts'
+import { KAI_EMPHASIS_STACK, MONO_FAMILY, SANS_FAMILY } from './fonts'
 
 /**
  * Layouts (T122): how headings, quotes, rules and paragraphs are set, chosen apart from the paper, so any of them
@@ -26,7 +26,7 @@ export function layoutFontPrefix(layout: LayoutId | undefined): string {
 }
 
 const HEI = `'${SANS_FAMILY}', 'PingFang SC', 'Heiti SC', sans-serif`
-const KAI = `'${KAI_FAMILY}', 'Kaiti SC', 'STKaiti', serif`
+const KAI = `${KAI_EMPHASIS_STACK}, serif`
 
 /** Headings in quotes and alerts are not part of the outline, so they neither count nor show a number. */
 function numbered(r: string, levels: readonly string[]): string {
@@ -50,6 +50,8 @@ export function layoutRules(layout: LayoutId, root: string): string {
       `${r} > h2{font-size:1.32em;margin:1.8em 0 .7em}${r} > h3{font-size:1.12em;margin:1.4em 0 .5em}${r} > h4{font-size:1em}`,
       numbered(r, ['counter(mino-h2) "\\2003"', 'counter(mino-h2) "." counter(mino-h3) "\\2003"', 'counter(mino-h2) "." counter(mino-h3) "." counter(mino-h4) "\\2003"']),
       `${r} > p{text-indent:2em}`,
+      // Western papers leave the paragraph after a heading or a rule flush; Chinese ones indent every paragraph.
+      `${r} > :is(h1,h2,h3,h4,h5,h6,hr) + p:lang(en){text-indent:0}`,
       `${r} blockquote:not(.mino-alert){border-left:0;padding:0 2em;font-size:.94em;color:var(--secondary)}`,
       `${r} blockquote:not(.mino-alert)::before{content:none}`,
       `${r} hr{border:0;height:1.4em;margin:1.6em 0;text-align:center;overflow:visible}${r} hr::before{content:"*\\2003*\\2003*";display:block;color:var(--secondary);line-height:1.4em}`,

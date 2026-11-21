@@ -1,5 +1,5 @@
 import { mix, parseHex } from './color'
-import { CODE_FONT_STACK } from './fonts'
+import { CODE_FONT_STACK, KAI_EMPHASIS_STACK } from './fonts'
 import { readingStyle, readingStyles, type ReadingStyle } from './styles'
 import { syntaxVariables, type CustomCodeColors } from './codeColors'
 import { textureBackground } from './textures'
@@ -40,6 +40,8 @@ export type Typography = {
   hyphens: boolean
   /** How headings, quotes and rules are set (T122); `standard` when left out. */
   layout?: LayoutId
+  /** Emphasis in Chinese text (T129): slanted, set in the Kai face, or marked with dots under the characters. */
+  emphasis?: 'italic' | 'kai' | 'dot'
 }
 
 export type TableStyle = 'three-line' | 'grid'
@@ -99,6 +101,8 @@ export function styleVariables(style: ReadingStyle, textureSource?: (file: strin
     ...syntaxVariables('auto', style),
     ...alertVariables(style),
     // A highlighter's yellow, toned toward the paper by day; a low amber glow at night, so the text keeps its ink.
+    '--strong-weight': style.dark ? '600' : '700',
+    '--strong-ink': style.dark ? mix(style.text, '#ffffff', 0.35) : 'inherit',
     '--mark': style.dark ? 'rgba(204,150,64,.36)' : mix('#ffe27a', style.paper, 0.3),
   }
 }
@@ -122,14 +126,16 @@ function decorationRules(style: ReadingStyle, scope: (root: string) => string, r
 export function documentElementCss(root: string): string {
   const r = root
   return [
-    `${r}{color:var(--text);font-family:var(--doc-font);font-size:var(--doc-size);line-height:var(--doc-line-height);text-align:var(--doc-align);text-justify:var(--doc-justify,inter-character);-webkit-hyphens:var(--doc-hyphens,manual);hyphens:var(--doc-hyphens,manual);overflow-wrap:break-word;font-synthesis:weight style}`,
+    `${r}{color:var(--text);font-family:var(--doc-font);font-size:var(--doc-size);line-height:var(--doc-line-height);text-align:var(--doc-align);text-justify:var(--doc-justify,inter-character);-webkit-hyphens:var(--doc-hyphens,manual);hyphens:var(--doc-hyphens,manual);overflow-wrap:break-word;line-break:strict;font-synthesis:weight style}`,
     `${r} p{margin:0 0 var(--doc-gap)}`,
     `${r} > p{text-indent:var(--doc-indent)}`,
-    `${r} h1,${r} h2,${r} h3,${r} h4,${r} h5,${r} h6{color:var(--heading);font-family:var(--doc-font);font-weight:700;line-height:1.35;text-align:left;text-indent:0;break-after:avoid}`,
+    `${r} h1,${r} h2,${r} h3,${r} h4,${r} h5,${r} h6{color:var(--heading);font-family:var(--doc-font);font-weight:var(--strong-weight,700);line-height:1.35;text-align:left;text-indent:0;text-wrap:balance;break-after:avoid}`,
     `${r} h1,${r} h2{color:var(--title);font-weight:600}`,
     `${r} h1{font-size:1.9em;margin:.2em 0 .9em}${r} h2{font-size:1.5em;margin:1.7em 0 .6em}${r} h3{font-size:1.25em;margin:1.4em 0 .5em}${r} h4{font-size:1.1em;margin:1.2em 0 .4em}${r} h5{font-size:1em;margin:1.1em 0 .4em}${r} h6{font-size:.9em;margin:1em 0 .4em;color:var(--secondary)}`,
     `${r} a{color:var(--link);text-decoration:underline 1px;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,var(--link) 55%,transparent)}`,
-    `${r} strong{font-weight:700}`,
+    // On a night paper 700 blooms, so bold is a step lighter in weight and a step brighter in ink (T129).
+    `${r} strong{font-weight:var(--strong-weight,700);color:var(--strong-ink,inherit)}${r} :is(a,h1,h2,h3,h4,h5,h6,th) strong{color:inherit}`,
+    `${r} em{font-style:var(--em-style,italic);font-family:var(--em-font,inherit);-webkit-text-emphasis:var(--em-mark,none);text-emphasis:var(--em-mark,none);-webkit-text-emphasis-position:under right;text-emphasis-position:under right}`,
     `${r} blockquote{margin:1.1em 0;padding:0 0 0 1em;border-left:3px solid var(--quote-line);color:var(--secondary)}`,
     `${r} blockquote p{text-indent:0}`,
     `${r} ul,${r} ol{padding-left:1.6em;margin:0 0 var(--doc-gap)}${r} li{text-indent:0}${r} li::marker{color:var(--secondary)}`,
@@ -221,6 +227,9 @@ export function typographyVariables(typography: Typography, style: ReadingStyle)
     '--doc-measure': measure,
     '--doc-align': typography.textAlign,
     '--doc-indent': typography.firstLineIndent ? '2em' : '0',
+    '--em-style': typography.emphasis === 'kai' || typography.emphasis === 'dot' ? 'normal' : 'italic',
+    '--em-font': typography.emphasis === 'kai' ? KAI_EMPHASIS_STACK : 'inherit',
+    '--em-mark': typography.emphasis === 'dot' ? 'filled dot' : 'none',
     '--image-filter': typography.imageDimming && style.dark ? 'brightness(.9)' : 'none',
     // Three-line tables: heavy top and bottom rules only. Grid: a thin line around every cell.
     '--table-edge': typography.tableStyle === 'grid' ? '1px solid var(--table-line)' : '1.5px solid var(--table-rule)',

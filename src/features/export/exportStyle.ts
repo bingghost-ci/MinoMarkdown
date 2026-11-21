@@ -1,5 +1,5 @@
 import { exportReadingStyle, exportStylesheet, type Typography } from '../reading/css'
-import { CODE_FONT_STACK, familiesIn, withoutBundledFonts } from '../reading/fonts'
+import { CODE_FONT_STACK, KAI_EMPHASIS_STACK, familiesIn, withoutBundledFonts } from '../reading/fonts'
 import { bundledFaces, facesForText, fontFaceCss, type FontFace } from '../reading/fontFaces'
 import type { ReadingStyle } from '../reading/styles'
 import { base64 } from './appAssets'
@@ -40,7 +40,10 @@ export type ExportStyle = {
 export async function buildExportStyle(input: ExportStyleInput): Promise<ExportStyle> {
   // Code blocks draw with the bundled monospace font, so its Latin subset travels with the page too.
   const families = new Set([...familiesIn(input.typography.fontFamily), ...familiesIn(input.typography.codeFontFamily ?? CODE_FONT_STACK)])
-  const faces = facesForText(input.text, families, input.faces ?? bundledFaces, /(^|[^\\*_])[*_][^\s*_]/.test(input.text))
+  const emphasized = /(^|[^\\*_])[*_][^\s*_]/.test(input.text)
+  // Emphasis set in Kai (T129) needs that face on the page too.
+  if (emphasized && input.typography.emphasis === 'kai') for (const family of familiesIn(KAI_EMPHASIS_STACK)) families.add(family)
+  const faces = facesForText(input.text, families, input.faces ?? bundledFaces, emphasized)
   // Only the subsets the diagrams' own text needs: a handwriting font for the whole document would not fit the budget.
   if (input.diagrams?.text) {
     const extra = new Set([...familiesIn(input.diagrams.fontFamily)].filter((family) => !families.has(family)))

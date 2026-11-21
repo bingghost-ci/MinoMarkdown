@@ -50,6 +50,8 @@ export const OXANIUM_FAMILY = 'Mino Oxanium'
 const SYSTEM_SANS = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', sans-serif"
 const CODE_FALLBACK = "ui-monospace, SFMono-Regular, Menlo, 'PingFang SC', monospace"
 /** Code in documents, the editor and exports, when no code font is chosen. */
+/** The face Chinese emphasis is set in when the reader chooses Kai over slanting (T129). */
+export const KAI_EMPHASIS_STACK = `'${KAI_FAMILY}', 'Kaiti SC', 'STKaiti'`
 export const CODE_FONT_STACK = `'${MONO_FAMILY}', ${CODE_FALLBACK}`
 
 /** The private families the app ships. Their faces are registered by `bundledFonts.css`; `fontFaces.ts` lists them for exports. */
