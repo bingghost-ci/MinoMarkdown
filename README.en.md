@@ -152,7 +152,7 @@ Built with Tauri 2 (Rust), React 19, TypeScript, Milkdown/Crepe, CodeMirror, PDF
 
 ## License
 
-The project's own license has not been decided. The licenses of third-party dependencies are listed for [npm packages](doc/licenses/dependency-licenses.tsv), [Rust crates](doc/licenses/rust-dependency-licenses.tsv) and the [bundled fonts](doc/licenses/bundled-font-licenses.tsv); the check of the license texts is recorded in the [license text audit](doc/licenses/license-text-audit.md).
+Mino is released under the [MIT License](LICENSE). The bundled fonts and third-party dependencies keep their own licenses (for the fonts, e.g. the SIL OFL 1.1) and are not covered by it. The licenses of third-party dependencies are listed for [npm packages](doc/licenses/dependency-licenses.tsv), [Rust crates](doc/licenses/rust-dependency-licenses.tsv) and the [bundled fonts](doc/licenses/bundled-font-licenses.tsv); the check of the license texts is recorded in the [license text audit](doc/licenses/license-text-audit.md).
 
 ## AI models used in development
 

@@ -150,7 +150,7 @@ npm run dev                                             # 只在浏览器里预�
 
 ## 许可
 
-项目自身的许可尚未确定。第三方依赖的许可清单见 [npm 依赖](doc/licenses/dependency-licenses.tsv)、[Rust 依赖](doc/licenses/rust-dependency-licenses.tsv)和[随附字体](doc/licenses/bundled-font-licenses.tsv)；许可原文的核对情况见 [许可原文审查](doc/licenses/license-text-audit.md)。
+Mino 以 [MIT 许可](LICENSE)发布。随附的字体和第三方依赖按各自的许可（字体如 SIL OFL 1.1），不在 MIT 范围内。第三方依赖的许可清单见 [npm 依赖](doc/licenses/dependency-licenses.tsv)、[Rust 依赖](doc/licenses/rust-dependency-licenses.tsv)和[随附字体](doc/licenses/bundled-font-licenses.tsv)；许可原文的核对情况见 [许可原文审查](doc/licenses/license-text-audit.md)。
 
 ## 开发中使用的 AI 模型
 

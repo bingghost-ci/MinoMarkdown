@@ -19,4 +19,4 @@ Rust 未找到原文：`alloc-stdlib`、`block2`、`dispatch2`、`objc2`、`objc
 
 已生成可重建的[许可文件索引](third-party-license-file-index.tsv)（SHA-256 `b95d4140c70ccd4e3877b7041dbed23aa3a3c4c530247a45d32a2421f1157f33`）和[本地原文合集](third-party-license-texts.txt)（2,862,975 字节，SHA-256 `aed5f348e0b2b73983ae6cfd124d3ea2f03f80cb73da6f87cc6f3a8bcc9bb7db`）。合集保留每个本地原文的 UTF-8 内容并以包名、版本、文件名和原文件 SHA-256 分隔；索引把缺失项标成 `missing`。`python3 scripts/generate-license-text-bundle.py --write` 生成，`--verify` 对照当前已安装源包复查，均 PASS。两份文件仅在仓库的审查资料中，尚未打入 `.app`/ZIP；缺失原文仍需发布前处理。
 
-清单包含开发依赖，不能据此确定最终二进制实际包含哪些包；根目录未找到原文也不能证明上游没有许可文本。项目根目录当前没有 `LICENSE`/`NOTICE`，`package.json` 与 `Cargo.toml` 也未声明项目自身许可。项目授权方式属于产品所有者决策，不能由依赖的 MIT/Apache 元数据推定。对外分发前需确定项目自身授权、补齐实际随包依赖的许可原文和 notices，并核对字体/图标/样式资源；当前未签名本地测试包不标为已完成发布许可审计。
+清单包含开发依赖，不能据此确定最终二进制实际包含哪些包；根目录未找到原文也不能证明上游没有许可文本。2026-11-22 产品所有者选定项目自身以 MIT 许可发布：根目录有 `LICENSE`，`package.json` 与 `Cargo.toml` 声明 `MIT`；根目录仍没有 `NOTICE`。对外分发前仍需补齐实际随包依赖的许可原文和 notices，并核对字体/图标/样式资源；当前未签名本地测试包不标为已完成发布许可审计。
