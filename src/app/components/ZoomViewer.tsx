@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { pinchedZoom } from '../pinchZoom'
 
 export type Lightbox = { src: string; alt: string } | { svg: string; alt: string; paper: string }
@@ -14,6 +14,9 @@ export function ZoomViewer({ lightbox, onClose, t }: { lightbox: Lightbox; onClo
   const view = useRef({ zoom: 1, x: 0, y: 0 })
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null)
   const [percent, setPercent] = useState(100)
+  // One object per diagram: React 19 rewrites the markup whenever this prop is a new object, which on every
+  // zoom would throw away the width the drawing is given below and leave it at an unsized SVG's few hundred pixels.
+  const markup = useMemo(() => ({ __html: 'svg' in lightbox ? lightbox.svg : '' }), [lightbox])
 
   const place = (zoom: number, x: number, y: number) => {
     view.current = { zoom, x, y }
@@ -97,7 +100,7 @@ export function ZoomViewer({ lightbox, onClose, t }: { lightbox: Lightbox; onClo
       {'src' in lightbox
         ? <img src={lightbox.src} alt={lightbox.alt} draggable={false} />
         // The diagram's own markup, taken from the page, where it was sanitized before it was shown.
-        : <div className="zoom-viewer-diagram" style={{ background: lightbox.paper }} dangerouslySetInnerHTML={{ __html: lightbox.svg }} />}
+        : <div className="zoom-viewer-diagram" style={{ background: lightbox.paper }} dangerouslySetInnerHTML={markup} />}
     </div>
     <div className="zoom-viewer-bar" role="toolbar" aria-label={t('缩放')}>
       <button type="button" aria-label={t('缩小')} onClick={() => step(1 / 1.25)}>−</button>

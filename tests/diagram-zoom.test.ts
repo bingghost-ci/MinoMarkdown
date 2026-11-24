@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
+import { act, createElement } from 'react'
+import { createRoot } from 'react-dom/client'
 import { describe, expect, it } from 'vitest'
+import { ZoomViewer } from '../src/app/components/ZoomViewer'
 import { MAX_PINCH_ZOOM, MIN_PINCH_ZOOM, pinchedZoom } from '../src/app/pinchZoom'
 import { readFileSync } from 'node:fs'
+
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 describe('reading diagrams without squinting (T119)', () => {
   it('fits a diagram to its column and to the page, with nothing to scroll sideways', () => {
@@ -24,5 +29,22 @@ describe('reading diagrams without squinting (T119)', () => {
     expect(pinchedZoom(1.2, 1 / 1.17)).toBe(1)
     expect(pinchedZoom(0.9, 1.08)).toBe(1)
     expect(pinchedZoom(2, 0.75)).toBe(1.5)
+  })
+
+  it('keeps the opened diagram at its real width while it is zoomed', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    const svg = '<svg width="100%" style="max-width: 640px;" viewBox="0 0 640 1000"><rect width="10" height="10"/></svg>'
+    await act(async () => { root.render(createElement(ZoomViewer, { lightbox: { svg, alt: '', paper: '#fff' }, onClose: () => undefined, t: (text: string) => text })) })
+    const drawing = () => container.querySelector<SVGSVGElement>('.zoom-viewer-diagram svg')!
+    const opened = drawing()
+    expect(opened.style.width).toBe('640px')
+    // A zoom re-renders the viewer; the drawing must not be replaced by a fresh, unsized copy of its markup.
+    await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="放大"]')!.click() })
+    expect(drawing()).toBe(opened)
+    expect(drawing().style.width).toBe('640px')
+    await act(async () => { root.unmount() })
+    container.remove()
   })
 })
