@@ -31,7 +31,7 @@ pub const CONTEXT_ITEMS: &[&str] = &[
     "ai", "ai-explain", "ai-translate", "ai-rewrite", "ai-continue", "ai-ask", "paragraph", "insert", "insert-table",
     "insert-rule", "format-clear", "export", "reveal", "copy-path", "rename", "trash", "open-link", "copy-link", "edit-link",
     "move-window", "close", "close-others", "close-right", "close-all", "open-entry", "new-file", "new-folder", "refresh",
-    "close-folder", "close-all-folders",
+    "close-folder", "close-root-folder", "close-all-folders",
 ];
 /// Items AppKit performs itself on the focused view; a disabled one is drawn as a plain disabled item.
 const PREDEFINED: &[&str] = &["cut", "copy", "paste", "select-all"];

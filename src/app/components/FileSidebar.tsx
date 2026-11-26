@@ -122,10 +122,10 @@ const FileSidebarView = memo(function FileSidebarView(w: Pick<DocumentWorkspace,
                 {searchState.results?.truncated && <p className="tree-note">{t('结果过多，只显示前 500 条')}</p>}
                 {Boolean(searchState.results?.skipped) && <p className="tree-note">{t('部分文件因过大、编码或权限被跳过')}</p>}
               </div>
-              : <div role="tree" aria-label={t('文件夹目录')} className="file-tree" data-dragging={dragging !== null || undefined} {...treeDragHandlers}>{workspaces.map((root) => {
+              : <div role="tree" aria-label={t('文件夹目录')} className="file-tree" data-dragging={dragging !== null || undefined} {...treeDragHandlers} onContextMenu={(event) => openRootMenu(workspaces[workspaces.length - 1].token, event)}>{workspaces.map((root) => {
                 const open = tree[root.token]?.expanded ?? false
-                return <div key={root.token} className="tree-root">
-                  <div className="tree-header" data-drop-token={root.token} data-drop-target={dropTarget === root.token || undefined} data-selected={selectedDirectory === root.token && !selectedEntry || undefined} onContextMenu={(event) => openRootMenu(root.token, event)}>
+                return <div key={root.token} className="tree-root" onContextMenu={(event) => openRootMenu(root.token, event)}>
+                  <div className="tree-header" data-drop-token={root.token} data-drop-target={dropTarget === root.token || undefined} data-selected={selectedDirectory === root.token && !selectedEntry || undefined}>
                     <button type="button" className="tree-root-name" aria-expanded={open} title={root.name} onClick={() => { setSelectedEntry(null); setSelectedDirectory(root.token); toggleDirectory(root.token) }}>{open ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}<strong>{root.name}</strong></button>
                     <button type="button" className="icon-button" onClick={() => void loadChildren(root.token)} title={t('刷新目录')} aria-label={t('刷新目录')}><RefreshCw aria-hidden="true" /></button>
                     <button type="button" className="icon-button" onClick={() => void closeWorkspace(root.token)} title={t('关闭这个文件夹')} aria-label={`${t('关闭这个文件夹')} ${root.name}`}><X aria-hidden="true" /></button>

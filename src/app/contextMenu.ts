@@ -134,13 +134,17 @@ export type EntryContext = { directory: boolean; root: boolean; roots: number }
 
 /** A file, folder or open root folder in the sidebar. */
 export function entryMenu({ directory, root, roots }: EntryContext): MenuEntry[] {
-  if (!directory) return tidy([item('open-entry'), separator, item('reveal'), item('copy-path'), separator, item('rename'), item('trash')])
+  // Inside an open folder the menu also closes that folder, under a name of its own: on a subfolder
+  // "close this folder" would read as closing the subfolder.
+  const closing = [separator, item(root ? 'close-folder' : 'close-root-folder'), ...(roots > 1 ? [item('close-all-folders')] : [])]
+  if (!directory) return tidy([item('open-entry'), separator, item('reveal'), item('copy-path'), separator, item('rename'), item('trash'), ...closing])
   return tidy([
     item('new-file'), item('new-folder'), item('refresh'),
     separator,
     item('reveal'), item('copy-path'),
     separator,
-    ...(root ? [item('close-folder'), ...(roots > 1 ? [item('close-all-folders')] : [])] : [item('rename'), item('trash')]),
+    ...(root ? [] : [item('rename'), item('trash')]),
+    ...closing,
   ])
 }
 

@@ -97,6 +97,7 @@ pub fn label(id: &str, english: bool) -> &'static str {
         ("new-folder", true) => "New Folder…", ("new-folder", false) => "新建文件夹…",
         ("refresh", true) => "Refresh", ("refresh", false) => "刷新",
         ("close-folder", true) => "Close This Folder", ("close-folder", false) => "关闭这个文件夹",
+        ("close-root-folder", true) => "Close Its Root Folder", ("close-root-folder", false) => "关闭所在的根文件夹",
         ("close-all-folders", true) => "Close All Folders", ("close-all-folders", false) => "关闭全部文件夹",
         _ => "",
     }

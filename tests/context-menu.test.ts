@@ -103,10 +103,14 @@ describe('right-click menus (T105)', () => {
   })
 
   it('offers files, folders and open folders their own actions', () => {
-    expect(menuIds(entryMenu({ directory: false, root: false, roots: 1 }))).toEqual(['open-entry', 'reveal', 'copy-path', 'rename', 'trash'])
-    expect(menuIds(entryMenu({ directory: true, root: false, roots: 1 }))).toEqual(['new-file', 'new-folder', 'refresh', 'reveal', 'copy-path', 'rename', 'trash'])
+    expect(menuIds(entryMenu({ directory: false, root: false, roots: 1 }))).toEqual(['open-entry', 'reveal', 'copy-path', 'rename', 'trash', 'close-root-folder'])
+    expect(menuIds(entryMenu({ directory: true, root: false, roots: 1 }))).toEqual(['new-file', 'new-folder', 'refresh', 'reveal', 'copy-path', 'rename', 'trash', 'close-root-folder'])
     expect(menuIds(entryMenu({ directory: true, root: true, roots: 1 }))).toEqual(['new-file', 'new-folder', 'refresh', 'reveal', 'copy-path', 'close-folder'])
-    expect(menuIds(entryMenu({ directory: true, root: true, roots: 2 }))).toContain('close-all-folders')
+    // Every menu in the sidebar can close the open folder, and all of them when there are several.
+    for (const context of [{ directory: false, root: false }, { directory: true, root: false }, { directory: true, root: true }]) {
+      expect(menuIds(entryMenu({ ...context, roots: 1 }))).not.toContain('close-all-folders')
+      expect(menuIds(entryMenu({ ...context, roots: 2 })).slice(-2)).toEqual([context.root ? 'close-folder' : 'close-root-folder', 'close-all-folders'])
+    }
   })
 
   it('registers its commands and routes its items apart from the main menu', () => {

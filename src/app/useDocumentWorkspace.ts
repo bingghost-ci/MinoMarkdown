@@ -2431,6 +2431,16 @@ export function useDocumentWorkspace() {
           return
         case 'refresh': if (directory) await loadChildren(directory); return
         case 'close-folder': if (target.area === 'root') await closeWorkspace(target.token); return
+        case 'close-root-folder': {
+          // The open folder an entry is in: up through the loaded listings until one of the roots.
+          let token = entry?.parentToken
+          for (let depth = 0; token && depth < 256 && !workspacesRef.current.some((root) => root.token === token); depth += 1) {
+            const inside = token
+            token = Object.keys(tree).find((key) => tree[key].entries.some((child) => child.token === inside))
+          }
+          if (token) await closeWorkspace(token)
+          return
+        }
         case 'close-all-folders': await closeWorkspace(); return
         default: runFileAction(id)
       }
